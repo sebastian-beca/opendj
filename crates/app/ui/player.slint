@@ -243,7 +243,8 @@ export component PlayerBar inherits Rectangle {
     in property <bool> queue-has-tracks;
     in property <bool> queue-shown;
     callback automix-toggle();
-    callback automix-mix-now();
+    // Next: on to the next track now with a cut.
+    callback automix-cut-now();
     callback toggle-queue();
     callback mini-player();
     property <int> d: live == 1 ? 1 : 0;
@@ -444,12 +445,13 @@ export component PlayerBar inherits Rectangle {
                         }
                     }
                 }
-                // Next: mix into the next track now.
+                // Next: cut to the next track now (not a mix, as in other
+                // players).
                 VerticalLayout {
                     alignment: center;
                     next := BarButton {
                         enabled: automix-on && queue-has-tracks;
-                        clicked => { automix-mix-now(); }
+                        clicked => { automix-cut-now(); }
                         Path {
                             width: 18px;
                             height: 18px;

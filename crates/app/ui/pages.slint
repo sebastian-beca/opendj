@@ -29,13 +29,16 @@ export struct PageAlbum {
     has-cover: bool,
 }
 
-// A tile on Home: an album, an artist (round), a crate or a mix (its
-// label on its colour, without a cover).
+// A tile on Home: an album, an artist (round), a crate or a mix. A crate
+// or mix shows four of its tracks' covers (or one, with fewer) and its
+// name on a bar; without covers, its label on its colour.
 export struct HomeTile {
     name: string,
     detail: string,
     cover: image,
     has-cover: bool,
+    covers: [image],
+    bar: bool,
     round: bool,
     label: string,
     tint: color,
@@ -61,6 +64,8 @@ export global PageUi {
     in property <string> detail;
     in property <image> cover;
     in property <bool> has-cover;
+    // A mix's four covers, shown 2x2 with its name on a bar.
+    in property <[image]> covers;
     in property <string> initials;
     in property <color> tint: #5b3fd1;
     in property <[PageTrack]> tracks;
@@ -78,6 +83,71 @@ export global PageUi {
     // bar's artist), or an artist by name (the search box's artists).
     callback open-deck-artist(deck: int);
     callback open-artist-named(name: string);
+}
+
+// The art of a tile or page: four covers in a 2x2 grid, or one, or the
+// label big on its colour; with `bar`, the name on a band along the bottom
+// as streaming players mark their mixes.
+component CoverArt inherits Rectangle {
+    in property <image> single;
+    in property <bool> has-cover;
+    in property <[image]> covers;
+    in property <string> label;
+    in property <length> label-size;
+    in property <int> label-weight: 800;
+    in property <color> tint;
+    in property <bool> bar;
+    in property <string> name;
+    clip: true;
+    background: @linear-gradient(135deg, tint 0%, tint.darker(0.6) 60%, #101012 100%);
+    if covers.length >= 4: Rectangle {
+        for c[i] in [0, 1, 2, 3]: Image {
+            x: mod(i, 2) * root.width / 2;
+            y: floor(i / 2) * root.height / 2;
+            width: root.width / 2;
+            height: root.height / 2;
+            source: root.covers[i];
+            image-fit: cover;
+        }
+    }
+    if covers.length < 4 && has-cover: Image {
+        width: 100%;
+        height: 100%;
+        source: root.single;
+        image-fit: cover;
+    }
+    if !has-cover: Text {
+        width: root.width - 20px;
+        text: root.label;
+        color: #ffffffe0;
+        font-size: root.label-size;
+        font-weight: root.label-weight;
+        wrap: word-wrap;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if bar: Rectangle {
+        x: 0;
+        y: root.height - self.height - root.height * 0.08;
+        width: root.width * 0.9;
+        height: max(20px, root.height * 0.15);
+        background: root.tint.mix(#ffffff, 0.3);
+        Rectangle {
+            x: 0;
+            width: max(3px, root.width * 0.025);
+            background: root.tint;
+        }
+        Text {
+            x: max(3px, root.width * 0.025) + parent.height * 0.3;
+            width: parent.width - self.x - 6px;
+            text: root.name;
+            color: #111114;
+            font-size: max(11px, parent.height * 0.5);
+            font-weight: 700;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
 }
 
 component PageButton inherits Rectangle {
@@ -164,17 +234,15 @@ export component PageView inherits Rectangle {
                             height: parent.width;
                             border-radius: tile.round ? parent.width / 2 : 6px;
                             clip: true;
-                            background: @linear-gradient(135deg, tile.tint 0%, tile.tint.darker(0.6) 60%, #101012 100%);
-                            if tile.has-cover: Image { width: 100%; height: 100%; source: tile.cover; image-fit: cover; }
-                            if !tile.has-cover: Text {
-                                width: parent.width - 20px;
-                                text: tile.label;
-                                color: #ffffffe0;
-                                font-size: min(parent.width * 0.22, 40px);
-                                font-weight: 800;
-                                wrap: word-wrap;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
+                            CoverArt {
+                                single: tile.cover;
+                                has-cover: tile.has-cover;
+                                covers: tile.covers;
+                                label: tile.label;
+                                label-size: min(parent.width * 0.22, 40px);
+                                tint: tile.tint;
+                                bar: tile.bar;
+                                name: tile.name;
                             }
                         }
                         Text {
@@ -215,22 +283,16 @@ export component PageView inherits Rectangle {
                     clip: true;
                     drop-shadow-blur: 24px;
                     drop-shadow-color: #00000090;
-                    background: @linear-gradient(135deg, PageUi.tint 0%, PageUi.tint.darker(0.6) 60%, #101012 100%);
-                    if PageUi.has-cover: Image {
-                        width: parent.width;
-                        height: parent.height;
-                        source: PageUi.cover;
-                        image-fit: cover;
-                    }
-                    if !PageUi.has-cover: Text {
-                        width: parent.width - 24px;
-                        text: PageUi.initials;
-                        color: #ffffffd8;
-                        font-size: PageUi.kind == 4 ? 40px : 56px;
-                        font-weight: PageUi.kind == 4 ? 800 : 700;
-                        wrap: word-wrap;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    CoverArt {
+                        single: PageUi.cover;
+                        has-cover: PageUi.has-cover;
+                        covers: PageUi.covers;
+                        label: PageUi.initials;
+                        label-size: PageUi.kind == 4 ? 40px : 56px;
+                        label-weight: PageUi.kind == 4 ? 800 : 700;
+                        tint: PageUi.tint;
+                        bar: PageUi.kind == 4 && PageUi.has-cover;
+                        name: PageUi.title;
                     }
                 }
                 VerticalLayout {

@@ -992,6 +992,8 @@ export component AppWindow inherits Window {
     callback shortcut(text: string, cmd: bool, alt: bool, shift: bool, master: int, first: int, last: int) -> bool;
     callback automix-toggle();
     callback automix-mix-now();
+    // Player's Next: on to the next track with a cut.
+    callback automix-cut-now();
     // Opens the mini player window and hides this one (mini_player.rs).
     callback mini-player();
     // The deck the Player bar and the mini player show.
@@ -1625,7 +1627,7 @@ export component AppWindow inherits Window {
                 queue-has-tracks: automix-queued > 0;
                 queue-shown: side-panel-visible && side-tab == 0;
                 automix-toggle => { automix-toggle(); }
-                automix-mix-now => { automix-mix-now(); }
+                automix-cut-now => { automix-cut-now(); }
                 toggle-queue => {
                     if side-panel-visible && side-tab != 0 {
                         side-tab = 0;

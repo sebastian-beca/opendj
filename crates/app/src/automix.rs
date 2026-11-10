@@ -89,6 +89,10 @@ pub enum Style {
     Cut,
 }
 
+/// How long Player's Next takes to cut over, in seconds: a click's worth,
+/// so it doesn't pop.
+const CUT_NOW: f64 = 0.03;
+
 pub const STYLES: [Style; 4] = [Style::Smooth, Style::BassSwap, Style::Filter, Style::Cut];
 
 /// The lengths' and styles' names, as the panel shows them.
@@ -254,6 +258,8 @@ pub struct AutoMix {
     /// Automix, which needs openDJ's crossfader, stays off.
     external: ControlHandle,
     fade_now: Press,
+    /// The press of fade_now is Player's Next: cut straight over.
+    cut_now: bool,
     skip_next: Press,
     phase: Phase,
     glide: Option<Glide>,
@@ -350,6 +356,7 @@ impl AutoMix {
             left: 0,
             repeat: crate::settings::automix_repeat(),
             overrides: HashMap::new(),
+            cut_now: false,
             into: None,
         }
     }
@@ -406,6 +413,14 @@ impl AutoMix {
     }
 
     pub fn mix_now(&mut self) {
+        self.cut_now = false;
+        self.fade_now.control.set(1.0);
+    }
+
+    /// Player's Next: on to the next track now with a cut, whatever the
+    /// mix length and style.
+    pub fn cut_now(&mut self) {
+        self.cut_now = true;
         self.fade_now.control.set(1.0);
     }
 
@@ -471,6 +486,7 @@ impl AutoMix {
         self.crossfader.lock(!matches!(self.phase, Phase::Off));
         // Presses while nothing could use them don't wait for later.
         self.fade_now.pressed();
+        self.cut_now = false;
         self.skip_next.pressed();
     }
 
@@ -766,6 +782,8 @@ impl AutoMix {
         };
         let start = self.planned_start(live, end - len - lead, tracks);
         let now = self.fade_now.pressed();
+        let cut = now && std::mem::take(&mut self.cut_now);
+        let style = if cut { Style::Cut } else { style };
         if !n.cued || !(now || pos >= start) {
             self.phase = Phase::Playing { live, next };
             return;
@@ -779,14 +797,17 @@ impl AutoMix {
         } else {
             (start, (start + len).min(end.max(start + 1.0)))
         };
-        if style == Style::Cut {
+        if cut {
+            end = start + CUT_NOW;
+        } else if style == Style::Cut {
             let beat = tracks[live].as_deref().map_or(0.5, Track::beat_length);
             end = start + beat;
         }
-        let beat_match = matches!(
-            self.length_for(live, tracks),
-            Length::Bars(_) | Length::Phrases
-        ) && self.matchable(live, tracks);
+        let beat_match =
+            !cut && matches!(
+                self.length_for(live, tracks),
+                Length::Bars(_) | Length::Phrases
+            ) && self.matchable(live, tracks);
         let swap = match (self.length_for(live, tracks), self.current_plan()) {
             (Length::Phrases, Some(p)) => p.swap.map_or(0.5, |s| {
                 ((s - start) / (end - start).max(1e-3)).clamp(0.1, 0.9)
@@ -986,7 +1007,12 @@ impl AutoMix {
     /// Automix moved put back.
     fn finish(&mut self, m: &Mix) {
         self.restore(m);
-        self.glide_to(self.side(m.to));
+        if m.style == Style::Cut && m.end - m.start <= CUT_NOW + 1e-9 {
+            // Player's Next: over at once, as a cut should be.
+            self.crossfader.force(self.side(m.to));
+        } else {
+            self.glide_to(self.side(m.to));
+        }
     }
 
     fn restore(&self, m: &Mix) {
@@ -1780,6 +1806,25 @@ mod tests {
         assert!(r.deck(1, "play").get_bool(), "deck B keeps playing");
         assert!(!r.deck(0, "play").get_bool(), "deck A stopped");
         assert_eq!(r.loaded_id(0), Some(1002), "first of the list on deck A");
+    }
+
+    #[test]
+    fn next_in_player_cuts_straight_over() {
+        let mut r = Rig::new(vec![track(0, 60.0), track(1, 60.0)]);
+        r.ctl("[AutoDJ]", "enabled").set(1.0);
+        r.run(1.0);
+        r.automix.cut_now();
+        r.run(0.1);
+        assert!(r.deck(1, "play").get_bool(), "deck B plays");
+        assert_eq!(r.xfade(), 1.0, "already all the way over");
+
+        // Mix now still mixes over the mix's length.
+        let mut r = Rig::new(vec![track(0, 60.0), track(1, 60.0)]);
+        r.ctl("[AutoDJ]", "enabled").set(1.0);
+        r.run(1.0);
+        r.automix.mix_now();
+        r.run(0.1);
+        assert!(r.xfade() < 1.0, "still mixing: {}", r.xfade());
     }
 
     #[test]
