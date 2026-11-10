@@ -42,6 +42,9 @@ passes.
 middle, or **Half**, growing from the bottom edge as on rekordbox. The big
 scrolling waveform is always whole.
 
+**Size follows gain**, off at first, makes a deck's waveforms taller or
+shorter as you turn its gain knob, as on VirtualDJ.
+
 ### Beat counter
 
 Beside the title, four squares light up one beat at a time, so you can see

@@ -24,3 +24,10 @@ Analysis SHALL give each track a vocal level along the waveform, from a vocal-de
 #### Scenario: Chorus
 - **WHEN** Show vocals is on and a deck's track has a sung chorus at 1:00
 - **THEN** that stretch of its waveforms is tinted green
+
+### Requirement: Size follows gain
+Settings › Decks › Size follows gain, off at first, SHALL scale the height of a deck's waveforms with its gain knob, between a quarter and twice the height.
+
+#### Scenario: Gain up
+- **WHEN** Size follows gain is on and the DJ turns deck A's gain up
+- **THEN** deck A's waveforms grow taller

@@ -1447,6 +1447,13 @@ impl Prefs {
                              The big scrolling waveform is always whole.",
                         )
                     },
+                    switch(
+                        crate::wave_look::GAIN_KEY,
+                        "Size follows gain",
+                        "A deck's gain knob makes its waveforms taller or shorter, as on \
+                         VirtualDJ.",
+                        settings::flag(crate::wave_look::GAIN_KEY, false),
+                    ),
                     PrefItem {
                         choices: strings(&["Off", "Beats", "Beats and phrases"]),
                         chosen: beat_counter_mode(),
@@ -2796,6 +2803,7 @@ impl Prefs {
             "auto_gain" => self.set("[ReplayGain]", "ReplayGainEnabled", f(on)),
             "stems_on_load" => separation::set_on_load(on),
             crate::browser::WAVE_LYRICS => crate::browser::set_wave_lyrics(on),
+            crate::wave_look::GAIN_KEY => crate::wave_look::set_follows_gain(on),
             "auto_reset_fx" | "auto_reset_eq" | "auto_reset_gain" => {
                 self.set("[Controls]", id, f(on))
             }
