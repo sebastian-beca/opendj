@@ -63,7 +63,7 @@ openDJ 0.6.0 turns openDJ into an instrument as much as a DJ app. Plugin instrum
 
 **Moved home**
 
-- openDJ now lives at github.com/openwave-studio/opendj. Old links redirect. On macOS the app has a new bundle ID, so macOS asks once more for microphone and keychain access after this update.
+- openDJ now lives at github.com/openwave-studio/opendj. Old links redirect. On macOS the app has a new bundle ID, so macOS asks once more for microphone, keychain and folder access (Desktop, Documents, removable drives, other apps' data for imports) after this update. System Settings › Privacy & Security › Files and Folders lists openDJ twice until the old copy is gone.
 
 ## Install
 
