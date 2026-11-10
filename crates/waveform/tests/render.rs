@@ -699,6 +699,71 @@ fn draws_phrase_flags() {
     assert!(beside.iter().all(|&v| v < 40), "no tab: {beside:?}");
 }
 
+/// A peak one column wide keeps its height as the waveform scrolls by part
+/// of a pixel: the shape glides between pixels rather than bobbing down to
+/// half height halfway between them.
+#[test]
+fn peaks_keep_their_height_between_pixels() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let renderer = WaveformRenderer::new(&device, &queue);
+    let quiet = [10u8, 10, 10, 10, 5, 5, 5, 5];
+    let mut base = vec![quiet; 60_000];
+    // One loud slice, 0.1 s after the play position.
+    base[30_100] = [255, 255, 255, 255, 200, 200, 200, 200];
+    let track = Arc::new(GpuTrack::new(
+        &device,
+        &queue,
+        &renderer,
+        1,
+        &levels(base),
+        1000.0,
+    ));
+    let (w, h) = (640u32, 120u32);
+    let mut view = WaveformView::new(&device, Mode::Scrolling, w, h);
+    view.set_track(&device, &renderer, Some(&track));
+    // 2.56 s across 640 pixels: 4 slices a pixel.
+    let mut tallest = |play_seconds: f64| {
+        let frame = Frame {
+            play_seconds,
+            visible_seconds: 2.56,
+            duration: 60.0,
+            first_bar_beat: 0.0,
+            grid: steady_grid(0.0, 0.0),
+            cue: None,
+            loop_range: None,
+            loop_marking: None,
+            hotcues: [None; 8],
+            slip: None,
+            gain: 1.0,
+            phrases: Vec::new(),
+        };
+        view.render(&device, &queue, &renderer, Some(&frame), 1.0);
+        let data = read_back(&device, &queue, &view);
+        // The first row from the top where the peak's pixels differ from
+        // the background, away from the play line.
+        (0..h)
+            .find(|&y| {
+                (330..w).any(|x| {
+                    let i = ((y * w + x) * 4) as usize;
+                    let bg = ((y * w + 600) * 4) as usize;
+                    (0..3).any(|c| data[i + c].abs_diff(data[bg + c]) > 8)
+                })
+            })
+            .expect("the peak is drawn")
+    };
+    let on_pixel = tallest(30.0);
+    for offset in [0.0005, 0.001, 0.0015, 0.002, 0.003] {
+        let between = tallest(30.0 + offset);
+        assert!(
+            between.abs_diff(on_pixel) <= 1,
+            "peak top at row {between} {offset} s on, row {on_pixel} on a pixel"
+        );
+    }
+}
+
 /// A half overview grows from the bottom edge: the top rows stay empty for a
 /// quiet track that a full overview draws round the middle, and the band
 /// palettes and the Blue style draw.
