@@ -2,10 +2,10 @@
 
 ## 1. Looks and overview shape
 
-- [ ] 1.1 Waveform color dropdown (RGB, 3-Band, Blue) in Settings › Decks, applied to every deck's waveforms
-- [ ] 1.2 3-Band palette dropdown: Blue-Orange-White, Lilac-Cyan-White
-- [ ] 1.3 Overview Full / Half, half drawn from the bottom edge up
-- [ ] 1.4 User guide: waveform colors in website/book/src
+- [x] 1.1 Waveform color dropdown (RGB, 3-Band, Blue) in Settings › Decks, applied to every deck's waveforms
+- [x] 1.2 3-Band palette dropdown: Blue-Orange-White, Lilac-Cyan-White
+- [x] 1.3 Overview Full / Half, half drawn from the bottom edge up
+- [x] 1.4 User guide: waveform colors in website/book/src
 
 ## 2. Vocals
 
