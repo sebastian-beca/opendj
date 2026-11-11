@@ -37,7 +37,7 @@ The layout menu at the top left SHALL offer Player (one bar that plays music lik
 
 #### Scenario: Search-first top bar
 - **WHEN** Player is chosen
-- **THEN** the top bar shows the layout menu, the search box and the remote button; the MASTER button is hidden, REC shows only while recording and MIC only while the mic is on or Show MIC is ticked in the layout menu
+- **THEN** the top bar shows the layout menu, the search box and the remote button; the MASTER button is hidden, REC shows only while recording and MIC never shows
 
 #### Scenario: Add the playing track to a crate
 - **WHEN** the DJ clicks ＋ beside the title on the Player bar and picks a crate or playlist

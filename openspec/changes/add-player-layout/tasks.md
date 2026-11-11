@@ -22,7 +22,7 @@
 - [x] 3.1 The bar moves to the bottom of the window at 120 px: art, title, artist with BPM and key, Play/Pause on the scrubber's left, Previous and Next under it between the time played and time left, Automix's next step, master volume, queue button
 - [x] 3.2 The scrubber is the overview in a Mono style: played lilac, the rest grey, the next mix dim lilac; no cues or minute dots
 - [x] 3.3 Order and Repeat move to the Up Next header
-- [x] 3.4 Top bar in Player: wider search; no MASTER; REC only while recording (File › Record Mix); MIC only while on or with Show MIC in the layout menu; the footer only while analysis runs
+- [x] 3.4 Top bar in Player: wider search; no MASTER; REC only while recording (File › Record Mix); no MIC; the footer only while analysis runs
 - [x] 3.5 Update the user guide
 - [x] 3.6 ＋ on the bar adds the playing track to a crate or playlist
 - [x] 3.7 The scrubber gives way to a thin progress line under Previous, Play/Pause and Next, as in music players: played in white, lilac under the pointer with a knob and the time there, the next mix dim lilac; the time played and the track's length either side; the bar 104 px; Automix's next step under the artist
