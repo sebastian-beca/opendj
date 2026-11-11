@@ -111,7 +111,8 @@ PioneerDDJ400.beta = PioneerDDJ400.alpha/32;
 PioneerDDJ400.fastSeekScale = 150;
 PioneerDDJ400.bendScale = 0.8;
 
-PioneerDDJ400.tempoRanges = [0.06, 0.10, 0.16, 0.25];
+// Match Settings > Decks > Tempo fader range.
+PioneerDDJ400.tempoRanges = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
 
 PioneerDDJ400.shiftButtonDown = [false, false];
 
@@ -445,7 +446,9 @@ PioneerDDJ400.syncLongPressed = function(channel, control, value, status, group)
 PioneerDDJ400.cycleTempoRange = function(_channel, _control, value, _status, group) {
     if (value === 0) { return; } // ignore release
 
-    const currRange = engine.getValue(group, "rateRange");
+    // A second press can arrive before the audio thread applies the first.
+    const currRange = engine.getValue(group, "rate_range_set") ||
+        engine.getValue(group, "rateRange");
     let idx = 0;
 
     for (let i = 0; i < this.tempoRanges.length; i++) {
@@ -454,7 +457,7 @@ PioneerDDJ400.cycleTempoRange = function(_channel, _control, value, _status, gro
             break;
         }
     }
-    engine.setValue(group, "rateRange", this.tempoRanges[idx]);
+    engine.setValue(group, "rate_range_set", this.tempoRanges[idx]);
 };
 
 //

@@ -1349,6 +1349,31 @@ mod tests {
     }
 
     #[test]
+    fn tempo_fader_picks_up_after_a_range_rescale_and_raw_range_writes_still_work() {
+        let mut h = host();
+        h.soft_takeover("[Channel1]", "rate", true);
+        h.control(1, "rate").set(0.5);
+        h.set_value("[Channel1]", "rate", 0.5);
+        let range_watch = h.watch("[Channel1]", "rateRange");
+        let rate_watch = h.watch("[Channel1]", "rate");
+        // The engine doubles the range and rescales the software fader.
+        h.control(1, "rateRange").set(0.16);
+        h.control(1, "rate").set(0.25);
+        let feedback = h.changed_watches();
+        assert!(feedback.contains(&(range_watch, 0.16)));
+        assert!(feedback.contains(&(rate_watch, 0.25)));
+        h.set_value("[Channel1]", "rate", 0.52);
+        assert_eq!(h.control(1, "rate").get(), 0.25);
+        h.set_value("[Channel1]", "rate", 0.24);
+        assert!((h.control(1, "rate").get() - 0.24).abs() < 1e-12);
+        // Existing Mixxx scripts may write rateRange and rescale rate
+        // themselves. Their raw writes must not be rescaled a second time.
+        h.set_value("[Channel1]", "rateRange", 0.08);
+        assert_eq!(h.control(1, "rateRange").get(), 0.08);
+        assert!((h.control(1, "rate").get() - 0.24).abs() < 1e-12);
+    }
+
+    #[test]
     fn soft_takeover_waits_for_the_knob_to_catch_up() {
         let mut h = host();
         h.soft_takeover("[Channel1]", "pregain", true);

@@ -101,6 +101,7 @@ mod step_lanes;
 mod storage;
 mod stores;
 mod stream_cache;
+mod tempo;
 mod tidal;
 mod tour;
 mod track_end;
@@ -2008,6 +2009,18 @@ struct Resolved {
 fn bind_controls(app: &AppWindow, registry: Arc<ControlRegistry>) -> impl Fn() -> u64 {
     let handles: Rc<RefCell<Resolved>> = Default::default();
     let controls = app.global::<Controls>();
+    controls.set_rate_ranges(slint::ModelRc::new(slint::VecModel::from(
+        tempo::RATE_RANGES.map(|r| r as f32).to_vec(),
+    )));
+    let ranges_registry = registry.clone();
+    controls.on_set_rate_range(move |group, choice| {
+        let Some(&range) = tempo::RATE_RANGES.get(choice as usize) else {
+            return;
+        };
+        if let Some(request) = ranges_registry.get(&group, "rate_range_set") {
+            request.set(range);
+        }
+    });
     let get = {
         let handles = handles.clone();
         move |i: i32| -> Option<ControlHandle> { handles.borrow().handles.get(i as usize).cloned() }

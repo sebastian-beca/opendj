@@ -8,7 +8,7 @@
 import { TrackDrag } from "library.slint";
 import { InstrumentsUi } from "instruments.slint";
 import { Theme } from "theme.slint";
-import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter, SyncButton } from "controls.slint";
+import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter, SyncButton, TempoRange } from "controls.slint";
 import { DeckInfo, Header, LiveStrip, LoopStepper, Pads, PadsUi, PlayButton, TempoStep } from "deck.slint";
 import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
 
@@ -246,6 +246,7 @@ export component TempoMenu inherits Rectangle {
         VerticalLayout {
             padding: 8px;
             spacing: 6px;
+            TempoRange { group: group; mirrored: group == "[Channel2]" || group == "[Channel4]"; }
             ControlButton { group: group; key: "keylock"; text: "KEY LOCK"; tint: tint; fill-when-lit: true; font-size: 11px; height: 26px; }
             ControlButton { group: group; key: "quantize"; text: "QUANTIZE"; tint: tint; fill-when-lit: true; font-size: 11px; height: 26px; }
             Rectangle {

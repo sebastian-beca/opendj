@@ -350,6 +350,7 @@ fn deck_function(key: &str, target: &str) -> Function {
         "rate_perm_down_small" => ("Tempo & sync", "Tempo down a little"),
         "rate_temp_up" | "rate_temp_up_small" => ("Tempo & sync", "Nudge faster"),
         "rate_temp_down" | "rate_temp_down_small" => ("Tempo & sync", "Nudge slower"),
+        "rate_range_set" => ("Tempo & sync", "Set tempo range, keeping tempo"),
         "rateRange" => ("Tempo & sync", "Tempo range"),
         "rate_dir" => ("Tempo & sync", "Tempo direction"),
         "rate_set_default" => ("Tempo & sync", "Reset tempo"),

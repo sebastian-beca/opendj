@@ -118,6 +118,9 @@ pub(crate) fn always_jumps(key: &ConfigKey) -> bool {
 /// One knob or fader's pick-up (Mixxx's soft takeover, plus Scale).
 pub(crate) struct Takeover {
     time: Option<Instant>,
+    /// Last output accepted from this hardware. The fast-move grace period
+    /// only applies while nobody else has moved the software control.
+    accepted: Option<f64>,
     /// The hardware's last position, once it sent one.
     prev: Option<f64>,
     /// Set by `softTakeoverIgnoreNextValue` and initially.
@@ -132,6 +135,7 @@ impl Takeover {
     pub(crate) fn new() -> Self {
         Self {
             time: None,
+            accepted: None,
             prev: None,
             ignore_next: true,
             source: None,
@@ -151,7 +155,7 @@ impl Takeover {
         if self.ignore_next {
             return true;
         }
-        if now < time + OVERRIDE {
+        if now < time + OVERRIDE && self.accepted.is_some_and(|v| (v - current).abs() < 1e-9) {
             return false;
         }
         let difference = current - new;
@@ -181,8 +185,9 @@ impl Takeover {
         } else {
             Some(new)
         };
-        if out.is_some() {
+        if let Some(value) = out {
             self.time = Some(now);
+            self.accepted = Some(value);
         }
         self.prev = Some(new);
         out
@@ -212,6 +217,18 @@ fn scaled(current: f64, prev: f64, new: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn external_move_cancels_the_fast_move_grace_period() {
+        let mut t = Takeover::new();
+        assert_eq!(t.take(0.75, 0.75, false), Some(0.75));
+        // A range change rescales the software fader immediately after a
+        // hardware message. Stale hardware must wait to pick it up again.
+        assert!(t.will_ignore(0.625, 0.76, Instant::now()));
+        assert_eq!(t.take(0.625, 0.76, false), None);
+        assert_eq!(t.take(0.625, 0.60, false), Some(0.60));
+        assert_eq!(t.take(0.60, 0.2, false), Some(0.2));
+    }
 
     #[test]
     fn scale_meets_the_hardware_at_the_end() {

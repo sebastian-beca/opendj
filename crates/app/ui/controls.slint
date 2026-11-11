@@ -24,6 +24,8 @@ export global Controls {
     callback set-value(index: int, value: float);
     callback toggle(index: int);
     callback reset(index: int);
+    in property <[float]> rate-ranges;
+    callback set-rate-range(group: string, choice: int);
     // True on the half-seconds a paused deck's PLAY outline shows:
     // only with a track loaded, all decks in step. blink and tick are
     // passed in so callers redraw when either changes.
@@ -949,4 +951,60 @@ export component MasterBadge inherits Rectangle {
             HoverTip.shown = true;
         }
     }
+}
+
+// A deck-local choice; Settings keeps the startup range for every deck.
+export component TempoRange inherits Rectangle {
+    in property <string> group;
+    in property <bool> mirrored;
+    property <int> index: Controls.resolve(group, "rateRange");
+    property <float> range: Controls.value(index, Controls.tick);
+    height: 20px;
+    background: ta.has-hover ? Theme.control : transparent;
+    border-radius: Theme.radius;
+    Text {
+        text: "±" + round(range * 100) + "% ▾";
+        color: Theme.text-dim;
+        font-size: 10px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
+    menu := PopupWindow {
+        x: mirrored ? root.width - self.width : 0px;
+        y: root.height + 4px;
+        width: 120px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+        }
+        VerticalLayout {
+            padding: 4px;
+            Text { text: "Tempo range"; color: Theme.text-dim; font-size: 11px; height: 24px; }
+            for option[i] in Controls.rate-ranges: Rectangle {
+                height: 24px;
+                property <bool> selected: abs(root.range - option) < 0.0001;
+                background: choice.has-hover ? Theme.control : transparent;
+                border-radius: Theme.radius;
+                Text {
+                    x: 8px;
+                    text: (selected ? "✓ " : "    ") + "±" + round(option * 100) + "%";
+                    color: selected ? Theme.accent : Theme.text;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+                choice := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        Controls.set-rate-range(root.group, i);
+                        menu.close();
+                    }
+                }
+            }
+        }
+    }
+    MapMark { key: root.group + ",rate_range_set"; }
 }

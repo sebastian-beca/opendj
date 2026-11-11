@@ -6,7 +6,7 @@
 import { TrackDrag } from "library.slint";
 import { SamplerPanel } from "sampler.slint";
 import { Theme, KeyNotation, EdgeLine, EdgeVLine, CloseIcon } from "theme.slint";
-import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, MasterBadge, PitchReset, SyncButton, VuMeter } from "controls.slint";
+import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, MasterBadge, PitchReset, SyncButton, TempoRange, VuMeter } from "controls.slint";
 import { TourMark } from "tourmark.slint";
 import { MapMark } from "mapmark.slint";
 import { InstrumentsUi, LiveIcon, MixerStripInfo, PresetUi, TagChip } from "instruments.slint";
@@ -2750,6 +2750,7 @@ component Pitch inherits VerticalLayout {
             mirrored: mirrored;
         }
     }
+    TempoRange { group: group; mirrored: mirrored; }
     // The fine − and + either side of the tempo, to leave the fader as
     // much height as the deck allows.
     HorizontalLayout {

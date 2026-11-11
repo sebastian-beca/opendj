@@ -43,6 +43,7 @@ use opendj_plugins::{LibraryImport, Plugin, SettingKind};
 use serde_json::json;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
+use crate::tempo::RATE_RANGES;
 use crate::tour::Part;
 use crate::{
     beat_counter_mode, settings, short_port_name, shortcuts, AppWindow, AudioSettings, BeatCounter,
@@ -141,8 +142,6 @@ const STAGE_ICON_INBOX: i32 = 10;
 const STAGE_ICON_PREP: i32 = 11;
 const STAGE_ICON_READY: i32 = 19;
 
-/// Tempo fader ranges, as fractions of normal speed.
-const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
 const DEFAULT_RATE_RANGE: f64 = 0.08;
 /// Analysis tempo ranges, plus our default.
 const BPM_RANGES: [(f64, f64); 6] = [
@@ -3080,7 +3079,7 @@ impl Prefs {
                     return;
                 };
                 settings::set("rate_range", json!(range));
-                self.each_deck("rateRange", range);
+                self.each_deck("rate_range_set", range);
             }
             "auto_gain_target" => {
                 let Some(&target) = AUTO_GAIN_TARGETS.get(index) else {

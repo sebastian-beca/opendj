@@ -6,7 +6,7 @@
 // instrument shows the full deck instead (see main.slint), as in
 // 2-Deck Pro.
 import { Theme } from "theme.slint";
-import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter, SyncButton } from "controls.slint";
+import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter, SyncButton, TempoRange } from "controls.slint";
 import { DeckInfo, Header, Jog, LoopSection, Pads, PlayButton, TempoStep } from "deck.slint";
 import { Knob, ModeMenu, SideKnob } from "mixer.slint";
 import { TrackDrag } from "library.slint";
@@ -83,6 +83,7 @@ component LiteTempoMenu inherits Rectangle {
                 }
                 TempoStep { group: group; key: "rate_perm_up_small"; text: "+"; tint: tint; y: (parent.height - self.height) / 2; }
             }
+            TempoRange { group: group; mirrored: mirrored; }
             HorizontalLayout {
                 spacing: 6px;
                 ControlButton { group: group; key: "keylock"; text: "KEY LOCK"; tint: tint; fill-when-lit: true; font-size: 11px; height: 26px; horizontal-stretch: 1; }

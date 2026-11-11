@@ -250,6 +250,32 @@ playing deck. The same menu sets the step: **1/16**, **1/8**, **1/4**,
 loops snap to a beat at most. **Settings › Decks › Quantize** sets whether
 quantize starts on for every deck.
 
+## Tempo range
+
+Click **±8% ▾** under a deck's tempo fader in 2-Deck Pro to change its
+range. In 2-Deck and 4-Deck, open the tempo menu and click the range there.
+Choose **±4%**, **±6%**, **±8%**, **±10%**, **±16%**, **±24%**, **±50%** or
+**±100%**, the same choices as **Settings › Decks › Tempo fader range**.
+The tick marks the deck's current range.
+
+The choice applies to that deck immediately. Its current tempo stays the
+same if it fits; otherwise it moves to the nearest end of the new range.
+A synced follower keeps following the master, including when the master's
+tempo lies outside the new fader range. Changing a follower's range does
+not change the master's tempo. Settings keeps the startup range for all
+decks; changing it also applies the range to every deck currently open.
+
+Controller tempo faders use the same range as the screen. With **Pick-up**,
+the hardware waits until it reaches the rescaled on-screen fader; with
+**Scale**, it moves the tempo proportionally. Range changes made by a
+controller also appear on screen. Range lights or displays update when the
+controller's mapping provides that feedback; a physical fader without a
+motor stays where it is. On the DDJ-400, **SHIFT + BEAT SYNC** cycles all
+eight ranges on that deck. Other existing Mixxx mappings keep their own
+range-button steps. Custom mappings can use **rate_range_set** to select a range while
+keeping the tempo (for example, `0.16` for ±16%); **rateRange** remains the
+raw Mixxx-compatible range control.
+
 ## Keys
 
 **Key lock** shows on the tempo fader: while its line is lilac, moving

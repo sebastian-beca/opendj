@@ -133,6 +133,9 @@ pub(crate) struct DeckControls {
     pub(crate) sync_enabled: ControlHandle,
     pub(crate) rate: ControlHandle,
     pub(crate) rate_range: ControlHandle,
+    /// Requested range, applied with its fader adjustment before sync.
+    /// Zero means no pending request.
+    pub(crate) rate_range_set: ControlHandle,
     /// Mixxx's `rate_dir`: which way the tempo fader changes the speed. `rate`
     /// is where the fader is (+1 at the top); the speed is
     /// `1 + rate * rateRange * rate_dir`. -1, the app's default, slows the
@@ -407,6 +410,7 @@ impl DeckControls {
             sync_enabled: reg.toggle(g, "sync_enabled"),
             rate: reg.create(g, "rate", 0.0, -1.0, 1.0, Behavior::Linear),
             rate_range: reg.create(g, "rateRange", 0.08, 0.01, 1.0, Behavior::Linear),
+            rate_range_set: reg.create(g, "rate_range_set", 0.0, 0.0, 1.0, Behavior::Free),
             rate_dir: reg.create(g, "rate_dir", 1.0, -1.0, 1.0, Behavior::Free),
             rate_reset: reg.toggle(g, "rate_reset"),
             rate_set_zero: reg.push(g, "rate_set_zero"),
