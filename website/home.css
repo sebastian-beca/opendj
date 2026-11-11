@@ -54,7 +54,13 @@ main h3 { font-size: 17px; }
 }
 
 /* About page */
-.about h2 { font-size: 26px; margin: 48px 0 14px; }
-.about .wrap > p:not(.eyebrow):not(.lede) { color: var(--text-2); font-size: 18px; }
-.about .lede { margin: 24px 0 0; max-width: none; }
-.headshot { width: 160px; height: 160px; border-radius: 50%; object-fit: cover; border: 2px solid var(--lilac); box-shadow: 0 20px 60px -20px rgba(182, 156, 255, 0.5); margin-bottom: 28px; }
+.about-page { padding: 56px 0 24px; }
+.about-page .narrow { max-width: 760px; }
+.about-head { display: flex; align-items: center; gap: 22px; margin-bottom: 28px; }
+.about-head h1 { font-size: clamp(30px, 3.4vw, 38px); margin-bottom: 4px; }
+.about-head p { margin: 0; }
+.about-head .headshot-sm { width: 96px; height: 96px; }
+.about-page h2 { font-size: 22px; margin: 40px 0 12px; }
+.about-page p { color: var(--text-2); }
+.about-page .links { padding-left: 20px; color: var(--text-2); }
+.about-page .links li { padding: 3px 0; }
