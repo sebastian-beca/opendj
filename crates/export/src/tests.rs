@@ -565,6 +565,7 @@ fn a_full_stick_reads_back_in_an_independent_reader() {
         name: "TEST".into(),
         device_library: true,
         one_library: true,
+        engine_dj: false,
         camelot: false,
     };
     let report = export(&tracks, &lists, &options, &mut |_| true).unwrap();
@@ -761,6 +762,7 @@ fn the_independent_reader_refuses_broken_files() {
         name: "TEST".into(),
         device_library: true,
         one_library: false,
+        engine_dj: false,
         camelot: true,
     };
     export(&[t], &lists, &options, &mut |_| true).unwrap();
