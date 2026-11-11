@@ -2,7 +2,7 @@
 
 ## 1. Engine
 
-- [ ] 1.1 One input stream per interface carrying every channel the inputs use, fanned out to the inputs; saved Aux 1 to 3 routes keep working; tests for mono, stereo and two devices
+- [x] 1.1 One input stream per interface carrying every channel the inputs use, fanned out to the inputs; saved Aux 1 to 3 routes keep working; tests for mono, stereo and two devices
 - [ ] 1.2 Eight auxiliary inputs `[Auxiliary1]` to `[Auxiliary8]` with pan, solo and fx controls, strips swapped in off the audio thread, new strips start off
 - [ ] 1.3 Mixer as a deck source: the strips summed into the deck's channel, solo inside the Mixer, cue to the headphones
 - [ ] 1.4 FX split: strips with FX on go through the deck's effects, the rest stay dry
