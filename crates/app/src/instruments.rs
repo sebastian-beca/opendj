@@ -636,7 +636,6 @@ pub fn show_routes(app: &AppWindow, status: &[String]) {
     refresh(app);
 }
 
-<<<<<<< HEAD
 /// The Mixer's strips from the engine's input states: each aux input
 /// that has a device, working or not.
 fn strips(status: &[String]) -> Vec<MixerStripInfo> {
@@ -673,8 +672,6 @@ fn channels(label: &str) -> String {
     label.trim_start_matches("In ").replace(" & ", "/")
 }
 
-=======
->>>>>>> origin/main
 /// The Mixer's line from the inputs' routes: the interfaces its strips
 /// come from and how many there are ("M4 · 3 inputs"), or "" with none.
 fn mixer_route(routes: &[String]) -> String {
@@ -815,7 +812,6 @@ mod tests {
     }
 
     #[test]
-<<<<<<< HEAD
     fn strips_are_the_aux_inputs_with_a_device() {
         let mut status = vec![String::new(); inputs::NUM_INPUTS];
         status[inputs::MICROPHONE] = "MacBook Pro Microphone · In 1 · 48 kHz".into();
@@ -842,8 +838,6 @@ mod tests {
     }
 
     #[test]
-=======
->>>>>>> origin/main
     fn recently_played_lists_what_went_on_a_deck_newest_first() {
         let mut s = state("recent");
         for (kind, index) in [(PLUGIN, 1), (KIT, 0), (MIC, 0), (PLUGIN, 1)] {
