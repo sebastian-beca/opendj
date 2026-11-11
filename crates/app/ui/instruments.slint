@@ -189,7 +189,7 @@ export global InstrumentsUi {
     callback drop-art(deck: int, live: int, instrument: int);
     callback choose-art(live: int, instrument: int);
     // Solos aux input `number` (from 1) alone in the Mixer: Cmd/Ctrl-click
-    // on its S.
+    // on its S. 0 clears every solo (CLEAR SOLO).
     public function solo-alone(number: int) {
         Controls.set-value(Controls.resolve("[Auxiliary1]", "solo"), number == 1 ? 1 : 0);
         Controls.set-value(Controls.resolve("[Auxiliary2]", "solo"), number == 2 ? 1 : 0);
