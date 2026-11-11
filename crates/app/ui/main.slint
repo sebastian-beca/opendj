@@ -1,8 +1,8 @@
 import { Palette } from "std-widgets.slint";
 import { Theme, KeyNotation, CloseIcon } from "theme.slint";
 import { TourMark } from "tourmark.slint";
-import { Controls, VuMeter, ControlKnob, HoverTipView, HoverTip } from "controls.slint";
-import { Deck, DeckInfo, PadsUi, KeyItem, EffectList, FxRow, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit, GrooveGenre, GrooveName } from "deck.slint";
+import { Controls, ControlButton, VuMeter, ControlKnob, HoverTipView, HoverTip } from "controls.slint";
+import { Deck, DeckInfo, GridMenu, PadsUi, KeyItem, EffectList, FxRow, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit, GrooveGenre, GrooveName } from "deck.slint";
 import { Mixer, ExternalMixer, AudioSettings, OutputRow, MixerMode, InputSettings, InputRow } from "mixer.slint";
 import { MasterPanel, MicPanel, OnAirPanel, BroadcastState, BroadcastStation, AirTime } from "toppanels.slint";
 import { PlayerBar, PlayerDeck, PlayerMixer, TopSearch, QuickResults, QuickSearch, QuickRow } from "player.slint";
@@ -86,10 +86,40 @@ component MacroLabel inherits HorizontalLayout {
     }
 }
 
+// A button in the Edit Grid popover: presses `key` once, or runs
+// `clicked` where there's no key.
+component EditGridButton inherits Rectangle {
+    in property <string> group;
+    in property <string> key;
+    in property <string> text;
+    in property <color> ink: Theme.text;
+    callback clicked();
+    height: 30px;
+    border-radius: 6px;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.panel-raised.brighter(0.35) : Theme.panel-raised.brighter(0.18);
+    Text { text: root.text; color: ink; font-size: 13px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            if key != "" {
+                Controls.set-value(Controls.resolve(group, key), 1);
+                Controls.set-value(Controls.resolve(group, key), 0);
+            }
+            root.clicked();
+        }
+    }
+}
+
 // Scrolling waveform, rendered on the GPU into `source`. Hold it to stop
 // the track under the pointer, like a hand on a record, and drag left or
 // right to move through it, hearing what passes, to set cues and grids by
 // ear. Letting go carries on as before, playing or paused.
+//
+// The dimmed pencil in its bottom outer corner edits the beat grid: it
+// turns on the deck's grid edit mode (`beats_edit`) and opens the Edit Grid
+// popover. While editing, the grid is drawn louder and dragging moves an
+// unlocked grid with the audio (Alt-drag still scrubs). The pencil again,
+// Done or Esc finishes. Prep's waveform always edits.
 component Waveform inherits Rectangle {
     in property <image> source;
     in property <string> group;
@@ -98,8 +128,10 @@ component Waveform inherits Rectangle {
     in property <int> deck: -1;
     // The deck whose lyrics run along the bottom (0 up), in every layout.
     in property <int> lyrics-deck: deck;
-    // Prep's waveform: dragging it moves an unlocked grid with the audio,
-    // and it shows `zoom-seconds` across its width (set from the app).
+    // The deck's grid, for the Edit Grid popover and its More… menu.
+    in property <DeckInfo> info;
+    // Prep's waveform: always in grid edit mode, and it shows
+    // `zoom-seconds` across its width (set from the app).
     in property <bool> drag-grid;
     in property <float> zoom-seconds;
     // Must match the app's VISIBLE_SECONDS: the track seconds the waveform
@@ -112,7 +144,13 @@ component Waveform inherits Rectangle {
     property <int> scrub-index: Controls.resolve(group, "scrub_position");
     property <int> scrub-enable-index: Controls.resolve(group, "scrub_enable");
     property <int> grid-by-index: Controls.resolve(group, "beats_translate_by");
-    property <bool> grid-open: drag-grid && Controls.value(Controls.resolve(group, "bpmlock"), Controls.tick) == 0;
+    property <int> edit-index: Controls.resolve(group, "beats_edit");
+    property <bool> locked: Controls.value(Controls.resolve(group, "bpmlock"), Controls.tick) > 0;
+    property <bool> editing: drag-grid || Controls.value(edit-index, Controls.tick) > 0;
+    property <bool> grid-open: editing && !locked;
+    property <bool> loaded: Controls.value(duration-index, Controls.tick) > 0;
+    // Decks on the right (2 and 4) keep the pencil in the right corner.
+    property <bool> pencil-right: group == "[Channel2]" || group == "[Channel4]";
     property <float> press-position;
     property <bool> holding;
     // While the grid is dragged: whether it is, and how far it has moved.
@@ -146,7 +184,7 @@ component Waveform inherits Rectangle {
             if e.kind == PointerEventKind.down {
                 holding = Controls.value(duration-index, Controls.tick) > 0;
                 if holding {
-                    moving-grid = grid-open;
+                    moving-grid = grid-open && !e.modifiers.alt;
                     grid-moved = 0;
                     press-position = Controls.value(position-index, Controls.tick);
                     Controls.set-value(scrub-index, press-position);
@@ -234,6 +272,117 @@ component Waveform inherits Rectangle {
                 }
             }
         }
+    }
+    // The pencil: dimmed until hovered, lit while editing.
+    if loaded: Rectangle {
+        x: pencil-right ? parent.width - self.width - 5px : 5px;
+        y: parent.height - self.height - 5px;
+        width: 24px;
+        height: 22px;
+        border-radius: 5px;
+        background: pta.pressed ? Theme.control-pressed : pta.has-hover ? #000000c0 : transparent;
+        // A pencil, point down to the left.
+        Path {
+            width: 14px;
+            height: 14px;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            stroke: grid-open ? Theme.accent : Theme.text;
+            stroke-width: 1.4px;
+            fill: transparent;
+            opacity: grid-open || pta.has-hover ? 1 : 0.4;
+            commands: "M 2 14 L 2.8 10.6 L 10.8 2.6 L 13.4 5.2 L 5.4 13.2 Z M 9.2 4.2 L 11.8 6.8";
+        }
+        pta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                if drag-grid || !editing {
+                    if !drag-grid {
+                        Controls.set-value(edit-index, 1);
+                    }
+                    edit-popup.show();
+                } else {
+                    Controls.set-value(edit-index, 0);
+                }
+            }
+        }
+    }
+    // Edit Grid: bar 1 at the play line, nudges, the rest of the grid tools
+    // (More…), back to the detected grid, lock, and Done.
+    edit-popup := PopupWindow {
+        x: pencil-right ? root.width - self.width - 5px : 5px;
+        y: root.height - 2px;
+        width: 232px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 14px;
+            drop-shadow-color: #000000a0;
+        }
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            HorizontalLayout {
+                height: 22px;
+                Text { text: "Edit Grid"; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                Text {
+                    text: info.grid-unsure && info.grid-source == "Detected" ? "check by ear" : info.grid-source;
+                    color: info.grid-unsure && info.grid-source == "Detected" ? Theme.stage-prep : Theme.text-dim;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+            }
+            if locked: Text {
+                text: "The grid is locked.";
+                color: Theme.text-dim;
+                font-size: 13px;
+            }
+            if locked: EditGridButton {
+                text: "Unlock";
+                clicked => { Controls.set-value(Controls.resolve(group, "bpmlock"), 0); }
+            }
+            if !locked: EditGridButton { group: group; key: "beats_downbeat_here"; text: "Set Downbeat"; }
+            if !locked: HorizontalLayout {
+                spacing: 6px;
+                EditGridButton { group: group; key: "beats_translate_earlier"; text: "◀ |"; }
+                EditGridButton { group: group; key: "beats_translate_later"; text: "| ▶"; }
+            }
+            if !locked: EditGridButton {
+                text: "More…";
+                ink: Theme.text-dim;
+                clicked => {
+                    edit-popup.close();
+                    grid-menu.show();
+                }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                if !locked && info.grid-source != "Detected": EditGridButton { group: group; key: "beats_reset"; text: "Reset"; ink: #ff6b6b; }
+                if !locked: EditGridButton {
+                    text: "Lock";
+                    clicked => { Controls.set-value(Controls.resolve(group, "bpmlock"), 1); }
+                }
+                EditGridButton {
+                    text: "Done";
+                    ink: Theme.accent;
+                    clicked => {
+                        if !drag-grid {
+                            Controls.set-value(edit-index, 0);
+                        }
+                        edit-popup.close();
+                    }
+                }
+            }
+        }
+    }
+    grid-menu := GridMenu {
+        group: group;
+        info: info;
+        x: pencil-right ? root.width - 245px : 5px;
+        y: root.height - 2px;
     }
     // The switch between the note roll and the macro lanes.
     if live-knobs: Rectangle {
@@ -1226,6 +1375,13 @@ export component AppWindow inherits Window {
         }
         false
     }
+    // Whether a deck's grid is being edited (its waveform's pencil).
+    function grid-editing() -> bool {
+        Controls.value(Controls.resolve("[Channel1]", "beats_edit"), Controls.tick) > 0
+            || Controls.value(Controls.resolve("[Channel2]", "beats_edit"), Controls.tick) > 0
+            || Controls.value(Controls.resolve("[Channel3]", "beats_edit"), Controls.tick) > 0
+            || Controls.value(Controls.resolve("[Channel4]", "beats_edit"), Controls.tick) > 0
+    }
     function playing-changed(deck: int) {
         if playing[deck] {
             last-started = deck;
@@ -1308,6 +1464,14 @@ export component AppWindow inherits Window {
             }
             if e.text == Key.Escape && Preferences.open {
                 Preferences.open = false;
+                return accept;
+            }
+            // Esc finishes editing beat grids (the waveforms' pencils).
+            if e.text == Key.Escape && !Preferences.open && grid-editing() {
+                Controls.set-value(Controls.resolve("[Channel1]", "beats_edit"), 0);
+                Controls.set-value(Controls.resolve("[Channel2]", "beats_edit"), 0);
+                Controls.set-value(Controls.resolve("[Channel3]", "beats_edit"), 0);
+                Controls.set-value(Controls.resolve("[Channel4]", "beats_edit"), 0);
                 return accept;
             }
             // Esc clears the library search, as in the search box itself.
@@ -1444,7 +1608,7 @@ export component AppWindow inherits Window {
                 if prep: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; lyrics-deck: 0; drag-grid: true; zoom-seconds: PrepUi.seconds; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; info: decks[0]; vertical-stretch: 1; lyrics-deck: 0; drag-grid: true; zoom-seconds: PrepUi.seconds; }
                     // The quick review keys, and how long this track has taken.
                     Rectangle {
                         height: 24px;
@@ -1476,21 +1640,21 @@ export component AppWindow inherits Window {
                 if !four && !prep: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; deck: 0; vertical-stretch: 1; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; info: decks[0]; deck: 0; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-2; group: "[Channel2]"; deck: 1; vertical-stretch: 1; }
+                    Waveform { source: waveform-2; group: "[Channel2]"; info: decks[1]; deck: 1; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
                 }
                 if four: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-3; group: "[Channel3]"; vertical-stretch: 1; lyrics-deck: 2; }
+                    Waveform { source: waveform-3; group: "[Channel3]"; info: decks[2]; vertical-stretch: 1; lyrics-deck: 2; }
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; lyrics-deck: 0; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; info: decks[0]; vertical-stretch: 1; lyrics-deck: 0; }
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-2; group: "[Channel2]"; vertical-stretch: 1; lyrics-deck: 1; }
+                    Waveform { source: waveform-2; group: "[Channel2]"; info: decks[1]; vertical-stretch: 1; lyrics-deck: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-4; group: "[Channel4]"; vertical-stretch: 1; lyrics-deck: 3; }
+                    Waveform { source: waveform-4; group: "[Channel4]"; info: decks[3]; vertical-stretch: 1; lyrics-deck: 3; }
                     Rectangle { height: 1px; background: Theme.border; }
                 }
             }

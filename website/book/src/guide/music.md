@@ -265,6 +265,30 @@ grid while it plays: **Bar 1 here** on a downbeat puts bar 1 there,
 **New tempo section from here** starts a new tempo where a live track
 speeds up or slows down.
 
+### Edit Grid
+
+The quickest way to fix a grid is the pencil in the bottom corner of each
+deck's big waveform (left for decks 1 and 3, right for 2 and 4). It stays
+dimmed until you point at it. Click it, or press **G** for the master
+deck, to start editing: the beat lines run through the waveform, bar lines
+in lilac, and the pencil lights up. While you edit:
+
+- **Drag the waveform** to move the grid under the music; the audio slides
+  and the beat lines stay put until you let go. Hold **Alt** (⌥) to scrub as
+  usual instead.
+- **Set Downbeat** in the Edit Grid popover makes the beat at the play line
+  bar 1, and **◀ |** **| ▶** nudge the whole grid a little earlier or later.
+- **More…** opens the full grid menu: tempo, ½ and ×2, tempo sections,
+  undo and the metronome.
+- **Reset** goes back to the detected grid; **Lock** locks it.
+
+Click the pencil again, press **Done** or **Esc** to finish. Editing keeps
+whatever zoom the waveform is at, and loading another track finishes it.
+In the [Prep layout](layouts.md) the grid is always open for editing while
+it is unlocked, and the metronome turns on by itself there and back off
+once the grid is locked. Controllers and keyboard shortcuts can use
+`edit_grid` (the `beats_edit` control).
+
 To analyse tracks yourself, right-click them and choose **Analyze Track**
 (or **Analyze 12 Tracks** when you picked several), or right-click a
 list, folder or stage and choose **Analyze All**. They are analysed again

@@ -203,6 +203,10 @@ struct Params {
     atlas: [f32; 2],
     /// 1: drawn from the bottom edge up (overview only).
     half: u32,
+    /// 1: the grid is being edited: beats and bar lines drawn louder, over
+    /// the waveform too (scrolling only).
+    grid_edit: u32,
+    _pad: [u32; 3],
     /// Bit `n` set: lane `n` (from the bottom) is tinted.
     lane_tint: [u32; 4],
     mark_color: [f32; 4],
@@ -636,6 +640,8 @@ pub struct WaveformView {
     empty: wgpu::Texture,
     /// Draws a live deck (see [`WaveformView::set_live`]).
     live: bool,
+    /// Draws the grid louder (see [`WaveformView::set_grid_edit`]).
+    grid_edit: bool,
     /// Lanes of marks over the waveform (see [`WaveformView::set_lanes`]).
     lanes: Option<Lanes>,
 }
@@ -662,6 +668,7 @@ impl WaveformView {
             track: None,
             empty,
             live: false,
+            grid_edit: false,
             lanes: None,
         }
     }
@@ -698,6 +705,11 @@ impl WaveformView {
 
     /// Whether the view shows a live deck, whose waveform ends at the play
     /// line: its beat grid and bar numbers then run on past the end.
+    /// Draws the beat grid louder, for editing it (scrolling only).
+    pub fn set_grid_edit(&mut self, on: bool) {
+        self.grid_edit = on;
+    }
+
     pub fn set_live(&mut self, live: bool) {
         self.live = live;
     }
@@ -814,6 +826,8 @@ impl WaveformView {
             mark_count: 0,
             atlas: renderer.digits.size,
             half: (self.half && self.mode == Mode::Overview) as u32,
+            grid_edit: (self.grid_edit && self.mode == Mode::Scrolling) as u32,
+            _pad: [0; 3],
             lane_tint: [0; 4],
             mark_color: [0.0; 4],
             lit_color: [0.0; 4],

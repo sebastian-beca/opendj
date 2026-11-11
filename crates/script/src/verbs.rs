@@ -176,6 +176,13 @@ pub static VERBS: &[Verb] = &[
         "Turn key lock on or off",
     ),
     def(
+        "edit_grid",
+        Toggle("beats_edit"),
+        Yes,
+        &[],
+        "Start or finish editing the beat grid",
+    ),
+    def(
         "quantize",
         Toggle("quantize"),
         Yes,
