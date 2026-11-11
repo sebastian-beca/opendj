@@ -16,6 +16,7 @@
   {"name": "Pioneer DDJ-RX", "file": "Pioneer DDJ-RX.midi.xml", "status": "beta", "note": "Mixxx's DDJ-SX mapping plus QUANTIZE: the RX sends the SX2's MIDI. PAD FX mode plays rolls. The Sound Color FX buttons, CAPTURE and the sequencer buttons do nothing yet; the COLOR knobs work as filters."},
   {"name": "Pioneer DDJ-FLX6", "file": "Pioneer-DDJ-FLX6.midi.xml", "status": "beta", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},
   {"name": "Pioneer XDJ-RX3", "file": "Pioneer-XDJ-RX3.midi.xml", "status": "beta", "note": "openDJ's own mapping for the all-in-one in PC control mode, written from AlphaTheta's MIDI message list."},
+  {"name": "Pioneer XDJ-AZ", "file": "Pioneer-XDJ-AZ.midi.xml", "status": "beta", "note": "openDJ's own mapping for the all-in-one in PC control mode, built on the XDJ-RX3 mapping from AlphaTheta's MIDI message list."},
   {"name": "Pioneer DDJ-REV1", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},
   {"name": "Pioneer DDJ-1000", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list. The jog screens stay dark: they need Pioneer's own protocol."},
   {"name": "Pioneer DDJ-FLX10", "file": null, "status": "planned", "note": "openDJ's own mapping, written from Pioneer's MIDI message list."},

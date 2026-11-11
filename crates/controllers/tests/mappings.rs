@@ -1164,3 +1164,107 @@ fn ddj_800_decks_mixer_and_beat_fx() {
     assert_eq!(c.errors(), Vec::<String>::new());
     c.shutdown();
 }
+
+#[test]
+fn xdj_az_decks_mixer_pads_and_beat_fx() {
+    let (reg, mut c) = load("Pioneer-XDJ-AZ.midi.xml");
+    settle(&mut c, 50);
+    c.take_output();
+
+    // Each deck has its own channel: PLAY on channel 4 plays deck 4.
+    c.receive(&[0x93, 0x00, 0x7F]);
+    c.receive(&[0x93, 0x00, 0x00]);
+    assert_eq!(get(&reg, "[Channel4]", "play"), 1.0);
+    assert_eq!(get(&reg, "[Channel2]", "play"), 0.0);
+
+    // DECK QUANTIZE moved to 0x1A; KEY SYNC, 4 BEAT and BEAT JUMP are new.
+    let quantize = get(&reg, "[Channel1]", "quantize");
+    c.receive(&[0x90, 0x1A, 0x7F]);
+    assert_ne!(get(&reg, "[Channel1]", "quantize"), quantize);
+    c.receive(&[0x90, 0x43, 0x7F]);
+    c.receive(&[0x90, 0x43, 0x00]);
+    c.receive(&[0x90, 0x17, 0x7F]);
+    let size = get(&reg, "[Channel1]", "beatjump_size");
+    c.receive(&[0x90, 0x19, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "beatjump_size"), size / 2.0);
+
+    // The mixer on channel 5: deck 3's fader, the crossfader.
+    c.receive(&[0xB4, 0x13, 0x7F]);
+    assert_eq!(get(&reg, "[Channel3]", "volume"), 1.0);
+    c.receive(&[0xB4, 0x0B, 0x00]);
+    assert_eq!(get(&reg, "[Master]", "crossfader"), -1.0);
+    // CROSSFADER ASSIGN: one CC a channel, A / THRU / B.
+    c.receive(&[0xB4, 0x42, 0x7F]);
+    assert_eq!(get(&reg, "[Channel2]", "orientation"), 2.0);
+    c.receive(&[0xB4, 0x41, 0x00]);
+    assert_eq!(get(&reg, "[Channel1]", "orientation"), 0.0);
+    c.receive(&[0xB4, 0x43, 0x40]);
+    assert_eq!(get(&reg, "[Channel3]", "orientation"), 1.0);
+
+    // Pads: pad 1 on deck 1's first pad channel, pad 6 on its second
+    // (channel 10), each mode on its own note, routed onto the pages.
+    c.receive(&[0x95, 0x00, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "hotcue_1_activate"), 1.0);
+    c.receive(&[0x95, 0x00, 0x00]);
+    c.receive(&[0x99, 0x13, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "hotcue_6_activate"), 1.0);
+    c.receive(&[0x99, 0x13, 0x00]);
+    // Deck 2's pads 3 and 7 in BEAT JUMP mode send 2 * 19 + 9.
+    c.receive(&[0x91, 0x25, 0x7F]);
+    assert_eq!(get(&reg, "[Channel2]", "pad_tab"), 2.0);
+    c.receive(&[0x96, 0x2F, 0x7F]);
+    c.receive(&[0x96, 0x2F, 0x00]);
+    assert_eq!(get(&reg, "[Channel2]", "beatjump_size"), 8.0);
+    c.receive(&[0x9A, 0x2F, 0x7F]);
+    c.receive(&[0x9A, 0x2F, 0x00]);
+    assert_eq!(get(&reg, "[Channel2]", "beatjump_size"), 32.0);
+    // A note with no page does nothing.
+    c.receive(&[0x95, 0x04, 0x7F]);
+    c.receive(&[0x95, 0x04, 0x00]);
+    assert_eq!(get(&reg, "[Channel1]", "hotcue_5_activate"), 0.0);
+
+    // Hot cue 6's light reaches pad 6 on channel 10.
+    reg.get("[Channel1]", "hotcue_6_status").unwrap().set(1.0);
+    settle(&mut c, 20);
+    let out = c.take_output();
+    assert!(
+        out.iter().any(|m| m[0] == 0x99 && m[1] == 0x13 && m[2] > 0),
+        "pad 6 lit: {out:x?}"
+    );
+
+    // BEAT FX: CH SELECT CH3 sends it to deck 3 only; CF.B follows the
+    // crossfader assign; EFFECT SELECT REVERB; AUTO/TAP.
+    let unit = "[EffectRack1_EffectUnit5]";
+    let fx = "[EffectRack1_EffectUnit5_Effect1]";
+    c.receive(&[0xB4, 0x72, 0x7F]);
+    assert_eq!(get(&reg, fx, "enabled"), 1.0);
+    c.receive(&[0xB4, 0x22, 0x7F]);
+    assert_eq!(get(&reg, unit, "group_[Channel3]_enable"), 1.0);
+    assert_eq!(get(&reg, unit, "group_[Channel1]_enable"), 0.0);
+    c.receive(&[0xB4, 0x28, 0x7F]);
+    assert_eq!(get(&reg, unit, "group_[Channel2]_enable"), 1.0);
+    assert_eq!(get(&reg, unit, "group_[Channel1]_enable"), 0.0);
+    c.receive(&[0xB4, 0x36, 0x7F]);
+    assert_eq!(get(&reg, fx, "loaded_effect"), 2.0);
+    c.receive(&[0xB4, 0x45, 0x7F]);
+
+    // The jog display on channel 14 shows the playhead.
+    reg.get("[Channel1]", "track_loaded").unwrap().set(1.0);
+    reg.get("[Channel1]", "duration").unwrap().set(180.0);
+    reg.get("[Channel1]", "playposition")
+        .unwrap()
+        .set(0.5 / 180.0);
+    settle(&mut c, 100);
+    let out = c.take_output();
+    assert!(
+        out.iter()
+            .any(|m| m[0] == 0xBD && (m[1] == 0x00 || m[1] == 0x20) && m[2] > 0),
+        "jog display moved: {out:x?}"
+    );
+    assert!(
+        out.iter().any(|m| m[..] == [0x9D, 0x00, 0x7F]),
+        "LOAD light: {out:x?}"
+    );
+    assert_eq!(c.errors(), Vec::<String>::new());
+    c.shutdown();
+}
