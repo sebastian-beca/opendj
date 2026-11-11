@@ -6,10 +6,10 @@
 import { TrackDrag } from "library.slint";
 import { SamplerPanel } from "sampler.slint";
 import { Theme, KeyNotation, EdgeLine, EdgeVLine, CloseIcon } from "theme.slint";
-import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, MasterBadge, PitchReset, SyncButton } from "controls.slint";
+import { Caption, ControlButton, ControlFader, ControlKnob, Controls, HoverTip, MasterBadge, PitchReset, SyncButton, VuMeter } from "controls.slint";
 import { TourMark } from "tourmark.slint";
 import { MapMark } from "mapmark.slint";
-import { InstrumentsUi, LiveIcon, PresetUi, TagChip } from "instruments.slint";
+import { InstrumentsUi, LiveIcon, MixerStripInfo, PresetUi, TagChip } from "instruments.slint";
 import { LineEdit } from "std-widgets.slint";
 import { ListView, ScrollView } from "scroll.slint";
 
@@ -4572,6 +4572,284 @@ component LooperPanel inherits Rectangle {
     }
 }
 
+// A Mixer strip's meter column: a dB scale, one bar (mono) or two
+// (stereo), a line at the peak, and the strip's fader as an arrow on the
+// scale (as Ableton's), dragged up and down, with its level above.
+component StripMeter inherits Rectangle {
+    in property <string> group;
+    in property <bool> stereo;
+    in property <color> tint;
+    // The meter's range in dB below full scale, as the engine's meters.
+    property <float> range: 40;
+    property <int> volume-index: Controls.resolve(group, "volume");
+    property <float> volume: Controls.value(volume-index, Controls.tick);
+    property <float> peak-db: Controls.value(Controls.resolve(group, "peak_db"), Controls.tick);
+    // Where on the scale a level in dB sits, 0 the bottom and 1 the top.
+    pure function at(db: float) -> float { clamp((db + range) / range, 0, 1) }
+    property <float> fader-db: volume <= 0.0001 ? -100 : 20 * log(volume, 10);
+    property <length> top: 12px;
+    property <length> scale-height: self.height - top - 2px;
+    property <length> bars-x: 15px;
+    property <length> bar: stereo ? 5px : 8px;
+    // The fader's level, over the bars: "-inf" when it is right down.
+    Text {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: top;
+        text: fader-db < -range ? "-inf" : (round(fader-db * 10) / 10) + "";
+        color: Theme.text;
+        font-size: 9px;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+    }
+    // The scale: 0, -12, -24 and -40 dB.
+    for mark in [0, -12, -24, -40]: Rectangle {
+        y: top + (1 - at(mark)) * scale-height - 5px;
+        x: 0;
+        width: bars-x - 2px;
+        height: 10px;
+        Text {
+            text: mark == 0 ? "0" : -mark;
+            color: Theme.text-dim;
+            font-size: 7px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            width: parent.width;
+            height: parent.height;
+        }
+    }
+    if !stereo: VuMeter { x: bars-x; y: top; width: bar; height: scale-height; group: group; key: "VuMeter"; segments: 20; }
+    if stereo: VuMeter { x: bars-x; y: top; width: bar; height: scale-height; group: group; key: "VuMeterL"; segments: 20; }
+    if stereo: VuMeter { x: bars-x + bar + 1px; y: top; width: bar; height: scale-height; group: group; key: "VuMeterR"; segments: 20; }
+    // The peak, as a line across the bars while it holds.
+    if peak-db > -range: Rectangle {
+        x: bars-x;
+        y: top + (1 - at(peak-db)) * scale-height;
+        width: stereo ? 2 * bar + 1px : bar;
+        height: 1px;
+        background: peak-db > 0 ? #ff453a : Theme.text;
+    }
+    // The fader: an arrow pointing at the bars, at its level.
+    property <length> arrow-x: bars-x + (stereo ? 2 * bar + 1px : bar) + 2px;
+    Path {
+        x: arrow-x;
+        y: top + (1 - at(fader-db)) * scale-height - 5px;
+        width: 9px;
+        height: 10px;
+        viewbox-width: 9;
+        viewbox-height: 10;
+        fill: drag.pressed || drag.has-hover ? tint : Theme.text;
+        commands: "M 0 5 L 9 0 L 9 10 Z";
+    }
+    drag := TouchArea {
+        x: arrow-x - 2px;
+        width: root.width - self.x;
+        mouse-cursor: ns-resize;
+        // A click on the scale moves the arrow there; dragging follows.
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                set-at(self.mouse-y);
+            }
+        }
+        moved => { set-at(self.mouse-y); }
+        double-clicked => { Controls.set-value(volume-index, 1); }
+        scroll-event(e) => {
+            let db = max(-range, fader-db) + (e.delta-y > 0 ? 1 : -1);
+            Controls.set-value(volume-index, db <= -range ? 0 : min(1, pow(10, db / 20)));
+            accept
+        }
+    }
+    function set-at(y: length) {
+        let p = clamp(1 - (y - top) / scale-height, 0, 1);
+        let db = p * range - range;
+        Controls.set-value(volume-index, p <= 0 ? 0 : min(1, pow(10, db / 20)));
+    }
+    MapMark { key: root.group + ",volume"; }
+}
+
+// One strip of the Mixer deck (2-Deck), made to fit the deck's lower
+// half: on a color band its number square (on, lilac, or off, grey) and
+// name; the input box (its channels, a click opens Settings › Audio); then
+// its peak readout (red over 0 dB), TRIM and PAN beside the meter and
+// fader; and along the bottom S (solo, Cmd/Ctrl solos it alone), the
+// headphone cue and FX.
+component MixerStrip inherits Rectangle {
+    in property <MixerStripInfo> info;
+    in property <color> tint;
+    property <string> group: "[Auxiliary" + info.number + "]";
+    property <int> on-index: Controls.resolve(group, "main_mix");
+    property <bool> on: Controls.value(on-index, Controls.tick) > 0;
+    property <int> solo-index: Controls.resolve(group, "solo");
+    property <bool> solo: Controls.value(solo-index, Controls.tick) > 0;
+    property <float> peak-db: Controls.value(Controls.resolve(group, "peak_db"), Controls.tick);
+    width: 100px;
+    border-radius: 6px;
+    background: Theme.panel-raised;
+    clip: true;
+    VerticalLayout {
+        spacing: 3px;
+        padding-bottom: 4px;
+        // The color band: the number square and the name.
+        Rectangle {
+            height: 18px;
+            background: on ? tint.with-alpha(0.3) : #2c2c2f;
+            HorizontalLayout {
+                padding: 1px;
+                spacing: 5px;
+                Rectangle {
+                    width: 20px;
+                    border-radius: 4px;
+                    background: on ? Theme.accent : #4a4a4d;
+                    Text {
+                        text: info.number;
+                        color: on ? Theme.on-selection : Theme.text-dim;
+                        font-size: 11px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { Controls.set-value(on-index, on ? 0 : 1); }
+                    }
+                    MapMark { key: root.group + ",main_mix"; }
+                }
+                Text {
+                    text: info.name;
+                    color: Theme.text;
+                    font-size: 11px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+        // The input box: which channels, ▼ to pick others.
+        HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 4px;
+            Rectangle {
+                height: 16px;
+                border-radius: 4px;
+                border-width: 1px;
+                border-color: info.problem != "" ? #ff9f0a : box.has-hover ? Theme.text-dim : Theme.border;
+                background: Theme.control;
+                Text {
+                    x: 6px;
+                    text: info.problem != "" ? "Missing" : info.channels;
+                    color: info.problem != "" ? #ff9f0a : Theme.text;
+                    font-size: 10px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    x: parent.width - 13px;
+                    text: "▼";
+                    color: Theme.text-dim;
+                    font-size: 7px;
+                    vertical-alignment: center;
+                }
+                box := TouchArea { clicked => { InstrumentsUi.open-settings(0, 0); } }
+            }
+        }
+        HorizontalLayout {
+            padding-left: 2px;
+            padding-right: 4px;
+            spacing: 0px;
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 0px;
+                alignment: start;
+                // The peak lately, in dB: red past full scale.
+                Text {
+                    height: 14px;
+                    text: peak-db <= -59.9 ? "—" : (peak-db > 0 ? "+" : "") + (round(peak-db * 10) / 10);
+                    color: peak-db > 0 ? #ff453a : Theme.text-dim;
+                    font-size: 9px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                HorizontalLayout {
+                    spacing: 0px;
+                    ControlKnob { group: group; key: "pregain"; label: "TRIM"; size: 18px; }
+                    ControlKnob { group: group; key: "pan"; label: "PAN"; size: 18px; bipolar: true; }
+                }
+            }
+            StripMeter { group: group; stereo: info.stereo; tint: tint; min-height: 50px; horizontal-stretch: 1; }
+        }
+        // Solo, cue and FX.
+        HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 4px;
+            spacing: 2px;
+            height: 18px;
+            Rectangle {
+                min-width: 28px;
+                horizontal-stretch: 1;
+                border-radius: 4px;
+                background: solo ? #ffd60a : Theme.control;
+                border-width: 1px;
+                border-color: solo ? #ffd60a : Theme.border;
+                Text {
+                    text: "S";
+                    color: solo ? #1c1c1e : Theme.text;
+                    font-size: 10px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    pointer-event(e) => {
+                        if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                            if e.modifiers.control || e.modifiers.meta {
+                                InstrumentsUi.solo-alone(info.number);
+                            } else {
+                                Controls.set-value(solo-index, solo ? 0 : 1);
+                            }
+                        }
+                    }
+                }
+                MapMark { key: root.group + ",solo"; }
+            }
+            ControlButton { group: group; key: "pfl"; headphones: true; tint: tint; fill-when-lit: true; horizontal-stretch: 1; }
+            ControlButton { group: group; key: "fx"; text: "FX"; tint: Theme.accent; font-size: 9px; horizontal-stretch: 1; }
+        }
+    }
+}
+
+// The Mixer deck's strips side by side, scrolling sideways when they don't
+// fit, then + for another input (Settings › Audio).
+component MixerStrips inherits Rectangle {
+    in property <color> tint;
+    flick := Flickable {
+        content-width: max(self.width, row.preferred-width);
+        row := HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            for strip in InstrumentsUi.strips: MixerStrip { info: strip; tint: tint; }
+            if InstrumentsUi.strips.length < 8: Rectangle {
+                width: InstrumentsUi.strips.length == 0 ? 180px : 40px;
+                border-radius: 6px;
+                border-width: 1px;
+                border-color: add.has-hover ? Theme.text-dim : Theme.border;
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 6px;
+                    Text { text: "+"; color: add.has-hover ? Theme.text : Theme.text-dim; font-size: 22px; horizontal-alignment: center; }
+                    if InstrumentsUi.strips.length == 0: Text {
+                        text: "Add an input in Settings › Audio";
+                        color: Theme.text-dim;
+                        font-size: 11px;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
+                add := TouchArea { clicked => { InstrumentsUi.open-settings(0, 0); } }
+            }
+        }
+    }
+}
+
 // A deck playing a live input: what it plays, its level, and for an
 // instrument plugin its window, the KEYBOARD pads switch and their octave.
 component LivePanel inherits Rectangle {
@@ -4586,6 +4864,8 @@ component LivePanel inherits Rectangle {
     property <int> octave: Controls.value(octave-index, Controls.tick);
     border-radius: 10px;
     background: Theme.well;
+    // The Mixer: its strips.
+    if live == InstrumentsUi.mixer-live: MixerStrips { x: 6px; y: 6px; width: parent.width - 12px; height: parent.height - 12px; tint: tint; }
     // Not set up yet: what it needs, and where to set it up.
     if !ready: VerticalLayout {
         alignment: center;
@@ -4621,7 +4901,7 @@ component LivePanel inherits Rectangle {
     // gear up before the channel and PAN places it (a safety limiter keeps
     // it from clipping whatever the trim); then for an instrument its own
     // knobs, its window, the KEYBOARD pads switch and their octave.
-    if ready: VerticalLayout {
+    if ready && live != InstrumentsUi.mixer-live: VerticalLayout {
       padding: 6px;
       spacing: 4px;
       HorizontalLayout {

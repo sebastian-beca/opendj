@@ -190,6 +190,14 @@ impl Pads {
 const VU_FALL: f32 = 1.5;
 /// Seconds a clip light stays on.
 const PEAK_HOLD: f32 = 0.5;
+/// The floor of a strip's `peak_db` readout, in dBFS.
+const PEAK_DB_FLOOR: f32 = -60.0;
+/// The top of it: how far over full scale it can read.
+const PEAK_DB_TOP: f32 = 24.0;
+/// Seconds a strip's peak readout holds its highest before it falls.
+const PEAK_DB_HOLD: f32 = 2.0;
+/// How fast it then falls, in dB per second (the meter's own fall).
+const PEAK_DB_FALL: f32 = 60.0;
 
 struct InputControls {
     /// `talkover` for the microphone, `main_mix` for the auxiliary input.
@@ -212,6 +220,9 @@ struct InputControls {
     fx: Option<ControlHandle>,
     /// The microphone's `mixer`: a strip of the Mixer.
     mixer: Option<ControlHandle>,
+    /// A strip's `peak_db`: its highest peak lately, in dBFS, read past
+    /// full scale, for the readout over its meter.
+    peak_db: Option<ControlHandle>,
 }
 
 impl InputControls {
@@ -311,6 +322,11 @@ impl InputControls {
         // The microphone as a strip of the Mixer too, while a deck plays
         // it: off by default, so it stays on its own channel.
         let mixer = (input == MICROPHONE).then(|| reg.toggle(g, "mixer"));
+        let peak_db = strip.then(|| {
+            let top = f64::from(PEAK_DB_TOP);
+            let floor = f64::from(PEAK_DB_FLOOR);
+            reg.create(g, "peak_db", floor, floor, top, Behavior::Indicator)
+        });
         let configured = reg.indicator(g, "input_configured", 1.0);
         alias(reg, g, "enabled", g, "input_configured");
         Self {
@@ -338,6 +354,7 @@ impl InputControls {
             solo,
             fx,
             mixer,
+            peak_db,
         }
     }
 }
@@ -370,6 +387,8 @@ pub(crate) struct Input {
     pan: [f32; 2],
     vu: [f32; 2],
     peak_hold: f32,
+    /// The strip's peak readout in dBFS, and the seconds it still holds.
+    peak_db: (f32, f32),
     /// This buffer's audio after gain, EQ and effects, before the fader.
     pub(crate) buf: Vec<[f32; 2]>,
     /// This buffer's audio as it came in, for a deck playing the input.
@@ -442,6 +461,7 @@ impl Input {
             pan: [1.0; 2],
             vu: [0.0; 2],
             peak_hold: 0.0,
+            peak_db: (PEAK_DB_FLOOR, 0.0),
             buf: vec![[0.0; 2]; 4096],
             raw: vec![[0.0; 2]; 4096],
             level_ramp: (0.0, 0.0),
@@ -639,6 +659,29 @@ impl Input {
             control.set(*vu as f64);
         }
         self.c.vu.set(self.vu[0].max(self.vu[1]) as f64);
+        if let Some(control) = &self.c.peak_db {
+            self.peak_db = hold_peak(self.peak_db, peak[0].max(peak[1]), dt);
+            control.set(f64::from(self.peak_db.0));
+        }
+    }
+}
+
+/// A peak readout after a buffer whose peak was `peak` (linear) and which
+/// lasted `dt` seconds, from `(db, held)`: a new high jumps up and holds
+/// for [`PEAK_DB_HOLD`]; after that it falls at [`PEAK_DB_FALL`], never
+/// below the buffer's own peak.
+fn hold_peak((db, held): (f32, f32), peak: f32, dt: f32) -> (f32, f32) {
+    let now = if peak > 0.0 {
+        (20.0 * peak.log10()).clamp(PEAK_DB_FLOOR, PEAK_DB_TOP)
+    } else {
+        PEAK_DB_FLOOR
+    };
+    if now >= db {
+        (now, PEAK_DB_HOLD)
+    } else if held > 0.0 {
+        (db, (held - dt).max(0.0))
+    } else {
+        ((db - PEAK_DB_FALL * dt).max(now), 0.0)
     }
 }
 
@@ -816,6 +859,27 @@ mod tests {
         assert_eq!(pan_gains(-1.0), [1.0, 0.0]);
         assert_eq!(pan_gains(1.0), [0.0, 1.0]);
         assert_eq!(pan_gains(0.5), [0.5, 1.0]);
+    }
+
+    #[test]
+    fn the_peak_readout_holds_then_falls_and_reads_past_full_scale() {
+        let close = |a: f32, b: f32| (a - b).abs() < 0.01;
+        // Twice full scale reads +6 dB.
+        let (db, held) = hold_peak((PEAK_DB_FLOOR, 0.0), 2.0, 0.01);
+        assert!(close(db, 6.02) && held == PEAK_DB_HOLD);
+        // Quieter buffers keep it while it holds...
+        let mut p = (db, held);
+        for _ in 0..199 {
+            p = hold_peak(p, 0.1, 0.01);
+        }
+        assert!(close(p.0, 6.02), "{p:?}");
+        // ...then it falls, no lower than what plays (-20 dB).
+        for _ in 0..100 {
+            p = hold_peak(p, 0.1, 0.01);
+        }
+        assert!(close(p.0, -20.0), "{p:?}");
+        // Silence reads the floor.
+        assert_eq!(hold_peak((PEAK_DB_FLOOR, 0.0), 0.0, 0.01).0, PEAK_DB_FLOOR);
     }
 
     fn feed(period: usize) -> (InputFeed, rtrb::Producer<f32>) {

@@ -10,6 +10,20 @@ import { Controls } from "controls.slint";
 import { ScrollView } from "scroll.slint";
 
 // One thing to drag onto a deck: a row of the list.
+// A strip of the Mixer: an aux input set up in Settings › Audio.
+export struct MixerStripInfo {
+    // The aux input, from 1: `[AuxiliaryN]`.
+    number: int,
+    // The interface it comes from ("M4"), or "Aux N" without one.
+    name: string,
+    // Its channels on the interface: "3" (mono) or "1/2" (stereo).
+    channels: string,
+    // It takes a pair of channels: two meter bars.
+    stereo: bool,
+    // What is wrong with it (the device is missing), or "".
+    problem: string,
+}
+
 export struct LiveItem {
     // 1 the Groove Box, 2 an instrument plugin, 3 the microphone, 4 an
     // aux input.
@@ -155,6 +169,8 @@ export global InstrumentsUi {
     // then the Mixer's (its strips' interfaces and how many); "" while it
     // has none. Set by the app.
     in property <[string]> routes;
+    // The Mixer's strips, in order: the aux inputs set up.
+    in property <[MixerStripInfo]> strips;
 
     // Each ticked plugin's own image, in the picker's order, and each
     // input's (microphone, aux 1, aux 2, aux 3, Mixer), with whether there is one:
@@ -172,6 +188,18 @@ export global InstrumentsUi {
     // anything else loads like a track. `instrument` is the plugin picked.
     callback drop-art(deck: int, live: int, instrument: int);
     callback choose-art(live: int, instrument: int);
+    // Solos aux input `number` (from 1) alone in the Mixer: Cmd/Ctrl-click
+    // on its S.
+    public function solo-alone(number: int) {
+        Controls.set-value(Controls.resolve("[Auxiliary1]", "solo"), number == 1 ? 1 : 0);
+        Controls.set-value(Controls.resolve("[Auxiliary2]", "solo"), number == 2 ? 1 : 0);
+        Controls.set-value(Controls.resolve("[Auxiliary3]", "solo"), number == 3 ? 1 : 0);
+        Controls.set-value(Controls.resolve("[Auxiliary4]", "solo"), number == 4 ? 1 : 0);
+        Controls.set-value(Controls.resolve("[Auxiliary5]", "solo"), number == 5 ? 1 : 0);
+        Controls.set-value(Controls.resolve("[Auxiliary6]", "solo"), number == 6 ? 1 : 0);
+        Controls.set-value(Controls.resolve("[Auxiliary7]", "solo"), number == 7 ? 1 : 0);
+        Controls.set-value(Controls.resolve("[Auxiliary8]", "solo"), number == 8 ? 1 : 0);
+    }
     callback remove-art(live: int, instrument: int);
 
     // Where `live` sits in the input-art list; -1 for the plugin.
