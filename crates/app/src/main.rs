@@ -1919,13 +1919,23 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
             });
         let tracks: Vec<Arc<Track>> = match synced {
             Some(Ok(tracks)) => tracks.into_iter().map(Arc::new).collect(),
-            other => {
-                if let Some(Err(e)) = other {
-                    eprintln!("can't update the library: {e}");
+            Some(Err(e)) => {
+                eprintln!("can't update the library: {e}");
+                // The saved collection stays, as it was last time: the bare
+                // scan has no lists, stages or Collection Health.
+                let saved = library_path
+                    .as_deref()
+                    .and_then(|p| Library::open(p).ok())
+                    .and_then(|db| db.all_tracks(Path::exists).ok())
+                    .unwrap_or_default();
+                if saved.is_empty() {
+                    scanned
+                } else {
+                    saved.into_iter().map(Arc::new).collect()
                 }
-                // Without a library database, show what was found.
-                scanned
             }
+            // Without a library database, show what was found.
+            None => scanned,
         };
         if !tracks.is_empty() {
             let _ = tx.send(tracks);
