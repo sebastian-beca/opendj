@@ -77,6 +77,7 @@ mod midi_clock;
 mod mini_player;
 mod mixcloud;
 mod mixcloud_upload;
+mod mixer_picker;
 mod now_playing;
 mod now_playing_view;
 mod osc;
@@ -701,6 +702,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // saved again as it changes.
     groove_box::install(&app);
     instruments::install(&app);
+    mixer_picker::install(&app, engine.clone());
     presets::install(&app, engine.clone(), registry.clone());
     instrument_knobs::install(&app, engine.clone());
     let groove_keeper = RefCell::new(groove_box::Keeper::new(&registry));

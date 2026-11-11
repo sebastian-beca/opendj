@@ -10,6 +10,19 @@ import { Controls } from "controls.slint";
 import { ScrollView } from "scroll.slint";
 
 // One thing to drag onto a deck: a row of the list.
+// A choice in a Mixer strip's input picker.
+export struct PickerRow {
+    // "1/2" (a pair) or "3" (one channel).
+    label: string,
+    // Each channel's meter, 0 to 1; r is -1 for one channel.
+    l: float,
+    r: float,
+    // The strip takes it now.
+    current: bool,
+    // The first single channel, after the pairs: a line above it.
+    gap: bool,
+}
+
 // A strip of the Mixer: an aux input set up in Settings › Audio.
 export struct MixerStripInfo {
     // The aux input, from 1: `[AuxiliaryN]`.
@@ -171,6 +184,17 @@ export global InstrumentsUi {
     in property <[string]> routes;
     // The Mixer's strips, in order: the aux inputs set up.
     in property <[MixerStripInfo]> strips;
+    // The input picker (see the app's mixer_picker): the strip it is for
+    // (from 1), the interface it lists, and its choices with their meters.
+    in property <int> picker-strip;
+    in property <string> picker-device;
+    in property <[PickerRow]> picker-rows;
+    // Opens it for strip `number` (from 1), or for a new strip with 0.
+    callback open-picker(number: int);
+    // Its popup is open: fresh meters, please.
+    callback picker-tick();
+    // Choice `index` of picker-rows picked.
+    callback pick(index: int);
 
     // Each ticked plugin's own image, in the picker's order, and each
     // input's (microphone, aux 1, aux 2, aux 3, Mixer), with whether there is one:
