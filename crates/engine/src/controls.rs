@@ -779,7 +779,7 @@ pub(crate) struct MasterControls {
     /// faders, crossfader, cue, master effects and limiter left out.
     pub(crate) external_mixer: ControlHandle,
     /// `[Master] record_source`: what recording, going on air and the
-    /// loudness meter take: 0 the main mix, 1 to 3 Auxiliary input 1 to 3
+    /// loudness meter take: 0 the main mix, 1 to 8 Auxiliary input 1 to 8
     /// as it comes in (a hardware mixer's record out).
     pub(crate) record_source: ControlHandle,
 }
@@ -860,7 +860,14 @@ pub(crate) fn create_global_controls(reg: &ControlRegistry) -> MasterControls {
         ),
         deck_tap: reg.create("[Master]", "deck_tap", 1.0, 0.0, 2.0, Behavior::Free),
         external_mixer: reg.toggle("[Master]", "external_mixer"),
-        record_source: reg.create("[Master]", "record_source", 0.0, 0.0, 3.0, Behavior::Free),
+        record_source: reg.create(
+            "[Master]",
+            "record_source",
+            0.0,
+            0.0,
+            crate::inputs::NUM_AUXILIARIES as f64,
+            Behavior::Free,
+        ),
         vu_l: reg.indicator("[Master]", "VuMeterL", 1.0),
         vu_r: reg.indicator("[Master]", "VuMeterR", 1.0),
         // Mixxx keeps its ReplayGain switch in the [ReplayGain] group too.

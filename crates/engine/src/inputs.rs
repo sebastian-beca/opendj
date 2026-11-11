@@ -1,5 +1,5 @@
 //! The microphone and auxiliary inputs, Mixxx's `[Microphone]` and
-//! `[Auxiliary1]` to `[Auxiliary3]`, and the instrument, `[Instrument1]`.
+//! `[Auxiliary1]` to `[Auxiliary8]`, and the instrument, `[Instrument1]`.
 //! The microphone and auxiliaries take
 //! audio from an input device (see [`crate::output`]), the instrument from an
 //! instrument plugin playing the notes it is sent (see
@@ -26,7 +26,7 @@ use crate::controls::alias;
 use crate::dsp::Isolator;
 use crate::effects::EffectRack;
 
-pub const NUM_INPUTS: usize = 5;
+pub const NUM_INPUTS: usize = 10;
 pub const MICROPHONE: usize = 0;
 pub const AUXILIARY: usize = 1;
 /// The instrument plugin, joining the music as the auxiliary inputs do.
@@ -35,8 +35,24 @@ pub const INSTRUMENT: usize = 2;
 /// first three keep their numbers.
 pub const AUXILIARY_2: usize = 3;
 pub const AUXILIARY_3: usize = 4;
+/// The fourth to eighth, the rest of the Mixer deck's strips.
+pub const AUXILIARY_4: usize = 5;
+pub const AUXILIARY_5: usize = 6;
+pub const AUXILIARY_6: usize = 7;
+pub const AUXILIARY_7: usize = 8;
+pub const AUXILIARY_8: usize = 9;
+pub const NUM_AUXILIARIES: usize = 8;
 /// The auxiliary inputs, in order.
-pub const AUXILIARIES: [usize; 3] = [AUXILIARY, AUXILIARY_2, AUXILIARY_3];
+pub const AUXILIARIES: [usize; NUM_AUXILIARIES] = [
+    AUXILIARY,
+    AUXILIARY_2,
+    AUXILIARY_3,
+    AUXILIARY_4,
+    AUXILIARY_5,
+    AUXILIARY_6,
+    AUXILIARY_7,
+    AUXILIARY_8,
+];
 
 /// Knobs the instrument's plugin parameters show on:
 /// `[Instrument1],parameter1` to `parameter32`, 0 to 1 across each one's
@@ -51,6 +67,11 @@ pub const fn input_group(input: usize) -> &'static str {
         "[Instrument1]",
         "[Auxiliary2]",
         "[Auxiliary3]",
+        "[Auxiliary4]",
+        "[Auxiliary5]",
+        "[Auxiliary6]",
+        "[Auxiliary7]",
+        "[Auxiliary8]",
     ][input]
 }
 
@@ -165,6 +186,8 @@ struct InputControls {
     vu: ControlHandle,
     vu_lr: [ControlHandle; 2],
     peak: ControlHandle,
+    /// An auxiliary input's place between left (-1) and right (1).
+    pan: Option<ControlHandle>,
 }
 
 impl InputControls {
@@ -253,6 +276,15 @@ impl InputControls {
             reg.create(g, "arp_octaves", 1.0, 1.0, 4.0, Behavior::Free);
             reg.create(g, "arp_hold", 0.0, 0.0, 1.0, Behavior::Free);
         }
+        let pan = AUXILIARIES.contains(&input).then(|| {
+            // The Mixer deck's strip controls: whatever feeds the strip (an
+            // interface's channels today; later the Groove Box or a plugin).
+            // `solo` and `fx` are the Mixer's: solo within the Mixer, and
+            // the strip through the deck's effects.
+            reg.toggle(g, "solo");
+            reg.toggle(g, "fx");
+            reg.create(g, "pan", 0.0, -1.0, 1.0, Behavior::Linear)
+        });
         let configured = reg.indicator(g, "input_configured", 1.0);
         alias(reg, g, "enabled", g, "input_configured");
         Self {
@@ -276,6 +308,7 @@ impl InputControls {
             vu: reg.indicator(g, "VuMeter", 1.0),
             vu_lr: ["L", "R"].map(|s| reg.indicator(g, &format!("VuMeter{s}"), 1.0)),
             peak: reg.indicator(g, "PeakIndicator", 1.0),
+            pan,
         }
     }
 }
@@ -304,6 +337,8 @@ pub(crate) struct Input {
     eq_gains: [f32; 3],
     pregain: f32,
     level: f32,
+    /// The pan's left and right gains at the end of the last buffer.
+    pan: [f32; 2],
     vu: [f32; 2],
     peak_hold: f32,
     /// This buffer's audio after gain, EQ and effects, before the fader.
@@ -372,6 +407,7 @@ impl Input {
             eq_gains: [1.0; 3],
             pregain: 1.0,
             level: 0.0,
+            pan: [1.0; 2],
             vu: [0.0; 2],
             peak_hold: 0.0,
             buf: vec![[0.0; 2]; 4096],
@@ -511,6 +547,18 @@ impl Input {
             *s = self.eq.process([s[0] * g, s[1] * g], gains);
         }
         fx.process_block(target, buf);
+        if let Some(pan) = &self.c.pan {
+            let to = pan_gains(pan.get() as f32);
+            let from = std::mem::replace(&mut self.pan, to);
+            if from != to || to != [1.0; 2] {
+                for (f, s) in buf.iter_mut().enumerate() {
+                    let r = (f + 1) as f32 / frames as f32;
+                    for c in 0..2 {
+                        s[c] *= from[c] + (to[c] - from[c]) * r;
+                    }
+                }
+            }
+        }
         let mut peak = [0.0f32; 2];
         for s in buf.iter() {
             for c in 0..2 {
@@ -530,6 +578,14 @@ impl Input {
         }
         self.c.vu.set(self.vu[0].max(self.vu[1]) as f64);
     }
+}
+
+/// The left and right gains of a pan from -1 (left) to 1 (right): a
+/// balance, as Ableton's and a DJ mixer's are: the far side fades out and
+/// the near side stays at full level, so centre is unchanged.
+fn pan_gains(pan: f32) -> [f32; 2] {
+    let pan = pan.clamp(-1.0, 1.0);
+    [(1.0 - pan).min(1.0), (1.0 + pan).min(1.0)]
 }
 
 /// Frames an input's queue keeps in hand at its emptiest, against the
@@ -691,6 +747,14 @@ impl Ducker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pan_fades_the_far_side_and_keeps_centre() {
+        assert_eq!(pan_gains(0.0), [1.0, 1.0]);
+        assert_eq!(pan_gains(-1.0), [1.0, 0.0]);
+        assert_eq!(pan_gains(1.0), [0.0, 1.0]);
+        assert_eq!(pan_gains(0.5), [0.5, 1.0]);
+    }
 
     fn feed(period: usize) -> (InputFeed, rtrb::Producer<f32>) {
         let (tx, rx) = rtrb::RingBuffer::new(16_384);

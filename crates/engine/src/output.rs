@@ -29,7 +29,7 @@ use cpal::{BufferSize, ErrorKind, FromSample, SampleFormat, SizedSample, Support
 use opendj_control::{ControlHandle, ControlRegistry};
 
 use crate::engine::{Engine, MIX_CHANNELS, OUTPUT_CHANNELS};
-use crate::inputs::{InputFeed, AUXILIARY, AUXILIARY_2, AUXILIARY_3, MICROPHONE, NUM_INPUTS};
+use crate::inputs::{InputFeed, AUXILIARIES, MICROPHONE, NUM_AUXILIARIES, NUM_INPUTS};
 
 /// What an output plays, each a stereo pair of the buffer the engine
 /// renders: the mixes, or one deck or the sampler on its own (for a DAW or
@@ -111,18 +111,41 @@ pub struct Route {
 pub enum InputRole {
     /// Mono: one channel of the device, heard in both sides.
     Microphone,
-    /// Stereo by default (a pair of channels), or mono. Up to three.
+    /// Stereo by default (a pair of channels), or mono. Up to eight, the
+    /// Mixer deck's strips.
     Auxiliary,
     Auxiliary2,
     Auxiliary3,
+    Auxiliary4,
+    Auxiliary5,
+    Auxiliary6,
+    Auxiliary7,
+    Auxiliary8,
 }
 
 impl InputRole {
-    pub const ALL: [InputRole; 4] = [
+    pub const ALL: [InputRole; 9] = [
         InputRole::Microphone,
         InputRole::Auxiliary,
         InputRole::Auxiliary2,
         InputRole::Auxiliary3,
+        InputRole::Auxiliary4,
+        InputRole::Auxiliary5,
+        InputRole::Auxiliary6,
+        InputRole::Auxiliary7,
+        InputRole::Auxiliary8,
+    ];
+
+    /// The auxiliary inputs, in order.
+    pub const AUXILIARIES: [InputRole; NUM_AUXILIARIES] = [
+        InputRole::Auxiliary,
+        InputRole::Auxiliary2,
+        InputRole::Auxiliary3,
+        InputRole::Auxiliary4,
+        InputRole::Auxiliary5,
+        InputRole::Auxiliary6,
+        InputRole::Auxiliary7,
+        InputRole::Auxiliary8,
     ];
 
     pub fn name(self) -> &'static str {
@@ -131,6 +154,11 @@ impl InputRole {
             InputRole::Auxiliary => "auxiliary",
             InputRole::Auxiliary2 => "auxiliary2",
             InputRole::Auxiliary3 => "auxiliary3",
+            InputRole::Auxiliary4 => "auxiliary4",
+            InputRole::Auxiliary5 => "auxiliary5",
+            InputRole::Auxiliary6 => "auxiliary6",
+            InputRole::Auxiliary7 => "auxiliary7",
+            InputRole::Auxiliary8 => "auxiliary8",
         }
     }
 
@@ -140,12 +168,19 @@ impl InputRole {
 
     /// Its input in the engine (see [`crate::inputs`]).
     pub fn index(self) -> usize {
-        match self {
-            InputRole::Microphone => MICROPHONE,
-            InputRole::Auxiliary => AUXILIARY,
-            InputRole::Auxiliary2 => AUXILIARY_2,
-            InputRole::Auxiliary3 => AUXILIARY_3,
+        match self.aux_number() {
+            Some(n) => AUXILIARIES[n - 1],
+            None => MICROPHONE,
         }
+    }
+
+    /// 1 for the first auxiliary input to 8 for the last; none for the
+    /// microphone.
+    pub fn aux_number(self) -> Option<usize> {
+        InputRole::AUXILIARIES
+            .iter()
+            .position(|r| *r == self)
+            .map(|n| n + 1)
     }
 
     /// Whether it can take one channel or two (the auxiliary inputs).
@@ -1430,6 +1465,22 @@ mod tests {
         fan_out(&mut [a, b], 4, &FOUR);
         assert_eq!(drain(&mut full), [1.0, 2.0]);
         assert_eq!(drain(&mut rb), [3.0, 4.0, 13.0, 14.0]);
+    }
+
+    #[test]
+    fn eight_auxiliary_inputs_by_name_and_number() {
+        assert_eq!(InputRole::AUXILIARIES.len(), 8);
+        for (n, role) in (1..).zip(InputRole::AUXILIARIES) {
+            assert_eq!(role.aux_number(), Some(n));
+            assert_eq!(InputRole::from_name(role.name()), Some(role));
+            assert_eq!(role.index(), AUXILIARIES[n - 1]);
+            assert!(role.can_be_stereo());
+        }
+        // Saved names from before stay the same.
+        assert_eq!(InputRole::Auxiliary.name(), "auxiliary");
+        assert_eq!(InputRole::Auxiliary3.name(), "auxiliary3");
+        assert_eq!(InputRole::Microphone.aux_number(), None);
+        assert_eq!(InputRole::Microphone.index(), MICROPHONE);
     }
 
     #[test]

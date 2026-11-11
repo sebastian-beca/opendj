@@ -4578,7 +4578,7 @@ component LivePanel inherits Rectangle {
     in property <int> live;
     in property <string> group;
     in property <color> tint;
-    property <string> input-group: ["[Microphone]", "[Auxiliary1]", "[Instrument1]", "[Auxiliary2]", "[Auxiliary3]"][live - 1];
+    property <string> input-group: ["[Microphone]", "[Auxiliary1]", "[Instrument1]", "[Auxiliary2]", "[Auxiliary3]", "[Auxiliary4]", "[Auxiliary5]", "[Auxiliary6]", "[Auxiliary7]", "[Auxiliary8]"][live - 1];
     property <bool> ready: Controls.value(Controls.resolve(input-group, "input_configured"), Controls.tick) > 0;
     property <float> level: Controls.value(Controls.resolve(group, "vu_meter"), Controls.tick);
     property <int> octave-index: Controls.resolve("[Instrument1]", "octave");
@@ -4726,7 +4726,7 @@ export component LiveStrip inherits Rectangle {
     in property <int> live;
     in property <string> group;
     in property <color> tint;
-    property <string> input-group: ["[Microphone]", "[Auxiliary1]", "[Instrument1]", "[Auxiliary2]", "[Auxiliary3]"][live - 1];
+    property <string> input-group: ["[Microphone]", "[Auxiliary1]", "[Instrument1]", "[Auxiliary2]", "[Auxiliary3]", "[Auxiliary4]", "[Auxiliary5]", "[Auxiliary6]", "[Auxiliary7]", "[Auxiliary8]"][live - 1];
     property <bool> ready: Controls.value(Controls.resolve(input-group, "input_configured"), Controls.tick) > 0;
     property <int> count: Controls.value(Controls.resolve("[Instrument1]", "num_parameters"), Controls.tick);
     border-radius: 8px;
