@@ -285,18 +285,26 @@ fn vdj_folders(
             continue;
         }
         seen.push(base.clone());
+        let sub = dir.join(format!("{base}.subfolders"));
+        let plain = dir.join(&base);
+        let inner_dir = if sub.is_dir() { sub } else { plain };
+        let mut inner = folders.to_vec();
+        inner.push(base.clone());
+        // A folder that holds songs as well as lists: its songs are a list
+        // of the same name, first inside it, rather than a list beside it.
+        let at = if inner_dir.is_dir() { &inner } else { folders };
         let file = dir.join(format!("{base}.vdjfolder"));
         if let Ok(text) = std::fs::read_to_string(&file) {
             match vdj_folder(&text) {
                 Some(Folder::Songs(entries)) if virtual_folders => out.push(ImportedList {
-                    folders: folders.to_vec(),
+                    folders: at.to_vec(),
                     name: base.clone(),
                     kind: ImportedListKind::List,
                     entries,
                 }),
                 Some(Folder::Filter(filter)) if filters => match translate_filter(&filter) {
                     Some(query) => out.push(ImportedList {
-                        folders: folders.to_vec(),
+                        folders: at.to_vec(),
                         name: base.clone(),
                         kind: ImportedListKind::Smart { query },
                         entries: Vec::new(),
@@ -306,12 +314,7 @@ fn vdj_folders(
                 _ => {}
             }
         }
-        let sub = dir.join(format!("{base}.subfolders"));
-        let plain = dir.join(&base);
-        let inner_dir = if sub.is_dir() { sub } else { plain };
         if inner_dir.is_dir() {
-            let mut inner = folders.to_vec();
-            inner.push(base);
             vdj_folders(&inner_dir, &inner, virtual_folders, filters, out, skipped);
         }
     }
@@ -791,7 +794,7 @@ mod tests {
         assert_eq!(
             names(&[PLAYLISTS, FOLDERS]),
             [
-                "Playlists/Moods",
+                "Playlists/Moods/Moods",
                 "Playlists/Gigs/2024/Friday",
                 "Playlists/Warm up",
                 "Folders/LocalMusic/Picks",
@@ -800,7 +803,7 @@ mod tests {
         assert_eq!(
             names(&[PLAYLISTS, FILTERS]),
             [
-                "Playlists/Moods",
+                "Playlists/Moods/Moods",
                 "Playlists/Moods/Old hits",
                 "Playlists/Gigs/2024/Friday",
                 "Playlists/Warm up",

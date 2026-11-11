@@ -327,7 +327,9 @@ Press **Import**. Each track keeps VirtualDJ's tags, stars, color, comment,
 play count, dates, BPM, beat grid, key, hot cues with their names and
 colors, saved loops, gain, and its remix and automix points. Anything
 VirtualDJ leaves empty is filled in from the file's own tags. The lists go
-into a **VirtualDJ** folder, and history into the History tab.
+into a **VirtualDJ** folder, and history into the History tab. A VirtualDJ
+folder that holds songs itself becomes a folder whose first list, with the
+same name, holds those songs.
 
 openDJ only ever reads VirtualDJ's files. If you keep using VirtualDJ,
 openDJ checks its files each time it starts and brings in what changed.
@@ -457,18 +459,20 @@ own `_LOOPS` and `_RECORDINGS` lists and its smart lists stay out.
 
 ## Bringing in a djay Pro library
 
-**Import from djay Pro** works the same way. openDJ reads djay's
-`MediaLibrary.db` (only reading it, even while djay is open), which it finds
-in `Music/djay/djay Media Library.djayMediaLibrary` on a Mac or
+**Import from djay Pro** works the same way. openDJ reads a copy of djay's
+`MediaLibrary.db`, so djay can stay open and its library is never changed.
+It finds it in `Music/djay/djay Media Library.djayMediaLibrary` on a Mac or
 `Music/djay/djay Media Library` on Windows. If yours is elsewhere, choose
 the file in the first step.
 
 Each track that is a file on this computer keeps its title, artist, album,
-BPM, key, hot cues 1 to 8 with their names and colors, saved loops (as
-memory cues), Automix start and end (as Automix points), play count and
-color. When you set the first downbeat in djay, the grid starts there.
-Playlists come in a **djay Pro** folder, in djay's order. Tracks streamed
-from TIDAL, Beatport or Apple Music aren't brought in yet.
+genre, BPM, key, rating, year, comment, hot cues 1 to 8 with their names and
+colors, saved loops (as memory cues), Automix start and end (as Automix
+points), play count and color. When you set the first downbeat in djay, the
+grid starts there. Playlists come in a **djay Pro** folder, in djay's order
+and with djay's folders, and djay's history comes as one session per set.
+Tracks streamed from TIDAL, Beatport, SoundCloud or Spotify show in their
+lists as streamed tracks, with their artist, title and length.
 
 ### The same song from two apps
 
@@ -507,11 +511,11 @@ Drag a crate, playlist or folder onto a folder to move it there, or onto
 the **Crates** or **Playlists** heading to take it back to the top (a
 crate's top is Crates, a playlist's is Playlists; a folder can go under
 either).
-- **Imported**: other apps' lists (a folder per app, with a padlock) and
-  **Groupings and Tags**. They are read-only, because the app's next
-  import makes them again. To keep an app's lists as your own (say, once
-  you stop using that app), right-click its folder and pick **Make These
-  Lists Mine**: they move to Playlists and can be changed, and that
+- **Imported**: other apps' lists (a folder per app) and **Groupings and
+  Tags**. They are read-only, because the app's next import makes them
+  again, so they show a padlock and dimmer names. To keep an app's lists as
+  your own (say, once you stop using that app), right-click any of them and
+  pick **Make These Lists Mine**: they move to Playlists and can be changed, and that
   import keeps bringing in tracks, cues and grids but no more lists.
   Turning the import off and on again brings its lists back.
 
