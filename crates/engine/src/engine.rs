@@ -3928,9 +3928,14 @@ impl Engine {
                 (d.peak_hold - dt as f32).max(0.0)
             };
             d.c.peak.set_bool(d.peak_hold > 0.0);
+            // Metered with or without a track: a live input, the Groove Box
+            // or the Looper plays through the deck too.
+            for ((vu, peak), control) in d.vu.iter_mut().zip(deck_peak[i]).zip(&d.c.vu_lr) {
+                *vu = meter(peak).max(*vu - VU_FALL * dt as f32);
+                control.set(*vu as f64);
+            }
+            d.c.vu.set(d.vu[0].max(d.vu[1]) as f64);
             let Some(track) = d.track.clone() else {
-                d.c.vu.set(0.0);
-                d.c.vu_lr.iter().for_each(|v| v.set(0.0));
                 d.c.cue_indicator.set(0.0);
                 continue;
             };
@@ -3955,11 +3960,6 @@ impl Engine {
                 .set_bool((!playing && (at_cue || blink)) || d.c.cue_default.get_bool());
             let phase = track.beat_at(d.seconds()).rem_euclid(1.0);
             d.c.beat_active.set_bool(p.moving && phase < 0.15);
-            for ((vu, peak), control) in d.vu.iter_mut().zip(deck_peak[i]).zip(&d.c.vu_lr) {
-                *vu = meter(peak).max(*vu - VU_FALL * dt as f32);
-                control.set(*vu as f64);
-            }
-            d.c.vu.set(d.vu[0].max(d.vu[1]) as f64);
         }
         self.master_gain = master_target;
         self.balance = balance_target;
@@ -7127,6 +7127,10 @@ mod tests {
         assert!(!ch(2, "track_loaded").get_bool());
         let level = level_at(&out[out.len() / 2..], 500.0);
         assert!(level > 0.1, "{level}");
+        // The deck's meters show it, with no track loaded.
+        assert!(ch(2, "vu_meter").get() > 0.5, "{}", ch(2, "vu_meter").get());
+        assert!(ch(2, "vu_meter_left").get() > 0.5);
+        assert!(ch(2, "vu_meter_right").get() > 0.5);
         // The deck's fader turns it down.
         ch(2, "volume").set(0.0);
         talk(&mut engine, &mut tx, 0.1, sine(500.0, 0.4));
