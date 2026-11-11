@@ -281,6 +281,9 @@ struct Deck {
     /// Keeps a live input's true peaks under -1 dBTP, always on while the
     /// deck plays one: gear and plugins can come in hot.
     live_limiter: Limiter,
+    /// The same chain for the Mixer's strips with FX off, which skip the
+    /// deck's effect units (see `mixer_dry`).
+    dry: DryChain,
     /// The live input's trim (linear) and balance reached at the end of the
     /// last buffer.
     live_trim: f32,
@@ -1592,6 +1595,9 @@ pub struct Engine {
     /// up front: each deck's audio and metronome click, the main mix and the
     /// headphone cue before the main mix's effects.
     deck_buf: Vec<Vec<[f32; 2]>>,
+    /// The Mixer's strips with FX off, through the deck's chain up to its
+    /// effect units, joining the deck after them: one deck plays the Mixer.
+    mixer_dry: Vec<[f32; 2]>,
     click_buf: Vec<Vec<f32>>,
     main_buf: Vec<[f32; 2]>,
     cue_buf: Vec<[f32; 2]>,
@@ -1810,6 +1816,7 @@ impl Engine {
             filter: ColorFx::new(sample_rate),
             sculpt: Sculpt::new(sample_rate),
             live_limiter: Limiter::new(sample_rate, LIVE_CEILING),
+            dry: DryChain::new(sample_rate),
             live_trim: 1.0,
             live_pan: 0.0,
             side_before_live: None,
@@ -1905,6 +1912,7 @@ impl Engine {
                 master,
                 fx,
                 deck_buf: vec![vec![[0.0; 2]; BLOCK]; NUM_DECKS],
+                mixer_dry: vec![[0.0; 2]; BLOCK],
                 click_buf: vec![vec![0.0; BLOCK]; NUM_DECKS],
                 main_buf: vec![[0.0; 2]; BLOCK],
                 cue_buf: vec![[0.0; 2]; BLOCK],
@@ -3463,6 +3471,8 @@ impl Engine {
         // to its effects, then the effects, then the mix up to the main
         // mix's effects, then those, then the rest.
         let mut deck_buf = std::mem::take(&mut self.deck_buf);
+        let mut mixer_dry = std::mem::take(&mut self.mixer_dry);
+        let mixer_deck = mixer_on.iter().position(|&m| m);
         let mut click_buf = std::mem::take(&mut self.click_buf);
         let mut main_buf = std::mem::take(&mut self.main_buf);
         let mut cue_buf = std::mem::take(&mut self.cue_buf);
@@ -3652,16 +3662,24 @@ impl Engine {
                 if looper_on[i] {
                     s = looper_buf[i][f];
                 }
+                // The Mixer's strips with FX off, kept apart (see below).
+                let mut dry = None;
                 if live_on[i] > 0 || mixer_on[i] {
                     let x = if mixer_on[i] {
                         // The strips after their trim, effects, pan and
-                        // fader: the deck's own trim, EQ, effects and fader
-                        // act on the sum, the Mixer's master.
-                        AUXILIARIES.iter().fold([0.0f32; 2], |m, &k| {
+                        // fader: the deck's own trim, EQ, filter and fader
+                        // act on the sums, the Mixer's master; its effect
+                        // units only on the strips with FX on.
+                        let mut sums = [[0.0f32; 2]; 2];
+                        for &k in &AUXILIARIES {
                             let inp = &self.inputs[k];
                             let g = lerp(inp.level_ramp);
-                            [m[0] + inp.buf[f][0] * g, m[1] + inp.buf[f][1] * g]
-                        })
+                            let sum = &mut sums[usize::from(!inp.through_fx())];
+                            sum[0] += inp.buf[f][0] * g;
+                            sum[1] += inp.buf[f][1] * g;
+                        }
+                        dry = Some(sums[1]);
+                        sums[0]
                     } else {
                         self.inputs[live_on[i] - 1].raw[f]
                     };
@@ -3669,23 +3687,26 @@ impl Engine {
                     let [l, r] = live_balance(lerp(p.live_pan));
                     let t = lerp(p.live_trim);
                     s = [x[0] * t * l, x[1] * t * r];
+                    dry = dry.map(|x| [x[0] * t * l, x[1] * t * r]);
                 }
                 let gains = std::array::from_fn(|k| p.eq_from[k] + (p.eq_to[k] - p.eq_from[k]) * r);
                 let pre = lerp(p.pre);
                 s = [s[0] * pre, s[1] * pre];
+                let dry = dry.map(|x| [x[0] * pre, x[1] * pre]);
                 // A live deck's sound for its waveform, after the trim and
                 // before the EQ, as a track's waveform shows the track.
                 if live_on[i] > 0 || mixer_on[i] || groove_on[i] || looper_on[i] {
-                    self.live_waves[i].push(s);
+                    let heard = dry.map_or(s, |x| [s[0] + x[0], s[1] + x[1]]);
+                    self.live_waves[i].push(heard);
                 }
                 if tap == Some(DeckTap::Clean) {
-                    tap_buf[i][f] = s;
+                    tap_buf[i][f] = dry.map_or(s, |x| [s[0] + x[0], s[1] + x[1]]);
                 }
-                s = d.eq.process(s, gains);
-                let filtered = d.filter.process(s);
                 // Bypass fades at the effects' fixed rate, not over the
                 // buffer, so a short buffer doesn't click.
                 let q = fade(p.quick.0, p.quick.1, (f + 1) as f32 * quick_step);
+                s = d.eq.process(s, gains);
+                let filtered = d.filter.process(s);
                 for c in 0..2 {
                     s[c] += (filtered[c] - s[c]) * q;
                 }
@@ -3694,6 +3715,9 @@ impl Engine {
                 }
                 if live_on[i] > 0 || mixer_on[i] || looper_on[i] {
                     s = d.live_limiter.process(s);
+                }
+                if let Some(x) = dry {
+                    mixer_dry[f] = d.dry.process(x, gains, q, !external);
                 }
                 deck_buf[i][f] = s;
                 click_buf[i][f] = 0.0;
@@ -3710,6 +3734,12 @@ impl Engine {
                 std::array::from_fn(|i| (i, &mut bufs.next().expect("a buffer per deck")[..frames]))
             };
             self.fx.process_blocks(&mut blocks);
+        }
+        // The Mixer's dry strips join its deck after the deck's effects.
+        if let Some(m) = mixer_deck {
+            for (d, x) in deck_buf[m][..frames].iter_mut().zip(&mixer_dry) {
+                *d = [d[0] + x[0], d[1] + x[1]];
+            }
         }
         for f in 0..frames {
             let r = (f + 1) as f32 / frames as f32;
@@ -3913,6 +3943,7 @@ impl Engine {
             self.write_taps(&tap_buf, out, channels, frames, !external);
         }
         self.deck_buf = deck_buf;
+        self.mixer_dry = mixer_dry;
         self.click_buf = click_buf;
         self.groove_buf = groove_buf;
         self.looper_buf = looper_buf;
@@ -4042,6 +4073,41 @@ impl Engine {
             self.meter.push(out, channels);
             self.broadcast.push(out, channels);
         }
+    }
+}
+
+/// A deck's EQ, filter, Model 1 sculpt and live limiter again, for the
+/// Mixer's strips with FX off: they sound through the deck as the rest do,
+/// but skip its effect units.
+struct DryChain {
+    eq: Isolator,
+    filter: ColorFx,
+    sculpt: Sculpt,
+    limiter: Limiter,
+}
+
+impl DryChain {
+    fn new(sample_rate: f64) -> Self {
+        Self {
+            eq: Isolator::new(sample_rate),
+            filter: ColorFx::new(sample_rate),
+            sculpt: Sculpt::new(sample_rate),
+            limiter: Limiter::new(sample_rate, LIVE_CEILING),
+        }
+    }
+
+    /// One frame through it, with the deck's EQ `gains`, filter amount `q`
+    /// and sculpt (`sculpt`, off with an external mixer).
+    fn process(&mut self, x: [f32; 2], gains: [f32; 3], q: f32, sculpt: bool) -> [f32; 2] {
+        let mut s = self.eq.process(x, gains);
+        let filtered = self.filter.process(s);
+        for c in 0..2 {
+            s[c] += (filtered[c] - s[c]) * q;
+        }
+        if sculpt {
+            s = self.sculpt.process(s);
+        }
+        self.limiter.process(s)
     }
 }
 
@@ -7264,6 +7330,62 @@ mod tests {
             (a5 - 0.4).abs() < 0.03 && (b5 - 0.4).abs() < 0.03,
             "{a5} {b5}"
         );
+    }
+
+    /// The peak of deck 1 playing the Mixer well after a burst into
+    /// strips 1 and 2, with deck 1's unit on Echo and each strip's `fx` as
+    /// given.
+    fn mixer_echo_tail(fx: [bool; 2]) -> f32 {
+        use crate::inputs::{AUXILIARY_2, MIXER};
+        let (reg, mut engine, _input) = setup();
+        let c = |g: &str, k: &str| reg.get(g, k).unwrap();
+        let (f1, mut t1) = mic_feed();
+        let (f2, mut t2) = mic_feed();
+        engine.set_input(AUXILIARY, Some(f1));
+        engine.set_input(AUXILIARY_2, Some(f2));
+        c("[Channel1]", "live_input").set(MIXER as f64);
+        for (n, on) in [1, 2].into_iter().zip(fx) {
+            let g = format!("[Auxiliary{n}]");
+            c(&g, "main_mix").set_bool(true);
+            c(&g, "fx").set_bool(on);
+        }
+        let unit = "[EffectRack1_EffectUnit1]";
+        let slot = "[EffectRack1_EffectUnit1_Effect1]";
+        c(unit, "enabled").set_bool(true);
+        c(unit, "group_[Channel1]_enable").set_bool(true);
+        c(slot, "loaded_effect").set(1.0);
+        c(slot, "meta").set(0.8);
+        c(slot, "enabled").set_bool(true);
+        c(unit, "mix").set(0.5);
+        let (a, b) = (sine(500.0, 0.4), sine(700.0, 0.4));
+        let mut out = Vec::new();
+        let mut buf = vec![0.0f32; 512 * 2];
+        let mut n = 0;
+        for _ in 0..(1.5 * SR / 512.0) as usize {
+            for _ in 0..512 {
+                let on = n < 9_600;
+                let (x, y) = if on { (a(n), b(n)) } else { (0.0, 0.0) };
+                for _ in 0..2 {
+                    let _ = t1.push(x);
+                    let _ = t2.push(y);
+                }
+                n += 1;
+            }
+            engine.process(&mut buf, 2);
+            out.extend_from_slice(&buf);
+        }
+        assert!(peak(&out[2_048 * 2..9_000 * 2]) > 0.3, "the burst is heard");
+        peak(&out[(SR as usize / 2) * 2..])
+    }
+
+    #[test]
+    fn only_mixer_strips_with_fx_on_go_through_the_decks_effects() {
+        // Either strip with FX on echoes on after the burst.
+        assert!(mixer_echo_tail([true, false]) > 0.01);
+        assert!(mixer_echo_tail([false, true]) > 0.01);
+        // With FX off on both, the deck's echo hears nothing.
+        let dry = mixer_echo_tail([false, false]);
+        assert!(dry < 1e-4, "{dry}");
     }
 
     #[test]

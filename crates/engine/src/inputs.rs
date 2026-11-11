@@ -208,6 +208,8 @@ struct InputControls {
     pan: Option<ControlHandle>,
     /// An auxiliary input's `solo` in the Mixer.
     solo: Option<ControlHandle>,
+    /// An auxiliary input's `fx` in the Mixer: through the deck's effects.
+    fx: Option<ControlHandle>,
 }
 
 impl InputControls {
@@ -301,10 +303,10 @@ impl InputControls {
             // interface's channels today; later the Groove Box or a plugin).
             // `solo` and `fx` are the Mixer's: solo within the Mixer, and
             // the strip through the deck's effects.
-            reg.toggle(g, "fx");
             reg.create(g, "pan", 0.0, -1.0, 1.0, Behavior::Linear)
         });
         let solo = AUXILIARIES.contains(&input).then(|| reg.toggle(g, "solo"));
+        let fx = AUXILIARIES.contains(&input).then(|| reg.toggle(g, "fx"));
         let configured = reg.indicator(g, "input_configured", 1.0);
         alias(reg, g, "enabled", g, "input_configured");
         Self {
@@ -330,6 +332,7 @@ impl InputControls {
             peak: reg.indicator(g, "PeakIndicator", 1.0),
             pan,
             solo,
+            fx,
         }
     }
 }
@@ -441,6 +444,12 @@ impl Input {
             in_mixer: false,
             live: false,
         }
+    }
+
+    /// Its `fx` is on: in the Mixer, it goes through the deck's effect
+    /// units; off, it skips them.
+    pub(crate) fn through_fx(&self) -> bool {
+        self.c.fx.as_ref().is_some_and(|s| s.get_bool())
     }
 
     /// Soloed in the Mixer.
