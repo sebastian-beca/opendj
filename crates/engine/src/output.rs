@@ -19,7 +19,7 @@
 //! dropouts the device reports or that show as late callbacks, and a device
 //! that goes away, which is reopened once it is back.
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -601,6 +601,12 @@ pub(crate) struct Outputs {
     /// Each route's state, in the setup's order: its format, or what is wrong.
     pub(crate) route_status: Vec<String>,
     inputs: Vec<cpal::Stream>,
+    /// Each open input device's channel meters (see [`Levels`]), by its
+    /// name as the setup gives it.
+    levels: Vec<(String, Levels)>,
+    /// An input device opened only for its meters, while the input picker
+    /// shows one that no input uses: its name and stream.
+    watched: Option<(String, Option<cpal::Stream>)>,
     /// Each input's state, by [`InputRole::index`]: its device and format,
     /// what is wrong, or empty when it has no device.
     input_status: [String; NUM_INPUTS],
@@ -633,6 +639,8 @@ impl Outputs {
             main_status: String::new(),
             route_status: Vec::new(),
             inputs: Vec::new(),
+            levels: Vec::new(),
+            watched: None,
             input_status: Default::default(),
             heard: Default::default(),
             health,
@@ -657,6 +665,7 @@ impl Outputs {
     pub(crate) fn configure_inputs(&mut self, setup: &AudioSetup) {
         // Stop the old streams before taking their queues from the engine.
         self.inputs.clear();
+        self.levels.clear();
         self.heard = Default::default();
         self.input_lost.store(false, Ordering::Release);
         // Kept for reopening them after their device resets.
@@ -688,6 +697,10 @@ impl Outputs {
             }
         }
         drop(old);
+        // A device watched for its meters that the inputs now open is
+        // metered by their stream instead.
+        let watched = self.watched.take().map(|(name, _)| name);
+        self.watch_input(watched.as_deref());
     }
 
     /// Each input's state, by [`InputRole::index`]: its device and format,
@@ -708,6 +721,61 @@ impl Outputs {
                 _ => status.clone(),
             })
             .collect()
+    }
+
+    /// The peak of each channel of each open input device since the last
+    /// call, by the device's name as the setup gives it (empty for the
+    /// system default): for the input picker's meters.
+    pub(crate) fn input_levels(&self) -> Vec<(String, Vec<f32>)> {
+        self.levels
+            .iter()
+            .map(|(name, levels)| (name.clone(), levels.take()))
+            .collect()
+    }
+
+    /// Meters the input device called `device` (empty for the system
+    /// default) while the input picker shows it, opening it for that if no
+    /// input uses it; `None` closes it again.
+    pub(crate) fn watch_input(&mut self, device: Option<&str>) {
+        let Some(device) = device else {
+            self.drop_watched();
+            return;
+        };
+        if self.watched.as_ref().is_some_and(|(d, _)| d == device) {
+            return;
+        }
+        self.drop_watched();
+        let open = self.levels.iter().any(|(d, _)| d == device);
+        let stream = if open || no_audio() {
+            None
+        } else {
+            self.open_meter(device)
+        };
+        self.watched = Some((device.to_string(), stream));
+    }
+
+    fn drop_watched(&mut self) {
+        if let Some((name, Some(_))) = self.watched.take() {
+            self.levels.retain(|(d, _)| *d != name);
+        }
+    }
+
+    /// Opens `device` with all its channels just for their meters.
+    fn open_meter(&mut self, device: &str) -> Option<cpal::Stream> {
+        let dev = find_input(device)?;
+        let config = input_config_wide(&dev, self.rate, 1)?;
+        let channels = config.channels() as usize;
+        let levels = Levels::new(channels);
+        // Its stream stopping is no reason to reopen the inputs.
+        let lost = Arc::new(AtomicBool::new(false));
+        let stream = input_stream(&dev, &config, self.setup.buffer_frames, &lost, {
+            let levels = levels.clone();
+            move |data: &[f32]| levels.meter(channels, data)
+        })
+        .map_err(|e| eprintln!("audio input {device}: {e}"))
+        .ok()?;
+        self.levels.push((device.to_string(), levels));
+        Some(stream)
     }
 
     /// Opens the input device called `device` once for all of `routes`,
@@ -753,7 +821,7 @@ impl Outputs {
             }
         }
         let needed = fits.iter().map(|r| r.channel + r.channels()).max();
-        let Some(config) = needed.and_then(|n| input_config_at(&dev, self.rate, n)) else {
+        let Some(config) = needed.and_then(|n| input_config_wide(&dev, self.rate, n)) else {
             return out;
         };
         let period = Arc::new(AtomicUsize::new(0));
@@ -780,15 +848,19 @@ impl Outputs {
             opened.push((r.role.index(), feed, status, heard));
         }
         let channels = config.channels() as usize;
+        let levels = Levels::new(channels);
         let stream = input_stream(&dev, &config, frames, &self.input_lost, {
+            let levels = levels.clone();
             move |data: &[f32]| {
                 period.store(data.len() / channels, Ordering::Relaxed);
                 fan_out(&mut taps, channels, data);
+                levels.meter(channels, data);
             }
         });
         match stream {
             Ok(stream) => {
                 self.inputs.push(stream);
+                self.levels.push((device.to_string(), levels));
                 out.extend(
                     opened
                         .into_iter()
@@ -1205,6 +1277,63 @@ pub fn channel_names(first: u16, count: u16) -> String {
     }
 }
 
+/// Each channel's peak on an input device since it was last read, shared
+/// between the device's callback, which raises them, and the app, which
+/// takes them. Held as f32 bits: for levels of 0 and up, their order as
+/// integers is their order as numbers, so `fetch_max` works on them.
+#[derive(Clone)]
+struct Levels(Arc<[AtomicU32]>);
+
+impl Levels {
+    fn new(channels: usize) -> Self {
+        Self((0..channels).map(|_| AtomicU32::new(0)).collect())
+    }
+
+    /// Raises each channel's peak to the loudest of `data`, `channels`
+    /// interleaved.
+    fn meter(&self, channels: usize, data: &[f32]) {
+        let mut peaks = [0.0f32; 64];
+        let n = channels.min(self.0.len()).min(peaks.len());
+        for frame in data.chunks_exact(channels) {
+            for (p, v) in peaks[..n].iter_mut().zip(frame) {
+                *p = p.max(v.abs());
+            }
+        }
+        for (level, p) in self.0.iter().zip(&peaks[..n]) {
+            if p.is_finite() {
+                level.fetch_max(p.to_bits(), Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Each channel's peak since the last time, starting over.
+    fn take(&self) -> Vec<f32> {
+        self.0
+            .iter()
+            .map(|l| f32::from_bits(l.swap(0, Ordering::Relaxed)))
+            .collect()
+    }
+}
+
+/// An input stream config at `rate` with at least `channels` channels, and
+/// all the device's own if it has more (as many as its default config has),
+/// so the input picker can meter every one.
+fn input_config_wide(
+    device: &cpal::Device,
+    rate: f64,
+    channels: u16,
+) -> Option<cpal::SupportedStreamConfig> {
+    let own = device.default_input_config().map_or(0, |c| c.channels());
+    input_config_at(device, rate, wide_channels(own, channels))
+        .or_else(|| input_config_at(device, rate, channels))
+}
+
+/// The channels to open a device with: those the inputs need, or the
+/// device's own (`own`, 0 if unknown) when it has more, up to 64.
+fn wide_channels(own: u16, needed: u16) -> u16 {
+    own.min(64).max(needed)
+}
+
 /// An input stream config at `rate` with at least `channels` channels,
 /// preferring float samples and the fewest channels.
 fn input_config_at(
@@ -1481,6 +1610,35 @@ mod tests {
         assert_eq!(InputRole::Auxiliary3.name(), "auxiliary3");
         assert_eq!(InputRole::Microphone.aux_number(), None);
         assert_eq!(InputRole::Microphone.index(), MICROPHONE);
+    }
+
+    #[test]
+    fn each_channel_of_an_input_device_has_a_meter() {
+        let levels = Levels::new(4);
+        // Two frames of four channels; channel 3 is silent.
+        levels.meter(4, &[0.1, -0.5, 0.0, 0.2, 0.3, 0.25, 0.0, -0.9]);
+        levels.meter(4, &[0.05, 0.0, 0.0, 0.0]);
+        assert_eq!(levels.take(), [0.3, 0.5, 0.0, 0.9]);
+        // Read, they start over.
+        assert_eq!(levels.take(), [0.0; 4]);
+        // A clipping channel reads over 1; garbage doesn't stick.
+        levels.meter(4, &[1.5, f32::NAN, 0.0, 0.0]);
+        let got = levels.take();
+        assert_eq!(got[0], 1.5);
+        assert_eq!(got[1], 0.0);
+    }
+
+    #[test]
+    fn input_devices_open_with_all_their_channels() {
+        // A four-input interface opens with all four, for the meters, even
+        // when one stereo input on 1/2 is all that plays.
+        assert_eq!(wide_channels(4, 2), 4);
+        // An input past what the default config says still gets its own.
+        assert_eq!(wide_channels(2, 6), 6);
+        // Unknown, or a driver offering hundreds: what the inputs need, or
+        // at most 64.
+        assert_eq!(wide_channels(0, 2), 2);
+        assert_eq!(wide_channels(512, 2), 64);
     }
 
     #[test]
