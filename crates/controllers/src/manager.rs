@@ -1269,6 +1269,8 @@ mod tests {
             ("PIONEER DDJ-SX2", "Pioneer DDJ-SX2.midi.xml"),
             ("PIONEER DDJ-RX", "Pioneer DDJ-RX.midi.xml"),
             ("PIONEER DDJ-800", "Pioneer-DDJ-800.midi.xml"),
+            ("XDJ-AZ", "Pioneer-XDJ-AZ.midi.xml"),
+            ("XDJ-RX3", "Pioneer-XDJ-RX3.midi.xml"),
             ("DDJ-400", "Pioneer-DDJ-400.midi.xml"),
             ("DDJ-200", "Pioneer DDJ-200.midi.xml"),
             (
