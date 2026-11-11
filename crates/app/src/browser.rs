@@ -52,6 +52,7 @@ mod playlist_files;
 mod prep;
 mod rekordbox_xml;
 mod sets;
+mod side_tabs;
 mod spotify_export;
 mod staging;
 mod streamed;
@@ -1577,6 +1578,7 @@ impl Browser {
             .map(|n| !hidden.iter().any(|h| h == n))
             .collect();
         app.set_sources_shown(std::rc::Rc::new(slint::VecModel::from(shown)).into());
+        side_tabs::install(app);
         // Collection Health's rail button hides the same way.
         app.global::<HealthUi>()
             .set_rail_shown(!hidden.iter().any(|h| h == HEALTH_RAIL_NAME));
