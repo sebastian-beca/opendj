@@ -1419,7 +1419,9 @@ impl Prefs {
                             "How the decks' waveforms are colored. RGB: one shape, red where \
                              the bass is loudest, amber for the mids, blue for the highs. \
                              3-Band: bass, mids and highs stacked in their own colors, as on \
-                             rekordbox. Blue: one blue shape, lighter where the highs are loud.",
+                             rekordbox. Blue: one blue shape, lighter where the highs are loud. \
+                             Stems: each stem in its pad color once a track has stems, RGB \
+                             until then.",
                         )
                     },
                 ]

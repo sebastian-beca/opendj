@@ -15,8 +15,8 @@
 
 ## 3. Stems
 
-- [ ] 3.1 Per-stem levels on the GPU when stems are separated
-- [ ] 3.2 Stems in the Waveform color dropdown, each stem in its pad color, RGB without stems
+- [x] 3.1 Per-stem levels on the GPU when stems are separated
+- [x] 3.2 Stems in the Waveform color dropdown, each stem in its pad color, RGB without stems
 
 ## 4. Gain (try out)
 

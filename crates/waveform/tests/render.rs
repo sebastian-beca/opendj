@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use opendj_waveform::{
-    steady_grid, wgpu, Frame, GpuTrack, Mode, Palette, PhraseKind, Style, WaveformRenderer,
+    steady_grid, wgpu, Extras, Frame, GpuTrack, Mode, Palette, PhraseKind, Style, WaveformRenderer,
     WaveformView,
 };
 
@@ -830,15 +830,18 @@ fn tints_the_sung_parts() {
         .map(|_| [200, 120, 60, 200, 160, 100, 50, 160])
         .collect();
     let vocals: Vec<u8> = (0..100).map(|i| if i < 50 { 0 } else { 255 }).collect();
-    let track = Arc::new(GpuTrack::with_vocals(
+    let track = Arc::new(GpuTrack::with_extras(
         &device,
         &queue,
         &renderer,
         1,
         &levels(base),
         1000.0,
-        &vocals,
-        10.0,
+        Extras {
+            vocals: &vocals,
+            vocal_rate: 10.0,
+            ..Extras::default()
+        },
     ));
     let (w, h) = (256u32, 60u32);
     let green = |px: &[u8], x: u32| {
@@ -877,4 +880,86 @@ fn tints_the_sung_parts() {
             assert!((sung - not).abs() < 5, "off: sung {sung}, not {not}");
         }
     }
+}
+
+/// The Stems look draws each stem in its colour where it is the loudest,
+/// and RGB for a track without stem levels.
+#[test]
+fn draws_each_stem_in_its_color() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let renderer = WaveformRenderer::new(&device, &queue);
+    let base: Vec<[u8; 8]> = (0..10_000)
+        .map(|_| [200, 120, 60, 220, 160, 100, 50, 180])
+        .collect();
+    // Bass alone in the first half, vocals alone in the second.
+    let stems: Vec<[u8; 5]> = (0..100)
+        .map(|i| {
+            if i < 50 {
+                [0, 230, 0, 0, 0]
+            } else {
+                [0, 0, 0, 230, 0]
+            }
+        })
+        .collect();
+    let colors = [0x2E4E75, 0xD01010, 0xA26018, 0x10D010];
+    let (w, h) = (256u32, 60u32);
+    let frame = Frame {
+        play_seconds: 0.0,
+        visible_seconds: 8.0,
+        duration: 10.0,
+        first_bar_beat: 0.0,
+        grid: steady_grid(0.0, 0.0),
+        cue: None,
+        loop_range: None,
+        loop_marking: None,
+        hotcues: [None; 8],
+        slip: None,
+        gain: 1.0,
+        phrases: Vec::new(),
+    };
+    let draw = |track: &Arc<GpuTrack>| {
+        let mut view = WaveformView::new(&device, Mode::Overview, w, h);
+        view.set_style(Style::Stems);
+        view.set_track(&device, &renderer, Some(track));
+        view.render(&device, &queue, &renderer, Some(&frame), 1.0);
+        read_back(&device, &queue, &view)
+    };
+    let at = |px: &[u8], x: u32| {
+        let i = ((h / 2 * w + x) * 4) as usize;
+        (px[i] as i32, px[i + 1] as i32)
+    };
+    let with = Arc::new(GpuTrack::with_extras(
+        &device,
+        &queue,
+        &renderer,
+        1,
+        &levels(base.clone()),
+        1000.0,
+        Extras {
+            stems: &stems,
+            stem_rate: 10.0,
+            stem_colors: &colors,
+            ..Extras::default()
+        },
+    ));
+    let px = draw(&with);
+    let (r, g) = at(&px, w / 4);
+    assert!(r > g + 60, "bass half: r {r} g {g}");
+    let (r, g) = at(&px, w * 3 / 4);
+    assert!(g > r + 60, "vocal half: r {r} g {g}");
+    // Without stem levels it is drawn, as RGB.
+    let without = Arc::new(GpuTrack::new(
+        &device,
+        &queue,
+        &renderer,
+        2,
+        &levels(base),
+        1000.0,
+    ));
+    let px = draw(&without);
+    let i = ((h / 2 * w + w / 2) * 4) as usize;
+    assert!(px[i..i + 3].iter().any(|&c| c > 60), "drawn without stems");
 }

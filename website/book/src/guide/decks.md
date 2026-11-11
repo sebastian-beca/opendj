@@ -37,6 +37,10 @@ passes.
   widest, as on rekordbox. **Palette** picks **Blue-Orange-White** (rekordbox's
   colors) or **Lilac-Cyan-White**.
 - **Blue**: one blue shape, lighter where the highs are loud.
+- **Stems**: each stem (kick, hi-hats, bass, instruments, vocals) in the
+  color of its stem pad, the loudest at the back, so you can see where the
+  vocals come in or the bass drops out. A track shows RGB until its stems
+  are ready.
 
 **Overview** draws the overview under each deck **Full**, mirrored about its
 middle, or **Half**, growing from the bottom edge as on rekordbox. The big

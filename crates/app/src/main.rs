@@ -27,8 +27,8 @@ use opendj_engine::{
 use opendj_library::Library;
 use opendj_plugins::source::{QueryKind, SourceQuery};
 use opendj_waveform::{
-    steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, Palette, PhraseKind, WaveformRenderer,
-    WaveformView, GRID_SECTIONS,
+    steady_grid, wgpu, Extras, Frame, GpuTrack, GridSection, Mode, Palette, PhraseKind,
+    WaveformRenderer, WaveformView, GRID_SECTIONS,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use smooth::SmoothClock;
@@ -96,6 +96,7 @@ mod smooth;
 mod soundcloud;
 mod sources;
 mod spotify;
+mod stem_levels;
 mod step_lanes;
 mod storage;
 mod stores;
@@ -725,6 +726,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         wave_look::load();
         let app_weak = app.as_weak();
         vocal_pass::start(move || {
+            let _ = app_weak.upgrade_in_event_loop(|app| app.window().request_redraw());
+        });
+        let app_weak = app.as_weak();
+        stem_levels::start(move || {
             let _ = app_weak.upgrade_in_event_loop(|app| app.window().request_redraw());
         });
         counter.set_decks(ModelRc::new(VecModel::from(vec![
@@ -2531,8 +2536,14 @@ fn same_deck_info(old: &DeckInfo, new: &DeckInfo) -> bool {
 /// Where each phrase starts and its kind, as the waveforms draw them.
 type Phrases = Vec<(f64, PhraseKind)>;
 
-/// A track on the GPU, with the waveform and vocal levels it came from.
-type Uploaded = (Arc<GpuTrack>, Arc<Waveform>, Option<Arc<Levels>>);
+/// A track on the GPU, with the waveform, vocal levels and stem levels it
+/// came from.
+type Uploaded = (
+    Arc<GpuTrack>,
+    Arc<Waveform>,
+    Option<Arc<Levels>>,
+    Option<Arc<stem_levels::Levels>>,
+);
 
 struct Gpu {
     /// The [`wave_look::version`] the views were last set to.
@@ -2736,32 +2747,54 @@ impl Gpu {
                 (Some(_), None) => !wave_look::show_vocals(),
                 _ => false,
             };
+            // The Stems look: the stems' levels once they are complete.
+            let stems_look = wave_look::style() == opendj_waveform::Style::Stems;
+            let stems = track
+                .and_then(|t| t.audio.as_ref()?.stems())
+                .filter(|_| stems_look)
+                .and_then(stem_levels::levels);
+            let same_stems = |v: &Option<Arc<stem_levels::Levels>>| match (v, &stems) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                // Kept on the GPU in other looks, which don't draw them.
+                (Some(_), None) => !stems_look,
+                _ => false,
+            };
             let gpu_track = match (track, &self.tracks[d]) {
                 (None, _) => None,
                 // Uploaded already, unless the waveform has grown since or
-                // its vocals have come.
-                (Some(t), Some((g, w, v)))
-                    if g.id() == t.id && Arc::ptr_eq(w, &t.waveform) && same_vocals(v) =>
+                // its vocals or stem levels have come.
+                (Some(t), Some((g, w, v, s)))
+                    if g.id() == t.id
+                        && Arc::ptr_eq(w, &t.waveform)
+                        && same_vocals(v)
+                        && same_stems(s) =>
                 {
-                    Some((g.clone(), w.clone(), v.clone()))
+                    Some((g.clone(), w.clone(), v.clone(), s.clone()))
                 }
                 (Some(t), _) => Some((
-                    Arc::new(GpuTrack::with_vocals(
+                    Arc::new(GpuTrack::with_extras(
                         &self.device,
                         &self.queue,
                         &self.renderer,
                         t.id,
                         &t.waveform.levels,
                         t.waveform.bins_per_second,
-                        vocals.as_deref().map_or(&[], |v| v.as_slice()),
-                        opendj_engine::vocals::RATE,
+                        Extras {
+                            vocals: vocals.as_deref().map_or(&[], |v| v.as_slice()),
+                            vocal_rate: opendj_engine::vocals::RATE,
+                            stems: stems.as_deref().map_or(&[], |s| s.levels.as_slice()),
+                            stem_rate: stem_levels::RATE,
+                            stem_colors: stems.as_deref().map_or(&[], |s| s.colors.as_slice()),
+                        },
                     )),
                     t.waveform.clone(),
                     vocals.clone(),
+                    stems.clone(),
                 )),
             };
             self.tracks[d] = gpu_track.clone();
-            let gpu_track = gpu_track.map(|(g, _, _)| g);
+            let gpu_track = gpu_track.map(|(g, ..)| g);
             let (play_seconds, speed) = clocks[d];
             self.moving |= track.is_some() && speed != 0.0;
             // A slip's silent playhead runs on even while the deck is paused.
