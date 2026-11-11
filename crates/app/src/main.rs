@@ -1565,6 +1565,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_inbox_albums();
                 browser.borrow_mut().poll_rekordbox_xml();
                 browser.borrow_mut().poll_covers();
+                browser.borrow_mut().poll_located();
                 browser.borrow_mut().poll_cleanup();
                 browser.borrow_mut().poll_files();
                 sampler.borrow_mut().poll();

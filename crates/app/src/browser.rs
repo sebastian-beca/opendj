@@ -11,6 +11,7 @@ use std::cell::{OnceCell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 
 use opendj_control::{ControlHandle, ControlRegistry};
@@ -428,6 +429,9 @@ fn is_browsed(t: &Track) -> bool {
     (BROWSED_BASE..opendj_library::ID_BASE).contains(&t.id)
 }
 
+/// A file picked for a missing track, and the track's id.
+type Located = (usize, PathBuf);
+
 fn file_path(t: &Track) -> Option<&Path> {
     match &t.source {
         opendj_engine::Source::File(p) => Some(p),
@@ -629,9 +633,11 @@ pub struct Browser {
     area_start: std::cell::RefCell<HashMap<Area, usize>>,
     /// The review card's place among the listed tracks, while it's open.
     review_at: Option<usize>,
-    /// Audio files in the stage and music folders by lower-case name, for
-    /// the Fix column of missing files; read when first needed.
-    relink_files: OnceCell<HashMap<String, Vec<PathBuf>>>,
+    /// Audio files in the stage and music folders, and what the collection
+    /// knows of them, to find missing files in; read when first needed.
+    relink_files: OnceCell<opendj_library::relocate::Index>,
+    /// Files picked with "Find file…" for a missing track (by id).
+    located: (Sender<Located>, Receiver<Located>),
     /// The node selected on the other tab, to go back to.
     other_tab_node: usize,
     /// The list or history session the sort was last set up for: each
@@ -1282,6 +1288,7 @@ impl Browser {
             area_start: Default::default(),
             review_at: None,
             relink_files: OnceCell::new(),
+            located: std::sync::mpsc::channel(),
             other_tab_node: 0,
             sorted_list: None,
             view_sort: (1, true),
