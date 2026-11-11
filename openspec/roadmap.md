@@ -101,6 +101,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-waveform-zoom](changes/add-waveform-zoom/proposal.md) (the large waveforms zoom together in ten steps, 10% to 100%, on every layout with Prep's included: mouse wheel and trackpad, an edge bar, ⌘= / ⌘− / ⌘0 and controllers, gliding between steps; user request, issue #566, 2026-11-10)
 - [add-engine-dj-usb-export](changes/add-engine-dj-usb-export/proposal.md) (USB export for Denon DJ, Numark and Rane players: Engine DJ's m.db with grids, cues, loops, overview waveforms and lists, sharing the stick's music with the Pioneer export; learnt from EngineX-OS; issue #578, 2026-11-10)
 - [add-djay-library-import](changes/add-djay-library-import/proposal.md) (djay Pro library import: tracks, hot cues, saved loops, colors, Automix points and playlists from `MediaLibrary.db`; a user request after the EngineX-OS comparison, issue #579, 2026-11-10)
+- [add-mixer-deck](changes/add-mixer-deck/proposal.md) (a Mixer deck with up to eight thin input strips in place of Aux 1 to 3, the mic as a strip, an FX switch per strip, and each interface opened once; a user request after the aux latency fix, issue #606, 2026-11-10)
 
 ## v0.8 · From the booth to the studio
 
