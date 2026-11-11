@@ -23,10 +23,7 @@ use crate::effects::{
     TAP_GAP, TARGETS,
 };
 use crate::groove::{pick_source, GrooveBox};
-use crate::inputs::{
-    Ducker, Input, InputFeed, AUXILIARY, AUXILIARY_2, AUXILIARY_3, INSTRUMENT, MICROPHONE,
-    NUM_INPUTS,
-};
+use crate::inputs::{Ducker, Input, InputFeed, AUXILIARIES, INSTRUMENT, MICROPHONE, NUM_INPUTS};
 use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter, MAX_RATE};
 use crate::link::{phase_error, Link, Moment};
@@ -3741,7 +3738,7 @@ impl Engine {
                 self.ducker.next(duck, mic.live && gm > 0.0, m)
             };
             // The auxiliary inputs and the instrument play with the music.
-            for input in [AUXILIARY, INSTRUMENT, AUXILIARY_2, AUXILIARY_3] {
+            for input in std::iter::once(INSTRUMENT).chain(AUXILIARIES) {
                 let inp = &self.inputs[input];
                 let a = inp.buf[f];
                 let ga = lerp(inp.level_ramp);
@@ -3993,11 +3990,9 @@ impl Engine {
         // What is recorded and sent on air: one Auxiliary input as it comes
         // in (a hardware mixer's record out), or else the main mix, which
         // with an external mixer is only the inputs (see above).
-        let source = match self.master.record_source.get().round() as i32 {
-            1 => Some(AUXILIARY),
-            2 => Some(AUXILIARY_2),
-            3 => Some(AUXILIARY_3),
-            _ => None,
+        let source = match self.master.record_source.get().round() as usize {
+            0 => None,
+            n => AUXILIARIES.get(n - 1).copied(),
         };
         if let Some(input) = source {
             let rec = self.inputs[input].raw[..frames].as_flattened();
@@ -4021,6 +4016,7 @@ impl Engine {
 mod tests {
     use super::*;
     use crate::beats::BeatGrid;
+    use crate::inputs::AUXILIARY;
     use crate::loader::prepare;
     use crate::synth;
     use crate::track::Hotcue;
@@ -7107,6 +7103,46 @@ mod tests {
         aux("main_mix").set_bool(false);
         let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
         assert!(peak(&out[out.len() / 2..]) < 1e-4);
+    }
+
+    #[test]
+    fn eight_auxiliary_inputs_start_off_and_pan() {
+        use crate::inputs::{AUXILIARY_8, NUM_AUXILIARIES};
+        let (reg, mut engine, _input) = setup();
+        for n in 1..=NUM_AUXILIARIES {
+            let g = format!("[Auxiliary{n}]");
+            for k in ["main_mix", "solo", "fx", "pan", "pfl", "mute"] {
+                let c = reg.get(&g, k).unwrap_or_else(|| panic!("{g},{k}"));
+                assert_eq!(c.get(), 0.0, "{g},{k} starts off");
+            }
+        }
+        let aux = |k: &str| reg.get("[Auxiliary8]", k).unwrap();
+        let (feed, mut tx) = mic_feed();
+        engine.set_input(AUXILIARY_8, Some(feed));
+        assert!(aux("input_configured").get_bool());
+        let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
+        assert!(peak(&out[out.len() / 2..]) < 1e-4);
+        aux("main_mix").set_bool(true);
+        let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
+        let tail = &out[out.len() / 2..];
+        let right: Vec<f32> = tail[1..].iter().step_by(2).copied().collect();
+        assert!((level_at(tail, 500.0) - 0.4).abs() < 0.03);
+        assert!(peak(&right) > 0.35);
+        // Hard left: the right side goes quiet, the left stays as it was.
+        aux("pan").set(-1.0);
+        let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
+        let tail = &out[out.len() / 2..];
+        let right: Vec<f32> = tail[1..].iter().step_by(2).copied().collect();
+        assert!((level_at(tail, 500.0) - 0.4).abs() < 0.03);
+        assert!(peak(&right) < 1e-4, "{}", peak(&right));
+        // It can be what is recorded.
+        let source = reg.get("[Master]", "record_source").unwrap();
+        source.set(NUM_AUXILIARIES as f64);
+        assert_eq!(source.get(), NUM_AUXILIARIES as f64);
+        // A deck can play it too, as live input 10.
+        let live = reg.get("[Channel1]", "live_input").unwrap();
+        live.set((AUXILIARY_8 + 1) as f64);
+        assert_eq!(live.get(), (AUXILIARY_8 + 1) as f64);
     }
 
     #[test]

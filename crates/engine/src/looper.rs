@@ -147,7 +147,14 @@ impl LooperControls {
         Self {
             enabled: reg.toggle(g, "enabled"),
             ready: reg.indicator(g, "ready", 1.0),
-            input: reg.create(g, "input", INPUT_MIX as f64, 0.0, 5.0, Behavior::Free),
+            input: reg.create(
+                g,
+                "input",
+                INPUT_MIX as f64,
+                0.0,
+                crate::inputs::NUM_INPUTS as f64,
+                Behavior::Free,
+            ),
             length: reg.create(g, "length", 4.0, 1.0, 16.0, Behavior::Free),
             capture: reg.push(g, "capture"),
             capture_edge: Edge::default(),
@@ -301,7 +308,11 @@ impl Looper {
     /// The input it records and plays through (1 + the engine's input),
     /// or 0 for the main mix.
     pub fn input(&self) -> usize {
-        self.c.input.get().round().clamp(0.0, 5.0) as usize
+        self.c
+            .input
+            .get()
+            .round()
+            .clamp(0.0, crate::inputs::NUM_INPUTS as f64) as usize
     }
 
     /// Takes new memory; returns the old, to free off the audio thread.

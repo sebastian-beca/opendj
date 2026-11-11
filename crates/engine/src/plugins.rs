@@ -30,7 +30,9 @@ use crate::effects::{
     instance_indices, plugin_index, route_name, Attached, PluginLink, PluginMsg, BLOCK, MAIN,
     MAX_PARAMETERS, MAX_PLUGINS, PLUGIN_BASE, TARGETS,
 };
-use crate::inputs::{input_group, INSTRUMENT, INSTRUMENT_PARAMETERS, NUM_INPUTS};
+use crate::inputs::{
+    input_group, AUXILIARIES, AUXILIARY, INSTRUMENT, INSTRUMENT_PARAMETERS, MICROPHONE, NUM_INPUTS,
+};
 
 const INSTRUMENT_GROUP: &str = input_group(INSTRUMENT);
 
@@ -346,8 +348,15 @@ fn target_name(target: usize) -> String {
     } else if target == MAIN {
         "Master".into()
     } else {
-        ["Mic", "Aux", "Instrument", "Aux 2", "Aux 3"][(target - MAIN - 1).min(NUM_INPUTS - 1)]
-            .into()
+        match (target - MAIN - 1).min(NUM_INPUTS - 1) {
+            MICROPHONE => "Mic".into(),
+            AUXILIARY => "Aux".into(),
+            INSTRUMENT => "Instrument".into(),
+            i => format!(
+                "Aux {}",
+                AUXILIARIES.iter().position(|&a| a == i).unwrap_or(0) + 1
+            ),
+        }
     }
 }
 

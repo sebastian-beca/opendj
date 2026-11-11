@@ -1776,20 +1776,16 @@ impl Prefs {
     /// The auxiliary rows after the first that the inputs table shows: those
     /// set up, and those + added.
     fn extra_aux_rows(&self, setup: &AudioSetup) -> usize {
-        let has = |role| setup.inputs.iter().any(|r| r.role == role);
-        let set_up = if has(InputRole::Auxiliary3) {
-            2
-        } else if has(InputRole::Auxiliary2) {
-            1
-        } else {
-            0
-        };
-        set_up.max(self.aux_added).min(2)
+        let set_up = InputRole::AUXILIARIES
+            .iter()
+            .rposition(|role| setup.inputs.iter().any(|r| r.role == *role))
+            .unwrap_or(0);
+        set_up.max(self.aux_added).min(MAX_EXTRA_AUX)
     }
 
     /// The inputs table: fills its rows (see InputsTable in mixer.slint)
     /// and returns the settings row that shows it. The microphone and the
-    /// first auxiliary input are always there; + adds up to two more.
+    /// first auxiliary input are always there; + adds up to seven more.
     fn inputs_item(&mut self) -> PrefItem {
         let setup = settings::audio_setup();
         let status = (self.inputs.status)();
@@ -1878,7 +1874,7 @@ impl Prefs {
         if let Some(app) = self.app.upgrade() {
             let g = app.global::<InputSettings>();
             g.set_rows(ModelRc::new(VecModel::from(rows)));
-            g.set_can_add(extra < 2);
+            g.set_can_add(extra < MAX_EXTRA_AUX);
         }
         item(
             "inputs_table",
@@ -1925,32 +1921,25 @@ impl Prefs {
         self.refresh();
     }
 
-    /// + under the inputs table: one more auxiliary row, up to three.
+    /// + under the inputs table: one more auxiliary row, up to eight.
     fn input_added(&mut self) {
         let setup = settings::audio_setup();
-        self.aux_added = (self.extra_aux_rows(&setup) + 1).min(2);
+        self.aux_added = (self.extra_aux_rows(&setup) + 1).min(MAX_EXTRA_AUX);
         self.refresh();
     }
 
     /// × on an auxiliary row after the first: forgets that input. The ones
-    /// after it move up, so they keep being Auxiliary 2 and 3 in order.
+    /// after it move up, so they keep their order without a gap.
     fn input_removed(&mut self, row: usize) {
         let Some(&(role, ..)) = self.input_menus.get(row) else {
             return;
         };
-        if !matches!(role, InputRole::Auxiliary2 | InputRole::Auxiliary3) {
+        if !role.aux_number().is_some_and(|n| n >= 2) {
             return;
         }
         let mut setup = settings::audio_setup();
         let extra = self.extra_aux_rows(&setup);
-        setup.inputs.retain(|r| r.role != role);
-        if role == InputRole::Auxiliary2 {
-            for r in &mut setup.inputs {
-                if r.role == InputRole::Auxiliary3 {
-                    r.role = InputRole::Auxiliary2;
-                }
-            }
-        }
+        remove_aux(&mut setup, role);
         self.aux_added = extra.saturating_sub(1);
         settings::set_audio_setup(&setup);
         (self.inputs.changed)();
@@ -3718,6 +3707,22 @@ fn deck_output_items() -> Vec<PrefItem> {
     items
 }
 
+/// Auxiliary rows the inputs table can add after the first.
+const MAX_EXTRA_AUX: usize = InputRole::AUXILIARIES.len() - 1;
+
+/// Forgets the auxiliary input `role`; the ones after it move up one.
+fn remove_aux(setup: &mut AudioSetup, role: InputRole) {
+    setup.inputs.retain(|r| r.role != role);
+    let Some(from) = role.aux_number() else {
+        return;
+    };
+    for r in &mut setup.inputs {
+        if let Some(n) = r.role.aux_number().filter(|&n| n > from) {
+            r.role = InputRole::AUXILIARIES[n - 2];
+        }
+    }
+}
+
 /// What recording and going on air take: the master mix, or one of the
 /// Auxiliary inputs set up (a hardware mixer's record out). Each choice
 /// with its `[Master],record_source` value.
@@ -3728,11 +3733,7 @@ fn record_sources(setup: &AudioSetup) -> Vec<(u8, String)> {
         "Master mix"
     };
     let mut list = vec![(0, first.to_string())];
-    for (n, role) in [
-        (1, InputRole::Auxiliary),
-        (2, InputRole::Auxiliary2),
-        (3, InputRole::Auxiliary3),
-    ] {
+    for (n, role) in (1..).zip(InputRole::AUXILIARIES) {
         if let Some(r) = setup.inputs.iter().find(|r| r.role == role) {
             let device = if r.device.is_empty() {
                 "System default"
@@ -4258,6 +4259,29 @@ fn capitalized(s: &str) -> String {
 mod tests {
     use super::*;
     use opendj_engine::plugins::Plugin;
+
+    #[test]
+    fn removing_an_auxiliary_input_moves_the_later_ones_up() {
+        let aux = |n: usize, channel: u16| InputRoute {
+            role: InputRole::AUXILIARIES[n - 1],
+            device: "M4".into(),
+            channel,
+            mono: false,
+        };
+        let mut setup = AudioSetup {
+            inputs: vec![aux(1, 0), aux(2, 2), aux(5, 4), aux(8, 6)],
+            ..AudioSetup::default()
+        };
+        remove_aux(&mut setup, InputRole::Auxiliary2);
+        let left: Vec<_> = setup
+            .inputs
+            .iter()
+            .map(|r| (r.role.aux_number().unwrap(), r.channel))
+            .collect();
+        assert_eq!(left, [(1, 0), (4, 4), (7, 6)]);
+        let recording: Vec<u8> = record_sources(&setup).iter().map(|(v, _)| *v).collect();
+        assert_eq!(recording, [0, 1, 4, 7]);
+    }
 
     #[test]
     fn applescript_prompt_keeps_quotes_inside() {
