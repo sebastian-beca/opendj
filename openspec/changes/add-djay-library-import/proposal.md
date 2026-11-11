@@ -25,7 +25,6 @@ None.
 
 ## Out of Scope
 
-- djay's history sessions, playlist folders and streamed tracks as placeholders: a later step once checked on a real library.
 - djay's beat grid beyond its first downbeat (djay keeps the rest in its analysis, which openDJ redoes).
 - Writing back to djay.
 

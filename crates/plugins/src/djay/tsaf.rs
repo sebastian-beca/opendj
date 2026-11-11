@@ -110,8 +110,11 @@ const DATA: u8 = 0x15;
 const SETS: [u8; 2] = [0x19, 0x1A];
 const URL: u8 = 0x21;
 const OBJ: u8 = 0x2B;
-const ZERO: u8 = 0x2D;
-const ONE: u8 = 0x2E;
+/// djay's 1 and 0, with no bytes after the tag. (Checked on a real
+/// library: cue pads, numbered from 1, start with 0x2D; key index 0 is
+/// 0x2E.)
+const ONE: u8 = 0x2D;
+const ZERO: u8 = 0x2E;
 const F64: u8 = 0x30;
 
 /// Reads one blob's value.
