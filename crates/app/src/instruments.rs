@@ -14,7 +14,7 @@ use opendj_engine::inputs;
 
 use crate::audio_plugins::Found;
 use crate::presets::{self, Preset, GROOVE};
-use crate::{AppWindow, InstrumentNode, InstrumentsUi, LiveItem, Preferences};
+use crate::{AppWindow, InstrumentNode, InstrumentsUi, LiveItem, MixerStripInfo, Preferences};
 
 /// What dragging an item carries: `opendj-live:<kind>:<index>`.
 const LIVE_PAYLOAD: &str = "opendj-live:";
@@ -629,10 +629,47 @@ pub fn show_routes(app: &AppWindow, status: &[String]) {
     routes.resize(MIXER_ROUTE, String::new());
     routes.push(mixer);
     let shown: Vec<SharedString> = routes.iter().map(|r| r.as_str().into()).collect();
-    app.global::<InstrumentsUi>()
-        .set_routes(ModelRc::new(VecModel::from(shown)));
+    let ui = app.global::<InstrumentsUi>();
+    ui.set_routes(ModelRc::new(VecModel::from(shown)));
+    ui.set_strips(ModelRc::new(VecModel::from(strips(status))));
     STATE.with_borrow_mut(|s| s.routes = routes);
     refresh(app);
+}
+
+/// The Mixer's strips from the engine's input states: each aux input
+/// that has a device, working or not.
+fn strips(status: &[String]) -> Vec<MixerStripInfo> {
+    inputs::AUXILIARIES
+        .iter()
+        .enumerate()
+        .filter_map(|(n, &i)| {
+            let status = status.get(i).filter(|s| !s.is_empty())?;
+            let route = route(status);
+            let mut parts = route.split(" · ");
+            let device = parts.next().filter(|d| !d.is_empty());
+            let channels = parts.next().map(channels).unwrap_or_default();
+            Some(MixerStripInfo {
+                number: n as i32 + 1,
+                name: device
+                    .map_or_else(|| format!("Aux {}", n + 1), String::from)
+                    .into(),
+                channels: channels.as_str().into(),
+                stereo: channels.contains('/'),
+                problem: if route.is_empty() {
+                    status.as_str()
+                } else {
+                    ""
+                }
+                .into(),
+            })
+        })
+        .collect()
+}
+
+/// A strip's channels as its input box shows them: "In 3" is "3", "In 1 &
+/// 2" is "1/2".
+fn channels(label: &str) -> String {
+    label.trim_start_matches("In ").replace(" & ", "/")
 }
 
 /// The Mixer's line from the inputs' routes: the interfaces its strips
@@ -771,6 +808,32 @@ mod tests {
         assert_eq!(
             (row.maker.as_str(), row.problem.as_str()),
             ("M4, iPhone · 3 inputs", "")
+        );
+    }
+
+    #[test]
+    fn strips_are_the_aux_inputs_with_a_device() {
+        let mut status = vec![String::new(); inputs::NUM_INPUTS];
+        status[inputs::MICROPHONE] = "MacBook Pro Microphone · In 1 · 48 kHz".into();
+        status[inputs::AUXILIARY] = "M4 · In 1 & 2 · 48 kHz".into();
+        status[inputs::AUXILIARIES[4]] = "M4 · In 3 · 48 kHz".into();
+        status[inputs::AUXILIARIES[7]] = "iPhone is not connected".into();
+        let shown: Vec<(i32, String, String, String)> = strips(&status)
+            .into_iter()
+            .map(|s| (s.number, s.name.into(), s.channels.into(), s.problem.into()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (1, "M4".into(), "1/2".into(), "".into()),
+                (5, "M4".into(), "3".into(), "".into()),
+                (
+                    8,
+                    "Aux 8".into(),
+                    "".into(),
+                    "iPhone is not connected".into()
+                ),
+            ]
         );
     }
 
