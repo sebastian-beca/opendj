@@ -1251,6 +1251,9 @@ mod tests {
                 "XONE:K2:XONE:K2 MIDI 1 28:0",
                 "Allen and Heath Xone K2 - 2 Decks.opendj-mapping",
             ),
+            ("PIONEER DDJ-SX", "Pioneer DDJ-SX.midi.xml"),
+            ("PIONEER DDJ-SX2", "Pioneer DDJ-SX2.midi.xml"),
+            ("PIONEER DDJ-RX", "Pioneer DDJ-RX.midi.xml"),
             (
                 "Midi Fighter Twister",
                 "DJ TechTools MIDI Fighter Twister.midi.xml",

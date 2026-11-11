@@ -1042,3 +1042,60 @@ fn a_mixxx_mapping_follows_too() {
     assert_eq!(get(&reg, "[Channel3]", "play"), 1.0);
     assert_eq!(get(&reg, "[Channel1]", "play"), 0.0);
 }
+
+/// The DDJ-SX2 and DDJ-RX run Mixxx's DDJ-SX mapping: the same messages
+/// play, scratch and move the faders on all three.
+#[test]
+fn ddj_sx_family_plays_and_mixes() {
+    for file in [
+        "Pioneer DDJ-SX.midi.xml",
+        "Pioneer DDJ-SX2.midi.xml",
+        "Pioneer DDJ-RX.midi.xml",
+    ] {
+        let (reg, mut c) = load(file);
+        settle(&mut c, 50);
+        assert!(!c.take_output().is_empty(), "{file}: init lights the LEDs");
+        // PLAY on deck 2 (right side).
+        c.receive(&[0x91, 0x0B, 0x7F]);
+        c.receive(&[0x91, 0x0B, 0x00]);
+        assert_eq!(get(&reg, "[Channel2]", "play"), 1.0, "{file}");
+        // Channel 1 fader, 14-bit: all the way down.
+        sweep14(&mut c, 0xB0, 0x13, 0x33, 0x00);
+        assert!(get(&reg, "[Channel1]", "volume") < 0.02, "{file}");
+        // PLAY on deck 3: the left side's second deck, its own channel.
+        c.receive(&[0x92, 0x0B, 0x7F]);
+        c.receive(&[0x92, 0x0B, 0x00]);
+        assert_eq!(get(&reg, "[Channel3]", "play"), 1.0, "{file}");
+        // Pads in every mode and the jogs run without script errors.
+        for status in 0x97..=0x9A {
+            for pad in [0x00, 0x10, 0x20, 0x30, 0x50] {
+                c.receive(&[status, pad, 0x7F]);
+                c.receive(&[status, pad, 0x00]);
+            }
+        }
+        c.receive(&[0x90, 0x36, 0x7F]);
+        c.receive(&[0xB0, 0x22, 0x45]);
+        c.receive(&[0x90, 0x36, 0x00]);
+        settle(&mut c, 50);
+        assert_eq!(c.errors(), Vec::<String>::new(), "{file}");
+        c.shutdown();
+    }
+}
+
+/// On the DDJ-RX, note 0x35 on a deck channel is QUANTIZE.
+#[test]
+fn ddj_rx_quantize() {
+    let (reg, mut c) = load("Pioneer DDJ-RX.midi.xml");
+    settle(&mut c, 50);
+    let before = get(&reg, "[Channel3]", "quantize");
+    c.receive(&[0x92, 0x35, 0x7F]);
+    c.receive(&[0x92, 0x35, 0x00]);
+    assert_eq!(get(&reg, "[Channel3]", "quantize"), 1.0 - before);
+    c.poll(Instant::now());
+    let want = if before == 0.0 { 0x7F } else { 0x00 };
+    assert!(
+        c.take_output().iter().any(|m| m[..] == [0x92, 0x35, want]),
+        "QUANTIZE LED follows"
+    );
+    assert_eq!(c.errors(), Vec::<String>::new());
+}
