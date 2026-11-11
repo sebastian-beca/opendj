@@ -1042,3 +1042,125 @@ fn a_mixxx_mapping_follows_too() {
     assert_eq!(get(&reg, "[Channel3]", "play"), 1.0);
     assert_eq!(get(&reg, "[Channel1]", "play"), 0.0);
 }
+
+/// The DDJ-SX2 and DDJ-RX run Mixxx's DDJ-SX mapping: the same messages
+/// play, scratch and move the faders on all three.
+#[test]
+fn ddj_sx_family_plays_and_mixes() {
+    for file in [
+        "Pioneer DDJ-SX.midi.xml",
+        "Pioneer DDJ-SX2.midi.xml",
+        "Pioneer DDJ-RX.midi.xml",
+    ] {
+        let (reg, mut c) = load(file);
+        settle(&mut c, 50);
+        assert!(!c.take_output().is_empty(), "{file}: init lights the LEDs");
+        // PLAY on deck 2 (right side).
+        c.receive(&[0x91, 0x0B, 0x7F]);
+        c.receive(&[0x91, 0x0B, 0x00]);
+        assert_eq!(get(&reg, "[Channel2]", "play"), 1.0, "{file}");
+        // Channel 1 fader, 14-bit: all the way down.
+        sweep14(&mut c, 0xB0, 0x13, 0x33, 0x00);
+        assert!(get(&reg, "[Channel1]", "volume") < 0.02, "{file}");
+        // PLAY on deck 3: the left side's second deck, its own channel.
+        c.receive(&[0x92, 0x0B, 0x7F]);
+        c.receive(&[0x92, 0x0B, 0x00]);
+        assert_eq!(get(&reg, "[Channel3]", "play"), 1.0, "{file}");
+        // Pads in every mode and the jogs run without script errors.
+        for status in 0x97..=0x9A {
+            for pad in [0x00, 0x10, 0x20, 0x30, 0x50] {
+                c.receive(&[status, pad, 0x7F]);
+                c.receive(&[status, pad, 0x00]);
+            }
+        }
+        c.receive(&[0x90, 0x36, 0x7F]);
+        c.receive(&[0xB0, 0x22, 0x45]);
+        c.receive(&[0x90, 0x36, 0x00]);
+        settle(&mut c, 50);
+        assert_eq!(c.errors(), Vec::<String>::new(), "{file}");
+        c.shutdown();
+    }
+}
+
+/// On the DDJ-RX, note 0x35 on a deck channel is QUANTIZE.
+#[test]
+fn ddj_rx_quantize() {
+    let (reg, mut c) = load("Pioneer DDJ-RX.midi.xml");
+    settle(&mut c, 50);
+    let before = get(&reg, "[Channel3]", "quantize");
+    c.receive(&[0x92, 0x35, 0x7F]);
+    c.receive(&[0x92, 0x35, 0x00]);
+    assert_eq!(get(&reg, "[Channel3]", "quantize"), 1.0 - before);
+    c.poll(Instant::now());
+    let want = if before == 0.0 { 0x7F } else { 0x00 };
+    assert!(
+        c.take_output().iter().any(|m| m[..] == [0x92, 0x35, want]),
+        "QUANTIZE LED follows"
+    );
+    assert_eq!(c.errors(), Vec::<String>::new());
+}
+
+/// openDJ's DDJ-800 mapping: the DDJ-FLX4's, moved to the DDJ-800's
+/// messages, plus its own buttons and Beat FX switches.
+#[test]
+fn ddj_800_decks_mixer_and_beat_fx() {
+    let (reg, mut c) = load("Pioneer-DDJ-800.midi.xml");
+    settle(&mut c, 50);
+    let out = c.take_output();
+    assert!(
+        out.iter().any(|m| m[..] == [0x90, 0x5D, 0x00]),
+        "jog display shown: {out:x?}"
+    );
+
+    // PLAY on deck 2.
+    c.receive(&[0x91, 0x0B, 0x7F]);
+    c.receive(&[0x91, 0x0B, 0x00]);
+    assert_eq!(get(&reg, "[Channel2]", "play"), 1.0);
+
+    // Channel 1 fader, 14-bit, all the way down.
+    sweep14(&mut c, 0xB0, 0x13, 0x33, 0x00);
+    assert!(get(&reg, "[Channel1]", "volume") < 0.02);
+
+    // QUANTIZE and MASTER TEMPO toggle, and their lights follow.
+    for (note, key) in [(0x35, "quantize"), (0x1A, "keylock")] {
+        let before = get(&reg, "[Channel1]", key);
+        c.receive(&[0x90, note, 0x7F]);
+        c.receive(&[0x90, note, 0x00]);
+        assert_eq!(get(&reg, "[Channel1]", key), 1.0 - before, "{key}");
+        c.poll(Instant::now());
+        let want = if before == 0.0 { 0x7F } else { 0x00 };
+        assert!(
+            c.take_output().iter().any(|m| m[..] == [0x90, note, want]),
+            "{key} light"
+        );
+    }
+
+    // Beat FX: CH SELECT to CH2, FX SELECT to REVERB, ON.
+    c.receive(&[0x94, 0x1D, 0x7F]);
+    let unit = "[EffectRack1_EffectUnit5]";
+    assert_eq!(get(&reg, unit, "group_[Channel2]_enable"), 1.0);
+    assert_eq!(get(&reg, unit, "group_[Channel1]_enable"), 0.0);
+    c.receive(&[0x94, 0x14, 0x7F]);
+    assert_eq!(get(&reg, unit, "group_[Master]_enable"), 1.0);
+    assert_eq!(get(&reg, unit, "group_[Channel2]_enable"), 0.0);
+    c.receive(&[0x94, 0x24, 0x7F]);
+    let slot = "[EffectRack1_EffectUnit5_Effect1]";
+    assert_eq!(
+        opendj_engine::effect_name(get(&reg, slot, "loaded_effect")),
+        "Reverb"
+    );
+    let on = get(&reg, slot, "enabled");
+    c.receive(&[0x94, 0x47, 0x7F]);
+    c.receive(&[0x94, 0x47, 0x00]);
+    assert_eq!(get(&reg, slot, "enabled"), 1.0 - on);
+
+    // SEARCH and KEY SYNC run without script errors.
+    for note in [0x5E, 0x5F, 0x65, 0x64] {
+        c.receive(&[0x91, note, 0x7F]);
+        settle(&mut c, 20);
+        c.receive(&[0x91, note, 0x00]);
+    }
+    settle(&mut c, 100);
+    assert_eq!(c.errors(), Vec::<String>::new());
+    c.shutdown();
+}
