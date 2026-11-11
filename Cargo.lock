@@ -6731,8 +6731,11 @@ dependencies = [
 name = "opendj-export"
 version = "0.6.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "diesel",
+ "flate2",
+ "getrandom 0.4.3",
  "image",
  "lofty",
  "opendj-engine",
@@ -6741,6 +6744,7 @@ dependencies = [
  "rbox-devlib",
  "rbox-onelib",
  "rusqlite",
+ "sha1 0.11.0",
  "tempfile",
  "unicode-normalization",
 ]
