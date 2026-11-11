@@ -48,8 +48,9 @@ scrolling waveform is always whole.
 
 **Show vocals**, on at first, tints the sung parts of the waveforms green,
 as on VirtualDJ. openDJ checks each track for vocals the first time you load
-it, in the background, so the green shows up a few seconds after the
-waveform; after that it's there straight away.
+it (or when it's analyzed), in the background, so the green shows up a few
+seconds after the waveform; after that it's there straight away. Tracks with
+HQ stems use their vocal stem instead.
 
 **Size follows gain**, off at first, makes a deck's waveforms taller or
 shorter as you turn its gain knob, as on VirtualDJ.

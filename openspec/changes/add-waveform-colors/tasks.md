@@ -9,8 +9,8 @@
 
 ## 2. Vocals
 
-- [x] 2.1 Vocal-detection pass: Spleeter's vocal network alone, in the background on first load, kept beside the analysis
-- [ ] 2.2 Vocal level from the vocal stem when a track has stems
+- [x] 2.1 Vocal-detection pass: Spleeter's vocal network alone, in the background on first load and in batch analysis, kept beside the analysis
+- [x] 2.2 Vocal level from the vocal stem when a track has high-quality stems
 - [x] 2.3 Show vocals switch: sung parts tinted green on RGB, 3-Band and Blue
 
 ## 3. Stems

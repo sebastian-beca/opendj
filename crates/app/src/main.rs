@@ -2743,24 +2743,37 @@ impl Gpu {
             changed |= self.overview[d].resize(&self.device, ow, oh);
             self.overview[d].set_background(overview_background);
             let track = track.as_ref().filter(|t| !t.waveform.is_empty());
-            // Show vocals: the file's vocal levels once the pass has them.
-            let vocals = match track.map(|t| &t.source) {
-                Some(Source::File(path)) if wave_look::show_vocals() => vocal_pass::levels(path),
-                _ => None,
+            let show_vocals = wave_look::show_vocals();
+            let stems_look = wave_look::style() == opendj_waveform::Style::Stems;
+            // The stems' levels once they are complete: for the Stems look,
+            // and for Show vocals from high-quality stems' vocal stem.
+            let found = track
+                .and_then(|t| t.audio.as_ref()?.stems())
+                .filter(|s| {
+                    stems_look || (show_vocals && s.current().quality == stems::Quality::High)
+                })
+                .and_then(stem_levels::levels);
+            // Show vocals: the vocal stem's level, else the vocal pass's
+            // once it has the file.
+            let hq_vocals = found
+                .as_ref()
+                .filter(|_| show_vocals)
+                .and_then(|f| f.vocals.clone());
+            let (vocals, vocal_rate) = match (hq_vocals, track.map(|t| &t.source)) {
+                (Some(v), _) => (Some(v), stem_levels::RATE),
+                (None, Some(Source::File(path))) if show_vocals => {
+                    (vocal_pass::levels(path), opendj_engine::vocals::RATE)
+                }
+                _ => (None, opendj_engine::vocals::RATE),
             };
             let same_vocals = |v: &Option<Arc<Levels>>| match (v, &vocals) {
                 (Some(a), Some(b)) => Arc::ptr_eq(a, b),
                 (None, None) => true,
                 // Kept on the GPU when Show vocals is off: the view hides them.
-                (Some(_), None) => !wave_look::show_vocals(),
+                (Some(_), None) => !show_vocals,
                 _ => false,
             };
-            // The Stems look: the stems' levels once they are complete.
-            let stems_look = wave_look::style() == opendj_waveform::Style::Stems;
-            let stems = track
-                .and_then(|t| t.audio.as_ref()?.stems())
-                .filter(|_| stems_look)
-                .and_then(stem_levels::levels);
+            let stems = found.filter(|_| stems_look);
             let same_stems = |v: &Option<Arc<stem_levels::Levels>>| match (v, &stems) {
                 (Some(a), Some(b)) => Arc::ptr_eq(a, b),
                 (None, None) => true,
@@ -2790,7 +2803,7 @@ impl Gpu {
                         t.waveform.bins_per_second,
                         Extras {
                             vocals: vocals.as_deref().map_or(&[], |v| v.as_slice()),
-                            vocal_rate: opendj_engine::vocals::RATE,
+                            vocal_rate,
                             stems: stems.as_deref().map_or(&[], |s| s.levels.as_slice()),
                             stem_rate: stem_levels::RATE,
                             stem_colors: stems.as_deref().map_or(&[], |s| s.colors.as_slice()),
