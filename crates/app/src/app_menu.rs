@@ -29,10 +29,13 @@ pub enum Action {
     ExportMixcloud,
     RecordMix,
     MiniPlayer,
+    ZoomIn,
+    ZoomOut,
+    ResetZoom,
 }
 
 impl Action {
-    const ALL: [Action; 11] = [
+    const ALL: [Action; 14] = [
         Action::Settings,
         Action::Quit,
         Action::Undo,
@@ -44,6 +47,9 @@ impl Action {
         Action::ExportRekordboxXml,
         Action::RecordMix,
         Action::MiniPlayer,
+        Action::ZoomIn,
+        Action::ZoomOut,
+        Action::ResetZoom,
     ];
 
     /// Its number, as the ☰ menu and the macOS menu items carry it.
@@ -62,7 +68,14 @@ impl Action {
     pub fn starts_enabled(self) -> bool {
         matches!(
             self,
-            Action::Settings | Action::Quit | Action::Find | Action::RecordMix | Action::MiniPlayer
+            Action::Settings
+                | Action::Quit
+                | Action::Find
+                | Action::RecordMix
+                | Action::MiniPlayer
+                | Action::ZoomIn
+                | Action::ZoomOut
+                | Action::ResetZoom
         )
     }
 }
@@ -156,6 +169,24 @@ pub const MENUS: &[Menu] = &[
             Entry::Item {
                 action: Action::MiniPlayer,
                 title: "Mini Player",
+                key: None,
+            },
+            Entry::Separator,
+            // The large waveforms' zoom. ⌘= / ⌘− / ⌘0 (Ctrl elsewhere) are
+            // the window's keys; a key here too would zoom twice on macOS.
+            Entry::Item {
+                action: Action::ZoomIn,
+                title: "Zoom Waveforms In",
+                key: None,
+            },
+            Entry::Item {
+                action: Action::ZoomOut,
+                title: "Zoom Waveforms Out",
+                key: None,
+            },
+            Entry::Item {
+                action: Action::ResetZoom,
+                title: "Reset Waveform Zoom",
                 key: None,
             },
         ],
@@ -352,6 +383,9 @@ pub fn run(app: &AppWindow, action: Action) {
         Action::ExportMixcloud => crate::export_mixcloud(app),
         // [Recording],toggle_recording, as the REC button and controllers.
         Action::MiniPlayer => app.invoke_mini_player(),
+        Action::ZoomIn => crate::waveform_zoom::step(app, 1),
+        Action::ZoomOut => crate::waveform_zoom::step(app, -1),
+        Action::ResetZoom => crate::waveform_zoom::reset(app),
         Action::RecordMix => {
             let controls = app.global::<crate::Controls>();
             let index = controls.invoke_resolve("[Recording]".into(), "toggle_recording".into());

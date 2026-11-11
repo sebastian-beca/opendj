@@ -188,10 +188,24 @@ fn sample_range(a: f32, b: f32) -> Slice {
         let s1 = load(0u, i32(i) + 1);
         return Slice(mix(s0.peak, s1.peak, t), mix(s0.rms, s1.rms, t));
     }
-    // Pick the level where a pixel spans one to two slices, then combine the
-    // slices it touches, weighted by how much of each the pixel covers. The
-    // weighting keeps peaks from popping as the waveform scrolls.
-    let lvl = min(u32(floor(log2(w))), p.num_levels - 1u);
+    // Pick the level where a pixel spans one to two slices. As the zoom
+    // glides out towards the next level, fade into it over the last quarter
+    // of the way, so the outline doesn't jump where the level changes.
+    let at = log2(w);
+    let lvl = min(u32(floor(at)), p.num_levels - 1u);
+    let fine = sample_level(lvl, a, b);
+    let fade = smoothstep(0.75, 1.0, fract(at));
+    if (fade <= 0.0 || lvl + 1u >= p.num_levels) {
+        return fine;
+    }
+    let coarse = sample_level(lvl + 1u, a, b);
+    return Slice(mix(fine.peak, coarse.peak, fade), mix(fine.rms, coarse.rms, fade));
+}
+
+// The slices of level `lvl` under [a, b) (in finest-level slices),
+// combined and weighted by how much of each the range covers. The weighting
+// keeps peaks from popping as the waveform scrolls.
+fn sample_level(lvl: u32, a: f32, b: f32) -> Slice {
     let s = exp2(f32(lvl));
     let la = a / s;
     let lb = b / s;

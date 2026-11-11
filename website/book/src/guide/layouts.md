@@ -142,8 +142,9 @@ genre and at least one of your tags), **Cover**, **Ready** (checklist lines
 ticked) and **Score**. Pick other columns from the header's menu as
 in any list; In Prep keeps its own set. Load a track and work through it:
 
-- The large waveform shows 8 bars; **−** and **+** above the hot cues show
-  more or fewer. While the grid is unlocked, dragging the waveform slides the
+- The large waveform shares the zoom of every other layout (see
+  [Waveform zoom](decks.md#waveform-zoom)); **−** and **+** above the hot cues
+  zoom out and in, with the step between them. While the grid is unlocked, dragging the waveform slides the
   audio under the grid, so you can line the beat lines up with the kicks by
   hand; one drag is one **Undo**. With the grid locked, dragging moves through
   the track as on the other layouts.

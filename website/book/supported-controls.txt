@@ -357,6 +357,10 @@
 [Channel1],vu_meter
 [Channel1],vu_meter_left
 [Channel1],vu_meter_right
+[Channel1],waveform_zoom
+[Channel1],waveform_zoom_down
+[Channel1],waveform_zoom_set_default
+[Channel1],waveform_zoom_up
 [Channel1_Stem1],color
 [Channel1_Stem1],mute
 [Channel1_Stem1],volume
@@ -669,6 +673,10 @@
 [Channel2],vu_meter
 [Channel2],vu_meter_left
 [Channel2],vu_meter_right
+[Channel2],waveform_zoom
+[Channel2],waveform_zoom_down
+[Channel2],waveform_zoom_set_default
+[Channel2],waveform_zoom_up
 [Channel2_Stem1],color
 [Channel2_Stem1],mute
 [Channel2_Stem1],volume
@@ -981,6 +989,10 @@
 [Channel3],vu_meter
 [Channel3],vu_meter_left
 [Channel3],vu_meter_right
+[Channel3],waveform_zoom
+[Channel3],waveform_zoom_down
+[Channel3],waveform_zoom_set_default
+[Channel3],waveform_zoom_up
 [Channel3_Stem1],color
 [Channel3_Stem1],mute
 [Channel3_Stem1],volume
@@ -1293,6 +1305,10 @@
 [Channel4],vu_meter
 [Channel4],vu_meter_left
 [Channel4],vu_meter_right
+[Channel4],waveform_zoom
+[Channel4],waveform_zoom_down
+[Channel4],waveform_zoom_set_default
+[Channel4],waveform_zoom_up
 [Channel4_Stem1],color
 [Channel4_Stem1],mute
 [Channel4_Stem1],volume

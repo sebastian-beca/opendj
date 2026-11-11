@@ -50,6 +50,28 @@ waveform; after that it's there straight away.
 **Size follows gain**, off at first, makes a deck's waveforms taller or
 shorter as you turn its gain knob, as on VirtualDJ.
 
+### Waveform zoom
+
+The large scrolling waveforms zoom in ten steps, shown as **10%** (about 34
+seconds across) to **100%** (under a second, close enough to line a grid up
+with a kick). They start at **40%**, ten seconds across. Every large waveform
+zooms together, in every layout, so beats stay the same distance apart on
+each deck; the overviews under the decks always show the whole track.
+
+- Scroll the mouse wheel or swipe on the trackpad over a large waveform: up
+  zooms in, down zooms out, one step per wheel notch.
+- Drag or click the slim bar at a waveform's left edge, which shows while the
+  pointer is over the waveform, widest at the top.
+- **⌘=** and **⌘−** (**Ctrl** on Windows and Linux) step in and out, **⌘0**
+  goes back to 40%. They are also in **View** and in a large waveform's
+  right-click menu.
+- On a controller, map **Zoom waveform in**, **Zoom waveform out**, **Reset
+  waveform zoom** or **Waveform zoom** (1 to 10).
+
+The waveforms stretch smoothly to each step, and the step shows for a moment
+in the waveform's top left. openDJ remembers it for next time. Decks playing
+an input, an instrument or the Groove Box keep ten seconds across.
+
 ### Beat counter
 
 Beside the title, four squares light up one beat at a time, so you can see

@@ -1,0 +1,109 @@
+// The large waveforms' zoom: ten steps, shared by every large waveform in
+// every layout (Prep's included), set from the mouse wheel or trackpad over
+// a waveform, the bar at a waveform's left edge, ⌘= / ⌘− / ⌘0, the View menu
+// and controllers. The app keeps the step (waveform_zoom.rs) and glides the
+// waveforms to it.
+import { Theme } from "theme.slint";
+
+export global WaveZoom {
+    // The step, 1 (widest) to `steps` (tightest), shown as 10% to 100%.
+    in property <int> level: 4;
+    in property <int> steps: 10;
+    // The step it starts on, and goes back to with ⌘0.
+    in property <int> default-level: 4;
+    // Track seconds across a large waveform now, at normal speed; it moves
+    // through the steps in between as the zoom glides.
+    in property <float> seconds: 10;
+    // Counts each change, so the waveforms can show the new step a moment.
+    in property <int> changes;
+    // Asks the app for a step; it keeps it in range, saves it and tells
+    // controllers.
+    callback set-level(level: int);
+
+    public function step(by: int) {
+        set-level(clamp(level + by, 1, steps));
+    }
+    public function reset() {
+        set-level(default-level);
+    }
+    public pure function percent(level: int) -> string {
+        level * 10 + "%"
+    }
+}
+
+// The zoom's slim bar at a waveform's left edge: a notch for each step,
+// widest at the top, the step lit. Clicking or dragging along it sets the
+// step. It shows while the pointer is over the waveform (`shown`), or a
+// moment after the zoom changes.
+export component ZoomBar inherits Rectangle {
+    in property <bool> shown;
+    property <length> track-top: 8px;
+    property <length> track-height: self.height - 16px;
+    property <float> notch: track-height / 1px / max(WaveZoom.steps - 1, 1);
+    // The step at a point along the bar.
+    pure function at(y: length) -> int {
+        clamp(round((y - track-top) / 1px / notch) + 1, 1, WaveZoom.steps)
+    }
+    width: 22px;
+    opacity: shown || bar.has-hover || bar.pressed ? 1 : 0;
+    animate opacity { duration: 180ms; }
+    Rectangle {
+        x: 6px;
+        y: track-top - 4px;
+        width: 10px;
+        height: track-height + 8px;
+        border-radius: 5px;
+        background: #000000a0;
+        border-width: 1px;
+        border-color: bar.has-hover || bar.pressed ? Theme.text-dim : Theme.border;
+    }
+    for i in WaveZoom.steps: Rectangle {
+        x: 9px;
+        y: track-top + i * notch * 1px - 0.5px;
+        width: 4px;
+        height: 1px;
+        background: Theme.text-dim;
+    }
+    Rectangle {
+        x: 7px;
+        y: track-top + (WaveZoom.level - 1) * notch * 1px - 3px;
+        animate y { duration: 150ms; easing: ease-out; }
+        width: 8px;
+        height: 6px;
+        border-radius: 3px;
+        background: Theme.accent;
+    }
+    bar := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                WaveZoom.set-level(at(self.mouse-y));
+            }
+        }
+        moved => {
+            if self.pressed && at(self.mouse-y) != WaveZoom.level {
+                WaveZoom.set-level(at(self.mouse-y));
+            }
+        }
+    }
+}
+
+// The step for a moment after it changes, in the waveform's top right.
+export component ZoomReadout inherits Rectangle {
+    in property <bool> shown;
+    width: label.preferred-width + 16px;
+    height: 20px;
+    border-radius: 10px;
+    background: #000000c0;
+    border-width: 1px;
+    border-color: Theme.border;
+    opacity: shown ? 1 : 0;
+    animate opacity { duration: 180ms; }
+    label := Text {
+        text: "Zoom " + WaveZoom.percent(WaveZoom.level);
+        color: Theme.text;
+        font-family: "Inter Tabular";
+        font-size: 11px;
+        font-weight: 600;
+    }
+}

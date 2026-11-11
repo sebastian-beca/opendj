@@ -109,6 +109,7 @@ mod ui_font;
 mod update;
 mod vocal_pass;
 mod wave_look;
+mod waveform_zoom;
 mod waves;
 
 /// Fills the master and headphone output menus and switches devices when
@@ -518,9 +519,10 @@ const DECK_COLORS: [[f32; 4]; NUM_DECKS] = [
     [1.0, 0.839, 0.039, 1.0],
 ];
 
-/// Seconds of audio shown across the scrolling waveform at normal speed.
-/// Dragging the waveform (`Waveform` in main.slint) uses the same figure.
-const VISIBLE_SECONDS: f64 = 10.0;
+/// Seconds shown across a live deck's scrolling waveform (an input, an
+/// instrument, the Groove Box), whose trace keeps about this much. Track
+/// decks follow the shared zoom (waveform_zoom.rs), which starts here too.
+const VISIBLE_SECONDS: f64 = waveform_zoom::DEFAULT_SECONDS;
 
 /// Opens the window filling the screen when its preferred size (1680 x 1050
 /// in main.slint) doesn't fit, as on a 1512 x 982 MacBook: left at that
@@ -701,6 +703,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     presets::install(&app, engine.clone(), registry.clone());
     instrument_knobs::install(&app, engine.clone());
     let groove_keeper = RefCell::new(groove_box::Keeper::new(&registry));
+    // The large waveforms' zoom, from the window and controllers.
+    let _zoom_timer = waveform_zoom::install(&app, &registry);
     let groove_timer = slint::Timer::default();
     {
         let app = app.as_weak();
@@ -1975,6 +1979,7 @@ fn control_list() -> String {
     broadcast::create_controls(&registry);
     browser::LibraryControls::create(&registry);
     automix::AutoMix::new(&registry);
+    waveform_zoom::create_controls(&registry);
     let mut keys = registry.keys();
     keys.extend(registry.alias_keys());
     keys.sort();
@@ -2427,21 +2432,17 @@ impl Decks {
         }
     }
 
-    /// `bars`: how many bars the scrolling waveform shows, when set (Prep's
-    /// zoom); else it shows VISIBLE_SECONDS.
+    /// `seconds`: what the scrolling waveform shows across at normal speed
+    /// (the shared zoom's).
     fn frame(
         &self,
         deck: usize,
         t: &Track,
         play_seconds: f64,
         phrases: Phrases,
-        bars: Option<f64>,
+        seconds: f64,
     ) -> Frame {
         let h = &self.0[deck];
-        let seconds = match bars {
-            Some(bars) if t.bpm > 0.0 => bars * 4.0 * 60.0 / t.bpm,
-            _ => VISIBLE_SECONDS,
-        };
         Frame {
             play_seconds,
             // Show more of the track when it plays faster, so synced decks'
@@ -2674,9 +2675,16 @@ impl Gpu {
         self.moving = false;
         let four = app.get_layout() == FOUR_DECK_LAYOUT;
         let macros_shown = app.global::<MacroLanes>().get_shown();
-        // Prep zooms deck 1's waveform to a number of bars.
-        let prep_bars = (app.get_layout() == PREP_LAYOUT && !app.get_library_expanded())
-            .then(|| app.global::<PrepUi>().get_bars().max(1) as f64);
+        // The large waveforms' shared zoom, gliding to a new step: the next
+        // frame comes at once until it gets there.
+        let (zoom, gliding) = waveform_zoom::now(now);
+        self.moving |= gliding;
+        // Prep's large waveform (deck 1) shows, always editing the grid.
+        let prep_shown = app.get_layout() == PREP_LAYOUT && !app.get_library_expanded();
+        let ui_zoom = app.global::<WaveZoom>();
+        if ui_zoom.get_seconds() != zoom as f32 {
+            ui_zoom.set_seconds(zoom as f32);
+        }
         // The Player bar shows the waveform alone, without the phrase bar.
         let show_phrases =
             app.global::<PhraseView>().get_visible() && app.get_layout() != PLAYER_LAYOUT;
@@ -2777,13 +2785,7 @@ impl Gpu {
                 Vec::new()
             };
             let phrases = if show_phrases { phrases } else { Vec::new() };
-            let bars = prep_bars.filter(|_| d == 0);
-            if let Some(bars) = bars {
-                let bpm = track.map_or(0.0, |t| t.bpm);
-                let seconds = if bpm > 0.0 { bars * 240.0 / bpm } else { 0.0 };
-                app.global::<PrepUi>().set_seconds(seconds as f32);
-            }
-            let frame = track.map(|t| decks.frame(d, t, play_seconds, phrases, bars));
+            let frame = track.map(|t| decks.frame(d, t, play_seconds, phrases, zoom));
             // The jog marker turns with the same smoothed clock as the
             // waveform, set here as each frame is drawn rather than on the UI
             // timer, whose ticks beat against the display. A 33 rpm record
@@ -2860,7 +2862,7 @@ impl Gpu {
             };
             self.scrolling[d].set_live(window.is_some());
             // Grid edit mode (Prep's deck 1 always), while the grid is unlocked.
-            let prep_deck = prep_bars.is_some() && d == 0;
+            let prep_deck = prep_shown && d == 0;
             let h = &decks.0[d];
             self.scrolling[d]
                 .set_grid_edit((h.beats_edit.get_bool() || prep_deck) && !h.bpmlock.get_bool());
