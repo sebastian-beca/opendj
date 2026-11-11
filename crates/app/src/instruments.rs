@@ -10,6 +10,8 @@ use std::collections::HashSet;
 
 use slint::{ComponentHandle, DataTransfer, ModelRc, SharedString, VecModel};
 
+use opendj_engine::inputs;
+
 use crate::audio_plugins::Found;
 use crate::presets::{self, Preset, GROOVE};
 use crate::{AppWindow, InstrumentNode, InstrumentsUi, LiveItem, Preferences};
@@ -21,12 +23,14 @@ const LIVE_PAYLOAD: &str = "opendj-live:";
 const KIT: i32 = 1;
 const PLUGIN: i32 = 2;
 const MIC: i32 = 3;
-const AUX: i32 = 4;
+// 4 was an aux input on its own, before the Mixer.
 /// A preset, by its place in `crate::presets::all`.
 const PRESET: i32 = 5;
 /// The Looper (`[LooperN],enabled`).
 const LOOPER: i32 = 6;
-const LAST_KIND: i32 = 6;
+/// The Mixer: the aux inputs as strips, summed into one deck.
+const MIXER: i32 = 7;
+const LAST_KIND: i32 = 7;
 
 fn payload(kind: i32, index: i32) -> String {
     format!("{LIVE_PAYLOAD}{kind}:{index}")
@@ -81,7 +85,7 @@ fn recent_key(s: &State, kind: i32, index: i32) -> Option<String> {
             .presets
             .get(i)
             .map(|p| format!("preset:{}", p.path.display())),
-        MIC | AUX => INPUTS
+        MIC | MIXER => INPUTS
             .iter()
             .find(|(k, x, _, _)| *k == kind && *x == index)
             .map(|(_, _, input, _)| format!("input:{input}")),
@@ -116,14 +120,15 @@ thread_local! {
     });
 }
 
-/// The microphone's and aux inputs' engine input indexes (see the
-/// engine's `inputs`), with their names.
-const INPUTS: [(i32, i32, usize, &str); 4] = [
-    (MIC, 0, 0, "Microphone"),
-    (AUX, 0, 1, "Aux 1"),
-    (AUX, 1, 3, "Aux 2"),
-    (AUX, 2, 4, "Aux 3"),
-];
+/// Where the Mixer's line sits in `State::routes`: one past the engine's
+/// inputs, so a deck's `live_input` less one finds it as it finds an input's.
+const MIXER_ROUTE: usize = inputs::MIXER - 1;
+
+/// The microphone and the Mixer, with where their lines sit in
+/// `State::routes` (the engine's input index for the microphone) and their
+/// names. The aux inputs play as the Mixer's strips, not one by one.
+const INPUTS: [(i32, i32, usize, &str); 2] =
+    [(MIC, 0, 0, "Microphone"), (MIXER, 0, MIXER_ROUTE, "Mixer")];
 
 pub fn install(app: &AppWindow) {
     let ui = app.global::<InstrumentsUi>();
@@ -291,13 +296,9 @@ fn maker(p: &Plugin) -> &str {
     }
 }
 
-/// The inputs listed: the microphone and the first aux input always, the
-/// other two once set up.
-fn inputs(routes: &[String]) -> Vec<&'static (i32, i32, usize, &'static str)> {
-    INPUTS
-        .iter()
-        .filter(|(_, _, input, _)| *input <= 1 || routes.get(*input).is_some_and(|r| !r.is_empty()))
-        .collect()
+/// The inputs listed: the microphone and the Mixer.
+fn live_inputs() -> impl Iterator<Item = &'static (i32, i32, usize, &'static str)> {
+    INPUTS.iter()
 }
 
 /// The tree: (key, node).
@@ -310,7 +311,7 @@ fn nodes(s: &State) -> Vec<(String, InstrumentNode)> {
         count,
     };
     let open = |key: &str| if s.open.contains(key) { 2 } else { 1 };
-    let inputs = inputs(&s.routes).len() as i32;
+    let inputs = INPUTS.len() as i32;
     let total = 2 + s.plugins.len() as i32 + inputs;
     let mut out = vec![
         (
@@ -401,16 +402,11 @@ fn rows(s: &State) -> Vec<LiveItem> {
             kind,
             index,
             name: name.into(),
-            r#type: if kind == MIC {
-                "Microphone"
-            } else {
-                "Line input"
-            }
-            .into(),
-            problem: if route.is_empty() {
-                "No input picked"
-            } else {
-                ""
+            r#type: if kind == MIC { "Microphone" } else { "Mixer" }.into(),
+            problem: match (route.is_empty(), kind) {
+                (false, _) => "",
+                (true, MIC) => "No input picked",
+                (true, _) => "No inputs picked",
             }
             .into(),
             maker: route.into(),
@@ -463,7 +459,7 @@ fn rows(s: &State) -> Vec<LiveItem> {
             .map(|(i, p)| preset(i, p))
             .collect(),
         "plugins" => plugins(&|_| true),
-        "inputs" => inputs(&s.routes).into_iter().map(input).collect(),
+        "inputs" => live_inputs().map(input).collect(),
         "recent" => recent_items(s)
             .into_iter()
             .filter_map(|(kind, index)| {
@@ -496,7 +492,7 @@ fn rows(s: &State) -> Vec<LiveItem> {
             } else {
                 let mut all = vec![groove(), looper()];
                 all.extend(plugins(&|_| true));
-                all.extend(inputs(&s.routes).into_iter().map(input));
+                all.extend(live_inputs().map(input));
                 all
             }
         }
@@ -625,14 +621,38 @@ fn refresh(app: &AppWindow) {
 
 /// Shows on the inputs' tiles and live decks where each input comes from,
 /// from the engine's input states ("M4 · In 3 · 44.1 kHz"): the device and
-/// channels only, or nothing for an input that isn't recording.
+/// channels only, or nothing for an input that isn't recording. The
+/// Mixer's line, after the inputs', sums up its strips (see [`mixer_route`]).
 pub fn show_routes(app: &AppWindow, status: &[String]) {
-    let routes: Vec<String> = status.iter().map(|s| route(s)).collect();
+    let mut routes: Vec<String> = status.iter().map(|s| route(s)).collect();
+    let mixer = mixer_route(&routes);
+    routes.resize(MIXER_ROUTE, String::new());
+    routes.push(mixer);
     let shown: Vec<SharedString> = routes.iter().map(|r| r.as_str().into()).collect();
     app.global::<InstrumentsUi>()
         .set_routes(ModelRc::new(VecModel::from(shown)));
     STATE.with_borrow_mut(|s| s.routes = routes);
     refresh(app);
+}
+
+/// The Mixer's line from the inputs' routes: the interfaces its strips
+/// come from and how many there are ("M4 · 3 inputs"), or "" with none.
+fn mixer_route(routes: &[String]) -> String {
+    let mut devices: Vec<&str> = Vec::new();
+    let mut count = 0;
+    for route in inputs::AUXILIARIES.iter().filter_map(|&i| routes.get(i)) {
+        if let Some(device) = route.split(" · ").next().filter(|_| !route.is_empty()) {
+            count += 1;
+            if !devices.contains(&device) {
+                devices.push(device);
+            }
+        }
+    }
+    match count {
+        0 => String::new(),
+        1 => format!("{} · 1 input", devices[0]),
+        n => format!("{} · {n} inputs", devices.join(", ")),
+    }
 }
 
 /// "M4 · In 3" from an open input's state; "" from anything else (not set
@@ -653,9 +673,9 @@ mod tests {
     fn payloads_read_back_as_their_items() {
         assert_eq!(parse(&payload(1, 2)), Some(1002));
         assert_eq!(parse(&payload(2, 0)), Some(2000));
-        assert_eq!(parse(&payload(4, 0)), Some(4000));
+        assert_eq!(parse(&payload(MIXER, 0)), Some(7000));
         assert_eq!(parse("opendj-row:3"), None);
-        assert_eq!(parse("opendj-live:9:0"), None);
+        assert_eq!(parse("opendj-live:8:0"), None);
         assert_eq!(parse("opendj-live:1:x"), None);
     }
 
@@ -712,9 +732,10 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(names(&state("maker:Arturia")), ["Acid V", "Jun-6 V"]);
-        // The mic and aux 1 always, aux 2 once it has an input; aux 3 not.
-        assert_eq!(names(&state("inputs")), ["Microphone", "Aux 1", "Aux 2"]);
+        // The mic and the Mixer, which holds the aux inputs.
+        assert_eq!(names(&state("inputs")), ["Microphone", "Mixer"]);
         assert_eq!(rows(&state("inputs"))[0].problem, "No input picked");
+        assert_eq!(rows(&state("inputs"))[1].problem, "No inputs picked");
         let mut s = state("all");
         s.search = "vital".into();
         assert_eq!(names(&s), ["Vital"]);
@@ -725,6 +746,32 @@ mod tests {
         assert_eq!(names(&s), ["Acid V", "Jun-6 V", "Vital"]);
         s.sort = Some((0, true));
         assert_eq!(names(&s), ["Vital", "Jun-6 V", "Acid V"]);
+    }
+
+    #[test]
+    fn the_mixer_sums_up_its_strips_interfaces() {
+        let mut routes = vec![String::new(); inputs::NUM_INPUTS];
+        assert_eq!(mixer_route(&routes), "");
+        routes[inputs::AUXILIARY] = "M4 · In 3".into();
+        assert_eq!(mixer_route(&routes), "M4 · 1 input");
+        routes[inputs::AUXILIARY_3] = "M4 · In 4".into();
+        // The mic's and the instrument's routes aren't strips.
+        routes[inputs::MICROPHONE] = "MacBook Pro Microphone · In 1".into();
+        routes[inputs::INSTRUMENT] = "Plugin".into();
+        routes[inputs::AUXILIARIES[7]] = "iPhone · In 1".into();
+        assert_eq!(mixer_route(&routes), "M4, iPhone · 3 inputs");
+        // Its line sits where a deck's `live_input` less one finds it.
+        let mut s = state("inputs");
+        s.routes = routes;
+        let mixer = mixer_route(&s.routes);
+        s.routes.resize(MIXER_ROUTE, String::new());
+        s.routes.push(mixer);
+        assert_eq!(s.routes.len(), inputs::MIXER);
+        let row = &rows(&s)[1];
+        assert_eq!(
+            (row.maker.as_str(), row.problem.as_str()),
+            ("M4, iPhone · 3 inputs", "")
+        );
     }
 
     #[test]

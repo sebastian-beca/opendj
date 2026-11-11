@@ -15,14 +15,18 @@ use slint::{
     ComponentHandle, DataTransfer, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel,
 };
 
+/// `live` for a deck playing the Mixer.
+const MIXER: i32 = opendj_engine::inputs::MIXER as i32;
+
 use crate::{settings, AppWindow, InstrumentsUi, TrackDrag};
 
 /// File types taken as images.
 const IMAGE_TYPES: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
 
 /// The inputs' names for their files, in `InstrumentsUi.input-art` order:
-/// the microphone and aux inputs 1 to 3.
-const INPUTS: [&str; 4] = ["microphone", "aux-1", "aux-2", "aux-3"];
+/// the microphone, aux inputs 1 to 3 (decks saved before the Mixer) and
+/// the Mixer.
+const INPUTS: [&str; 5] = ["microphone", "aux-1", "aux-2", "aux-3", "mixer"];
 
 /// A ticked plugin, as its art is looked for.
 #[derive(Clone, Debug, Default)]
@@ -238,6 +242,7 @@ fn key_of(live: i32, instrument: i32) -> Option<String> {
         2 => Some(INPUTS[1].into()),
         4 => Some(INPUTS[2].into()),
         5 => Some(INPUTS[3].into()),
+        MIXER => Some(INPUTS[4].into()),
         _ => None,
     }
 }
