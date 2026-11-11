@@ -333,10 +333,24 @@ impl Drop for Controllers {
 }
 
 /// Words of a device or mapping name, minus ones that say nothing about
-/// which device it is ("MIDI", port numbers).
+/// which device it is ("MIDI", port numbers). A model number joined to its
+/// letters by a hyphen stays one word ("DDJ-800" → "ddj800"), so it isn't
+/// dropped as a port number.
 fn tokens(name: &str) -> Vec<String> {
-    name.to_lowercase()
-        .replace("&amp;", " ")
+    let lower = name.to_lowercase().replace("&amp;", " ");
+    let chars: Vec<char> = lower.chars().collect();
+    let joined: String = chars
+        .iter()
+        .enumerate()
+        .filter(|&(i, &c)| {
+            !(c == '-'
+                && i > 0
+                && chars[i - 1].is_alphabetic()
+                && chars.get(i + 1).is_some_and(|n| n.is_ascii_digit()))
+        })
+        .map(|(_, &c)| c)
+        .collect();
+    joined
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
         .filter(|t| !matches!(*t, "midi" | "port" | "in" | "out" | "usb" | "and"))
@@ -1254,6 +1268,9 @@ mod tests {
             ("PIONEER DDJ-SX", "Pioneer DDJ-SX.midi.xml"),
             ("PIONEER DDJ-SX2", "Pioneer DDJ-SX2.midi.xml"),
             ("PIONEER DDJ-RX", "Pioneer DDJ-RX.midi.xml"),
+            ("PIONEER DDJ-800", "Pioneer-DDJ-800.midi.xml"),
+            ("DDJ-400", "Pioneer-DDJ-400.midi.xml"),
+            ("DDJ-200", "Pioneer DDJ-200.midi.xml"),
             (
                 "Midi Fighter Twister",
                 "DJ TechTools MIDI Fighter Twister.midi.xml",
