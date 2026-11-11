@@ -20,7 +20,7 @@ pub const GAIN_KEY: &str = "waveform_follows_gain";
 pub const VOCALS_KEY: &str = "waveform_show_vocals";
 
 /// The color schemes, in Settings order.
-pub const COLOR_LABELS: [&str; 3] = ["RGB", "3-Band", "Blue"];
+pub const COLOR_LABELS: [&str; 4] = ["RGB", "3-Band", "Blue", "Stems"];
 /// The stacked bands' palettes, in [`BAND_PALETTES`] order.
 pub const PALETTE_LABELS: [&str; BAND_PALETTES.len()] = ["Blue-Orange-White", "Lilac-Cyan-White"];
 pub const SHAPE_LABELS: [&str; 2] = ["Full", "Half"];
@@ -118,6 +118,7 @@ pub fn style() -> Style {
     match color() {
         1 => Style::Bands,
         2 => Style::Blue,
+        3 => Style::Stems,
         _ => Style::Rgb,
     }
 }

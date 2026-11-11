@@ -55,6 +55,8 @@ struct Params {
     word_width: array<vec4<f32>, 2>,   // each phrase name's width in the text atlas, by kind
     marks: array<vec4<f32>, 256>,      // start and end slice, row, kind (0 played, 1 held, 2 coming, 3 fill, 4 coming fill, 8+ level: 8 + colour * 2^20 + from * 1024 + to)
     vocal: vec4<f32>,                  // vocal levels: first texel, count, finest slices per level, 1 = tint the sung parts
+    stems: vec4<f32>,                  // stem levels: first texel (two a level), count, finest slices per level, stems (0 = not drawn)
+    stem_colors: array<vec4<f32>, 5>,  // each stem's colour
 };
 
 @group(0) @binding(0) var<uniform> p: Params;
@@ -162,6 +164,75 @@ fn vocal_at(bin: f32) -> f32 {
         most = max(most, v);
     }
     return most;
+}
+
+// Stem level `j`: each stem's peak (0 to 1, a square root), two texels
+// after the vocal levels.
+fn stem_level(j: u32) -> array<f32, 5> {
+    let t = u32(p.stems.x) + 2u * j;
+    let a = texel(t);
+    let b = texel(t + 1u);
+    return array<f32, 5>(a.x, a.y, a.z, a.w, b.x);
+}
+
+// Each stem's peak around `bin`, as a linear level: interpolated between
+// levels, and on the overview the most over the column.
+fn stems_at(bin: f32) -> array<f32, 5> {
+    var most = array<f32, 5>(0.0, 0.0, 0.0, 0.0, 0.0);
+    let count = u32(p.stems.y);
+    if (count == 0u || p.stems.z <= 0.0 || bin < 0.0) {
+        return most;
+    }
+    let per = p.stems.z;
+    let span = max(p.bins_per_pixel / per, 1.0);
+    let steps = min(u32(ceil(span)), 16u);
+    for (var i = 0u; i < steps; i = i + 1u) {
+        let x = bin / per - 0.5 * span + (f32(i) + 0.5) * span / f32(steps);
+        if (x > f32(count)) {
+            break;
+        }
+        let j = u32(clamp(floor(x), 0.0, f32(count - 1u)));
+        let k = min(j + 1u, count - 1u);
+        let a = stem_level(j);
+        let b = stem_level(k);
+        let t = clamp(fract(x), 0.0, 1.0);
+        for (var s = 0u; s < 5u; s = s + 1u) {
+            let v = mix(a[s], b[s], t);
+            most[s] = max(most[s], v * v);
+        }
+    }
+    return most;
+}
+
+// The Stems look: each stem's shape in its colour, the tallest at the
+// back so every stem shows where it is louder than the ones in front.
+fn stems_wave(base: vec3<f32>, bin: f32, d: f32, span: f32) -> vec3<f32> {
+    var color = base;
+    var h = stems_at(bin);
+    let n = min(u32(p.stems.w), 5u);
+    var done = array<bool, 5>(false, false, false, false, false);
+    for (var round = 0u; round < n; round = round + 1u) {
+        var pick = 0u;
+        var best = -1.0;
+        for (var s = 0u; s < n; s = s + 1u) {
+            if (!done[s] && h[s] > best) {
+                best = h[s];
+                pick = s;
+            }
+        }
+        done[pick] = true;
+        // The rest are quieter still: under a pixel, they'd only smear the
+        // centre line.
+        let reach = height(best) * span;
+        if (reach < 1.0) {
+            break;
+        }
+        // Pad colours are dark; lift them a little to read on the background.
+        let c = mix(p.stem_colors[pick].rgb, vec3<f32>(1.0), 0.18);
+        color = over(color, c * 0.75, fill(reach, d) * 0.5);
+        color = over(color, c, fill(reach * 0.8, d) * 0.95);
+    }
+    return color;
 }
 
 // Levels are stored as square roots; this returns them as linear levels.
@@ -416,7 +487,8 @@ fn wave(base: vec3<f32>, s: Slice, bin: f32, d: f32, span: f32) -> vec3<f32> {
         let rms_h = height(s.rms.w) * span;
         color = over(color, c * 0.8, fill(peak_h, d) * 0.45);
         color = over(color, c, fill(rms_h, d));
-    } else if (p.style == 0u) {
+    } else if (p.style == 0u || p.style == 4u) {
+        // RGB, and Stems for a track without them.
         let c = band_color(s);
         let peak_h = height(s.peak.w) * span;
         let rms_h = height(s.rms.w) * span;
@@ -523,9 +595,15 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let under_wave = color;
     if (has_track) {
         let cols = columns(bin);
-        color = mix(wave(color, cols.a, bin, d, span), wave(color, cols.b, bin, d, span), cols.t);
-        // Show vocals: the shape leans green where someone sings.
-        if (p.vocal.w > 0.5 && p.style != 2u) {
+        let stems = p.style == 4u && p.stems.w > 0.5;
+        if (stems) {
+            color = stems_wave(color, bin, d, span);
+        } else {
+            color = mix(wave(color, cols.a, bin, d, span), wave(color, cols.b, bin, d, span), cols.t);
+        }
+        // Show vocals: the shape leans green where someone sings (the
+        // Stems look shows the vocals in their own colour already).
+        if (p.vocal.w > 0.5 && p.style != 2u && !stems) {
             let v = vocal_at(bin);
             if (v > 0.0) {
                 let reach = height(mix(cols.a.peak.w, cols.b.peak.w, cols.t)) * span;
