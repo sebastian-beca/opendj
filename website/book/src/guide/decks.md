@@ -115,8 +115,12 @@ the rail at the far left (the keyboard icon) and drag one onto a deck:
   [Instruments](fx.md#instruments)).
 - The **Looper**: four layers you record in time with the mix and play
   back (see [Looper](#looper)).
-- The **Microphone** or the **Aux input**, from the inputs picked in
-  **Settings › Audio**: turntables, a drum machine or a singer.
+- The **Microphone**, from the input picked in **Settings › Audio**.
+- The **Mixer**: up to eight aux inputs from **Settings › Audio**
+  (turntables, a drum machine, a phone, another DJ's mixer) summed into the
+  one deck. The numbers on the deck turn each input on and off; a new
+  input starts off. The deck's fader is the Mixer's master, and one deck
+  holds the Mixer at a time.
 
 It plays through that deck's channel, so the EQ, filter, effects, fader and
 crossfader all work on it. A track on the deck is stopped and ejected
