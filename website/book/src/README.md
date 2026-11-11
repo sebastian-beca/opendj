@@ -6,7 +6,7 @@ starting out and for experienced DJs alike.
 
 ![openDJ](images/screenshot.webp)
 
-These docs cover openDJ 0.4. They have two parts:
+These docs cover openDJ 0.6. They have two parts:
 
 - The **user guide** covers installing openDJ, loading your music and
   everything on screen, from the decks to Automix and controllers. Start with
@@ -24,6 +24,8 @@ These docs cover openDJ 0.4. They have two parts:
   [Collection Health](guide/collection-health.md).
 - **Mixing:** [Pads](guide/pads.md), [Looping](guide/looping.md),
   [Effects](guide/fx.md), [Stems](guide/stems.md) and [Automix](guide/automix.md).
+- **Playing live over the mix:** [Jam on a deck](guide/decks.md#jam-on-a-deck)
+  and the [Groove Box](guide/groove-box.md).
 - **Got a DDJ-FLX4?** See its [own page](guide/controllers/ddj-flx4.md).
 
 openDJ also has short tutorials on the [website](https://opendj.app/tutorials/).

@@ -110,9 +110,11 @@ the rail at the far left (the keyboard icon) and drag one onto a deck:
 - A **Groove Box** kit: a drum machine in time with the mix (see
   [Groove Box](groove-box.md)).
 - An **instrument plugin** you ticked in **Settings › Plugins**, played with
-  a MIDI keyboard or the **KEYBOARD** pads. **EDIT** on the deck opens its
+  a MIDI keyboard or the **KEYBOARD** pads. **OPEN** on the deck opens its
   own window for its sounds and presets (see
   [Instruments](fx.md#instruments)).
+- The **Looper**: four layers you record in time with the mix and play
+  back (see [Looper](#looper)).
 - The **Microphone** or the **Aux input**, from the inputs picked in
   **Settings › Audio**: turntables, a drum machine or a singer.
 
@@ -154,6 +156,34 @@ only; a Groove Box deck always shows its step lanes.
 
 To go back to a track deck, load a track onto it, or press EJECT while it is
 stopped. openDJ remembers what each deck plays for next time.
+
+### Looper
+
+Drag **Looper** from the **Jam** list onto a deck. In 2-Deck the deck shows
+four layers, two by two, with **▶ PLAY** and four beat lights under them. The
+header shows the tempo the Looper plays at, and whether it is in time with
+the mix.
+
+- **FROM** picks what it records: **Mix** (the main mix), **Mic**,
+  **Aux**, **Instr.** (the instrument plugin), **Aux 2** or **Aux 3**.
+- **BARS** sets how long a new layer is: 1, 2, 4, 8 or 16 bars.
+- Tap a layer's **● REC** to record it. It shows **NEXT BAR** until the
+  next bar starts, then **RECORDING**, then **▶ PLAY** with its length once
+  the bars are done. Tapping a layer on a stopped deck starts the deck.
+- Tap a playing layer to **OVERDUB**: what comes in is added on top of
+  it. Tap it again to go back to playing. With **THEN OVERDUB** on, a layer
+  goes straight on to overdub when it finishes recording.
+- **CAPTURE** puts the bars just heard into the first empty layer, even if
+  you weren't recording. **LAST** picks how many: 1, 2, 4 or 8 bars.
+- Each layer has **M** to mute it, a level knob, and **×** to clear it.
+- **UNDO** takes back the last recording or overdub, and **REDO** brings
+  it back. While a layer waits for the bar or records, **UNDO** cancels it.
+- **▶ PLAY** under the layers starts all of them together, and **■ STOP**
+  stops them.
+
+A layer holds up to about 48 seconds, 16 bars at 80 BPM. If what you pick
+is longer, the deck says **Too long to fit: pick fewer bars.** To go back
+to a track deck, drop a track on it.
 
 ## Slip, bend and censor
 

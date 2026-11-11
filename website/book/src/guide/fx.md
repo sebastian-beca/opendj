@@ -148,20 +148,62 @@ playing either way.
 ### Instruments
 
 Tick an instrument on the **Instruments** tab of **Settings › Plugins**,
-then open the **MIC** panel. Under **Mic** and **Aux** is the
-**Instrument** input:
+then click **Jam** in the rail and drag it from the list onto a deck (see
+[Jam on a deck](decks.md#jam-on-a-deck)). It plays through that deck's
+channel, with its EQ, filter, effects and fader.
 
-- Pick the instrument from the list, and turn it **ON** to hear it in the
-  main mix. **EDIT** beside the list opens the instrument's own window, for
-  its sounds and presets. The headphone button cues it, and **INST** next to **AUX**
-  sends it through the Mic FX.
-- Play it with the eight pads under the list, a white-key octave from C,
-  moved up or down with **OCTAVE**.
-- Any MIDI keyboard plugged in that isn't a controller with a mapping plays
-  it too.
-- **KEYBOARD PADS** makes the decks' **KEYBOARD** pads, on screen and on
-  your controller, play the instrument instead of the deck's hot cue.
+The deck's header shows the plugin's format (**CLAP**, **VST3** or **AU**)
+and its preset, with **‹** and **›** to step through the instrument's
+presets in the order the browser lists them. **SAVE** has **Save**, **Save
+as new…**, **Rename…** and **Tags…**, which sets what the preset is and how
+it sounds for the browser's chips. openDJ keeps the plugin's state, so the
+sound comes back next time. Right-click the cover to choose an image for
+the instrument, or drop one on the deck.
 
-To play an instrument through a deck instead, with that deck's EQ, filter,
-effects and fader, drag it from the **Jam** source onto the deck
-(see [Jam on a deck](decks.md#jam-on-a-deck)).
+In 2-Deck the deck shows:
+
+- A scope of what the instrument plays, and its level.
+- **TRIM** and **PAN**. A safety limiter keeps the deck from clipping
+  whatever the trim.
+- Eight knobs for the plugin's settings. When it has more than eight, the
+  page buttons **1** to **4** beside them show the next ones. Right-click a
+  knob to pick the setting it turns; **The plugin's own choice** puts it
+  back.
+- **OPEN**, which opens the plugin's own window for every setting.
+- **KEYS ON PADS**, which makes the decks' **KEYBOARD** pads, on screen and
+  on your controller, play the instrument instead of the deck's hot cue (see
+  [Keyboard and key shift](pads.md#keyboard-and-key-shift)).
+- A row under them with **Scale**, **Chord**, **Arp**, **OCT −** and **+**,
+  and a keyboard that lights the notes held.
+
+A 4-Deck strip shows the scope, **OPEN**, the first four knobs and
+**TRIM**, with the preset in its header.
+
+**Scale** moves each note you play to the nearest note of a scale, so
+every key sounds in key with the mix. **Off** plays notes as they are.
+**Auto** takes the master deck's key. Or pick a root (C to B) and **Major**,
+**Minor**, **Major pentatonic** or **Minor pentatonic**. The keyboard on the
+deck marks the scale's keys and dims the rest.
+
+**Chord** plays a chord built on the scale from each key: **Triad**,
+**Seventh**, or **Power** (root, fifth and octave). For a chord of your
+own, choose **Learn a chord**, hold its keys and let go; **Mine** then
+plays it from any key. **Off** plays one note per key.
+
+**Arp** plays the notes you hold one at a time, on the mix's beat. Pick
+**Up**, **Down**, **Up and down**, **Random** or **Order played** to turn it
+on (**Arpeggiator on** turns it off and on), then
+**RATE** (1/4 to 1/32, with triplets), **GATE** (how long each note
+sounds, 25% to 100%) and **OCTAVES** (1 to 4). **Hold** keeps it playing
+after you let go, until you play new keys. It plays the chords from
+**Chord** too.
+
+**OCT −** and **+** move the **KEYBOARD** pads up or down an octave, three
+at most each way. The pads play the white keys from middle C.
+
+Any MIDI keyboard without a mapping plays the instrument. The keyboard
+button in the deck's header picks which one (**Any keyboard** or one by
+name) and which **CHANNEL** (**Any channel** or 1 to 16), and shows which
+keyboard played it last. See
+[MIDI keyboards](controllers.md#midi-keyboards-and-decks) for which
+devices play instruments and which deck each one plays.
