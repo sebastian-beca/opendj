@@ -196,7 +196,7 @@ component Waveform inherits Rectangle {
         y: parent.height - self.height;
         width: parent.width;
         lines: lyric-lines;
-        now: Controls.value(position-index, Controls.tick) * Controls.value(duration-index, Controls.tick);
+        now: WaveLyrics.now(lyrics-deck);
         visible-seconds: root.visible-seconds;
     }
     // Right-click: show or hide the phrase flags on every scrolling waveform.

@@ -2754,6 +2754,15 @@ impl Gpu {
                 // Decks 3 and 4 have no jog.
                 _ => {}
             }
+            // The lyrics under the waveform move with it.
+            let lyrics = app.global::<WaveLyrics>();
+            let at = play_seconds as f32;
+            match d {
+                0 => lyrics.set_now_1(at),
+                1 => lyrics.set_now_2(at),
+                2 => lyrics.set_now_3(at),
+                _ => lyrics.set_now_4(at),
+            }
             // Decks 3 and 4 show only in 4-Deck.
             if d >= 2 && !four {
                 continue;
