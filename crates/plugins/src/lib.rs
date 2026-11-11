@@ -27,6 +27,7 @@ pub mod buy;
 pub mod djay;
 pub mod inbox;
 pub mod itunes;
+pub mod itunes_library;
 pub mod jellyfin;
 pub mod links;
 pub mod mixxx;
@@ -286,6 +287,11 @@ pub trait LibraryImport: Send {
     fn title(&self) -> &str;
     /// The library file to read, if there is one on this computer.
     fn database(&self) -> Option<PathBuf>;
+    /// How to get the library file when [`LibraryImport::database`] finds
+    /// none, for the DJ; empty to just ask them to choose it.
+    fn missing_hint(&self) -> &str {
+        ""
+    }
     /// The kinds of lists it can bring in, each of which the DJ can turn
     /// on or off.
     fn list_groups(&self) -> Vec<ListGroup> {
@@ -347,6 +353,7 @@ pub fn importers() -> Vec<Box<dyn LibraryImport>> {
         Box::new(mixxx::Mixxx),
         Box::new(traktor::Traktor),
         Box::new(djay::Djay),
+        Box::new(itunes_library::ItunesLibrary),
     ]
 }
 
