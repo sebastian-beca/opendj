@@ -60,6 +60,7 @@ pub mod synth;
 pub mod tags;
 pub mod track;
 mod visual;
+pub mod vocals;
 pub mod word_timing;
 
 use std::cell::RefCell;

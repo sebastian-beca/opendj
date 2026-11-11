@@ -37,6 +37,87 @@ pub trait Net {
     fn estimate(&self, magnitudes: Vec<f32>) -> Vec<f32>;
 }
 
+/// One stem's U-Net on its own, for when only that stem's level is wanted.
+pub trait OneStem {
+    /// Stem `stem`'s estimated magnitudes for one window, laid out as in
+    /// [`Net::estimate`] (2 × [`T`] × [`F`]).
+    fn estimate_stem(&self, stem: usize, magnitudes: &[f32]) -> Vec<f32>;
+}
+
+/// Frames of the vocal level per second (one per STFT hop at 44.1 kHz).
+pub const VOCAL_RATE: f64 = crate::SAMPLE_RATE as f64 / HOP as f64;
+
+/// How much of a stereo track at 44.1 kHz is vocals, frame by frame
+/// ([`VOCAL_RATE`] a second): the vocal network's share of the mix's
+/// energy from 150 Hz to 8 kHz, 0 to 1. Only the vocal U-Net runs and no
+/// audio is rebuilt, so this costs about a quarter of a separation.
+/// `keep_going` is asked between windows; false stops early with what is
+/// done so far (the rest 0).
+pub fn vocal_levels(
+    net: &impl OneStem,
+    channels: [&[f32]; 2],
+    mut keep_going: impl FnMut() -> bool,
+) -> Vec<f32> {
+    let len = channels[0].len();
+    if len == 0 {
+        return Vec::new();
+    }
+    let stft = Stft::new();
+    let padded: Vec<Vec<f32>> = channels
+        .iter()
+        .map(|c| {
+            let mut p = vec![0.0; FRAME];
+            p.extend_from_slice(c);
+            p
+        })
+        .collect();
+    let frames = Stft::frames(len + FRAME);
+    // The bins from 150 Hz to 8 kHz, where voices are.
+    let hz = |f: f64| (f * FRAME as f64 / crate::SAMPLE_RATE as f64) as usize;
+    let (lo, hi) = (hz(150.0), hz(8000.0).min(F));
+    let mut row = vec![Complex32::default(); BINS];
+    let mut out = vec![0.0f32; frames];
+    for w in 0..frames.div_ceil(T) {
+        if !keep_going() {
+            break;
+        }
+        let f0 = w * T;
+        let count = (frames - f0).min(T);
+        let mut mags = vec![0.0f32; 2 * T * F];
+        for (c, p) in padded.iter().enumerate() {
+            for f in 0..count {
+                stft.frame(p, f0 + f, &mut row);
+                let dst = &mut mags[(c * T + f) * F..][..F];
+                for (d, z) in dst.iter_mut().zip(&row[..F]) {
+                    *d = z.norm();
+                }
+            }
+        }
+        let est = net.estimate_stem(0, &mags);
+        for f in 0..count {
+            let (mut vocal, mut mix) = (0.0f32, 0.0f32);
+            for c in 0..2 {
+                let at = (c * T + f) * F;
+                for b in lo..hi {
+                    let m = mags[at + b];
+                    let v = est[at + b].min(m);
+                    vocal += v * v;
+                    mix += m * m;
+                }
+            }
+            out[f0 + f] = if mix > 1e-6 {
+                (vocal / mix).sqrt()
+            } else {
+                0.0
+            };
+        }
+    }
+    // Frame k is centred on padded sample k·HOP + FRAME/2, which is the
+    // track's sample k·HOP − FRAME/2: drop the frames before the track.
+    out.drain(..(FRAME / 2 / HOP).min(out.len()));
+    out
+}
+
 /// A tensor from the weights file as f32, with its shape.
 pub(crate) fn tensor(st: &SafeTensors, name: &str) -> Result<(Vec<f32>, Vec<usize>), String> {
     let t = st.tensor(name).map_err(|e| format!("{name}: {e}"))?;
@@ -260,6 +341,34 @@ mod tests {
 
     /// Estimates each stem as a fixed share of the mix, different per bin.
     struct Fake;
+
+    impl OneStem for Fake {
+        fn estimate_stem(&self, _stem: usize, magnitudes: &[f32]) -> Vec<f32> {
+            // Vocals in the second half of the frames of each window only.
+            magnitudes
+                .iter()
+                .enumerate()
+                .map(|(i, m)| if (i % (T * F)) / F >= T / 2 { *m } else { 0.0 })
+                .collect()
+        }
+    }
+
+    #[test]
+    fn vocal_levels_follow_the_vocal_estimate() {
+        let len = T * HOP * 2;
+        let x: Vec<f32> = (0..len).map(|i| (i as f32 * 0.05).sin() * 0.5).collect();
+        let levels = vocal_levels(&Fake, [&x, &x], || true);
+        assert_eq!(levels.len(), Stft::frames(len + FRAME) - FRAME / 2 / HOP);
+        // Window 1's second half is all vocals, its first half none (two
+        // frames in to stay clear of the padding).
+        let w1 = T - FRAME / 2 / HOP;
+        assert!(levels[w1 + 10] < 0.01, "{}", levels[w1 + 10]);
+        assert!(
+            levels[w1 + T / 2 + 10] > 0.99,
+            "{}",
+            levels[w1 + T / 2 + 10]
+        );
+    }
 
     impl Net for Fake {
         fn estimate(&self, magnitudes: Vec<f32>) -> Vec<f32> {

@@ -1454,6 +1454,14 @@ impl Prefs {
                          VirtualDJ.",
                         settings::flag(crate::wave_look::GAIN_KEY, false),
                     ),
+                    switch(
+                        crate::wave_look::VOCALS_KEY,
+                        "Show vocals",
+                        "Tints the sung parts of the waveforms green, as on VirtualDJ. \
+                         Each track is checked once, in the background, the first time \
+                         it is loaded.",
+                        settings::flag(crate::wave_look::VOCALS_KEY, true),
+                    ),
                     PrefItem {
                         choices: strings(&["Off", "Beats", "Beats and phrases"]),
                         chosen: beat_counter_mode(),
@@ -2804,6 +2812,7 @@ impl Prefs {
             "stems_on_load" => separation::set_on_load(on),
             crate::browser::WAVE_LYRICS => crate::browser::set_wave_lyrics(on),
             crate::wave_look::GAIN_KEY => crate::wave_look::set_follows_gain(on),
+            crate::wave_look::VOCALS_KEY => crate::wave_look::set_show_vocals(on),
             "auto_reset_fx" | "auto_reset_eq" | "auto_reset_gain" => {
                 self.set("[Controls]", id, f(on))
             }

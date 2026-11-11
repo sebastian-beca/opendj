@@ -342,20 +342,36 @@ impl Net {
     }
 }
 
+/// `[channel][frame][bin]` magnitudes as the networks' channels-last input.
+fn input(magnitudes: &[f32]) -> Map {
+    let mut data = vec![0.0f32; T * F * 2];
+    for (j, v) in magnitudes.iter().enumerate() {
+        let (c, i) = (j / (T * F), j % (T * F));
+        data[i * 2 + c] = *v;
+    }
+    Map {
+        h: T,
+        w: F,
+        c: 2,
+        data,
+    }
+}
+
+impl super::OneStem for Net {
+    fn estimate_stem(&self, stem: usize, magnitudes: &[f32]) -> Vec<f32> {
+        let est = self.nets[stem].forward(&input(magnitudes));
+        let mut out = vec![0.0f32; 2 * T * F];
+        for (i, [l, r]) in est.as_chunks::<2>().0.iter().enumerate() {
+            out[i] = *l;
+            out[T * F + i] = *r;
+        }
+        out
+    }
+}
+
 impl super::Net for Net {
     fn estimate(&self, magnitudes: Vec<f32>) -> Vec<f32> {
-        // [channel][frame][bin] to channels-last.
-        let mut data = vec![0.0f32; T * F * 2];
-        for (j, v) in magnitudes.iter().enumerate() {
-            let (c, i) = (j / (T * F), j % (T * F));
-            data[i * 2 + c] = *v;
-        }
-        let x = Map {
-            h: T,
-            w: F,
-            c: 2,
-            data,
-        };
+        let x = input(&magnitudes);
         let mut out = vec![0.0f32; STEMS.len() * 2 * T * F];
         for (s, net) in self.nets.iter().enumerate() {
             let est = net.forward(&x);

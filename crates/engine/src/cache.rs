@@ -101,6 +101,11 @@ pub fn clear_analysis() -> usize {
 }
 
 /// Where `path`'s analysis is kept, or None if the file can't be read.
+/// Where the analysis of `path` is kept, named for the file as it is now.
+pub(crate) fn entry_path(path: &Path) -> Option<PathBuf> {
+    entry(path)
+}
+
 fn entry(path: &Path) -> Option<PathBuf> {
     let meta = fs::metadata(path).ok()?;
     let modified = meta
