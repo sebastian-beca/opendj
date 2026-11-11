@@ -31,3 +31,8 @@ rbox-onelib = { version = "0.3.0", default-features = false, features = ["bundle
 
 [target.'cfg(not(target_vendor = "apple"))'.dependencies]
 rbox-onelib = { version = "0.3.0", default-features = false, features = ["bundled-vendored-openssl"] }
+
+[dev-dependencies]
+# The tests read OneLibrary back without rbox; this is the workspace's own
+# SQLite, which rbox-onelib already builds with SQLCipher.
+rusqlite = "0.40.2"

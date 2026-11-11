@@ -436,6 +436,31 @@ impl Sculpt {
     }
 }
 
+/// Where [`soft_clip`] starts to bend: -1.5 dBFS.
+pub const SOFT_CLIP_KNEE: f32 = 0.841;
+/// What [`soft_clip`] never reaches: -0.1 dBFS.
+pub const SOFT_CLIP_CEILING: f32 = 0.9886;
+
+/// A zero-latency safety clipper for outputs without the master's limiter
+/// (headphones, booth, the deck outputs to an external mixer): untouched up
+/// to [`SOFT_CLIP_KNEE`], then bent smoothly towards [`SOFT_CLIP_CEILING`]
+/// instead of squaring off at full scale. The bend starts with a slope of
+/// one, so there is no kink where it begins.
+#[inline]
+pub fn soft_clip(v: f32) -> f32 {
+    let a = v.abs();
+    if a <= SOFT_CLIP_KNEE {
+        return v;
+    }
+    let room = SOFT_CLIP_CEILING - SOFT_CLIP_KNEE;
+    let bent = SOFT_CLIP_KNEE + room * (1.0 - (-(a - SOFT_CLIP_KNEE) / room).exp());
+    // NaN stays out of the outputs.
+    if bent.is_nan() {
+        return 0.0;
+    }
+    bent.copysign(v)
+}
+
 /// A look-ahead true-peak limiter for the master mix, with both channels
 /// linked.
 ///
@@ -539,6 +564,27 @@ impl Limiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn soft_clip_leaves_quiet_audio_alone_and_bends_peaks_under_the_ceiling() {
+        for v in [0.0, 0.1, -0.5, 0.84, -0.84] {
+            assert_eq!(soft_clip(v), v);
+        }
+        let mut last = 0.0;
+        for i in 0..4000 {
+            let v = i as f32 * 0.001;
+            let y = soft_clip(v);
+            assert!(y <= SOFT_CLIP_CEILING, "{v} -> {y}");
+            assert!(y >= last, "rises steadily at {v}");
+            assert_eq!(soft_clip(-v), -y);
+            last = y;
+        }
+        // No kink at the knee: just over it, it still moves one for one.
+        let (a, b) = (SOFT_CLIP_KNEE + 1e-4, SOFT_CLIP_KNEE + 2e-4);
+        assert!(((soft_clip(b) - soft_clip(a)) / 1e-4 - 1.0).abs() < 0.01);
+        assert!(soft_clip(100.0) > 0.98);
+        assert_eq!(soft_clip(f32::NAN), 0.0);
+    }
 
     #[test]
     fn limiter_holds_peaks_under_the_ceiling_and_leaves_quiet_audio_alone() {

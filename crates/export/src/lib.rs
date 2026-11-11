@@ -582,4 +582,6 @@ fn write_library(root: &Path, options: &Options, model: &Model) -> Result<(), Er
 }
 
 #[cfg(test)]
+mod check;
+#[cfg(test)]
 mod tests;

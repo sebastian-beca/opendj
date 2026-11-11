@@ -47,6 +47,22 @@ fn open(path: &Path) -> Result<Connection, String> {
     .map_err(|e| format!("can't open Mixxx's database: {e}"))
 }
 
+/// A SQLite database's path and the time it or its write-ahead log changed,
+/// whichever was last.
+pub(crate) fn sqlite_stamp(database: &Path) -> String {
+    let modified = |p: &Path| {
+        std::fs::metadata(p)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_secs())
+    };
+    let mut wal = database.as_os_str().to_owned();
+    wal.push("-wal");
+    let newest = modified(database).max(modified(Path::new(&wal)));
+    format!("{}:{newest}", database.display())
+}
+
 fn err(e: rusqlite::Error) -> String {
     e.to_string()
 }
@@ -87,19 +103,8 @@ impl LibraryImport for Mixxx {
         ]
     }
 
-    /// The database or its write-ahead log, whichever changed last.
     fn stamp(&self, database: &Path) -> String {
-        let modified = |p: &Path| {
-            std::fs::metadata(p)
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |d| d.as_secs())
-        };
-        let mut wal = database.as_os_str().to_owned();
-        wal.push("-wal");
-        let newest = modified(database).max(modified(Path::new(&wal)));
-        format!("{}:{newest}", database.display())
+        sqlite_stamp(database)
     }
 
     fn preview(&self, database: &Path) -> Result<String, String> {
