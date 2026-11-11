@@ -1,38 +1,50 @@
 //! Brings a djay Pro library into the collection at start, when the DJ turns
 //! it on in Settings › Collection › Import: each track's tags, BPM, key,
-//! hot cues 1 to 8 with their names and colors, saved loops, Automix
-//! points, play count, color and grid anchor, and djay's playlists. It
-//! opens djay's database read-only and never writes it.
+//! hot cues 1 to 8 with their names, saved loops, Automix points, rating,
+//! play count, color and grid anchor; djay's playlists in their folders;
+//! and its history. Streamed tracks (TIDAL, Spotify, Beatport, SoundCloud)
+//! stand in djay's lists as placeholders. It reads a copy of djay's
+//! database and never writes djay's own.
 //!
 //! djay keeps its library in `MediaLibrary.db`, a YapDatabase on SQLite:
-//! table `database2` holds one row per track in each `collection`, keyed by
-//! the track's uuid, and each row's `data` is a TSAF object ([`tsaf`]):
+//! table `database2` holds one row per record in each `collection`, keyed
+//! by the record's uuid; a track's records share its key. Each row's `data`
+//! is an object, in one of two formats: Apple's keyed archive (`bplist00`,
+//! [`keyed`]) in records djay wrote before about 2024, TSAF ([`tsaf`]) in
+//! newer ones. A library holds both.
 //!
-//! - `mediaItemTitleIDs`: `ADCMediaItemTitleID` with `title`, `artist`,
-//!   `album` and `duration`.
-//! - `localMediaItemLocations`: `ADCMediaItemLocation` with `sourceURIs`,
-//!   file URLs or a macOS bookmark ([`bookmark`]).
-//! - `mediaItemAnalyzedData`: `bpm` and `keySignatureIndex`.
-//! - `mediaItemUserData`: `cuePoints` (`ADCCuePoint`: `time`, `endTime`
-//!   (-1 unless it is a loop), `number` 0 to 7, `comment`, `colorIndex`),
-//!   `automixStartPoint` and `automixEndPoint` (cue points too),
-//!   `playCount`, `colorIndex` and `beatGridEdits`.
-//!
-//! Playlists are a YapDatabase view: `view_mediaItemPlaylistView_page` has
-//! a `group` (the playlist) per page of rows, `_map` which page each row is
-//! on.
+//! - `mediaItemTitleIDs`: `title`, `artist`, `duration`, `isrc`.
+//! - `mediaItems`: `albumUUID`, `genreUUIDs` (names in `mediaAlbums` and
+//!   `mediaGenres`), `year`, `comments`, `composer`, `grouping`,
+//!   `addedDate`.
+//! - `localMediaItemLocations`: `sourceURIs` (a `file://` URL) and
+//!   `urlBookmarkData` (a macOS bookmark, [`bookmark`]);
+//!   `globalMediaItemLocations`: a streamed track's `tidal:track:123`.
+//! - `mediaItemAnalyzedData`: `bpm`, `keySignatureIndex`.
+//! - `mediaItemUserData`: `cuePoints` (`ADCCuePoint`: `number` 1 to 8,
+//!   `time`, `endTime` (-1 unless a loop), `comment`), `loopRegions`
+//!   (`ADCLoopRegion`: `startTime`, `endTime`, `comment`),
+//!   `automixStartPoint` and `automixEndPoint` (cue points), `rating`,
+//!   `playCount`, `colorIndex`, `manualBPM`, `beatGridEdits`.
+//! - `mediaItemPlaylists`: `name`, `type` (0 playlist, 1 folder, 2 smart),
+//!   `childUUIDs`, `itemUUIDs`; the top is `mediaItemPlaylist-root`. Each
+//!   item is a `mediaItemPlaylistItems` record naming its `mediaItemUUID`.
+//! - `historySessions`: `startDate`, `itemUUIDs`; each a
+//!   `historySessionItems` record with `startTime` and the track's
+//!   `titleID`. Dates count seconds from 2001.
 //!
 //! Prior work: EngineX-OS's `pkg/djay` (MIT, Copyright (c) 2026 EngineX OS
-//! Contributors) set out what to bring across; the record layout follows
-//! djay-pro-autohotcue (MIT, Copyright (c) 2026 payne0420), tsaf-parser
-//! (MIT, Copyright (c) 2026 Arlo O'Keeffe) and whats-now-playing's djay Pro input (MIT,
-//! Copyright (c) 2021-2026 Allen Wittenauer), which found the key order and
-//! the playlist view.
+//! Contributors) set out what to bring across; the TSAF layout follows
+//! djay-pro-autohotcue (MIT, Copyright (c) 2026 payne0420) and tsaf-parser
+//! (MIT, Copyright (c) 2026 Arlo O'Keeffe), and whats-now-playing's djay Pro
+//! input (MIT, Copyright (c) 2021-2026 Allen Wittenauer) found the key
+//! order. The rest was checked against a real djay Pro library.
 
 pub mod bookmark;
+pub mod keyed;
 pub mod tsaf;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -42,9 +54,14 @@ use opendj_engine::{Hotcue, LibraryInfo, Marker, MarkerKind, Source, Track, MEMO
 use rusqlite::{Connection, OpenFlags};
 
 use crate::{ImportedLibrary, LibraryImport, ListGroup};
+use keyed::APPLE_EPOCH;
 use tsaf::{Obj, Value};
 
 pub const PLAYLISTS: &str = "playlists";
+pub const HISTORY: &str = "history";
+
+/// The playlist tree's top, as djay keys it.
+const ROOT: &str = "mediaItemPlaylist-root";
 
 pub struct Djay;
 
@@ -77,12 +94,20 @@ impl LibraryImport for Djay {
     }
 
     fn list_groups(&self) -> Vec<ListGroup> {
-        vec![ListGroup {
-            id: PLAYLISTS,
-            title: "Playlists",
-            detail: "Your djay playlists.",
-            on_by_default: true,
-        }]
+        vec![
+            ListGroup {
+                id: PLAYLISTS,
+                title: "Playlists",
+                detail: "Your djay playlists, in their folders.",
+                on_by_default: true,
+            },
+            ListGroup {
+                id: HISTORY,
+                title: "History",
+                detail: "Every session you played in djay, in the History tab.",
+                on_by_default: true,
+            },
+        ]
     }
 
     fn stamp(&self, database: &Path) -> String {
@@ -90,22 +115,35 @@ impl LibraryImport for Djay {
     }
 
     fn preview(&self, database: &Path) -> Result<String, String> {
-        let db = open(database)?;
-        let tracks: i64 = db
-            .query_row(
-                "SELECT COUNT(*) FROM database2 WHERE collection = 'localMediaItemLocations'",
-                [],
-                |r| r.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        let lists = playlist_names(&db).len();
+        let lib = Library::load(database)?;
+        let tracks = lib
+            .order
+            .iter()
+            .filter(|k| lib.items[*k].local.as_ref().and_then(location).is_some())
+            .count();
+        let streamed = lib
+            .order
+            .iter()
+            .filter(|k| {
+                let i = &lib.items[*k];
+                i.local.as_ref().and_then(location).is_none()
+                    && i.global.as_ref().and_then(stream_uri).is_some()
+            })
+            .count();
+        let lists = lib.playlists(&HashMap::new()).len();
         let n = |count: usize, one: &str, many: &str| {
             format!("{count} {}", if count == 1 { one } else { many })
         };
         Ok(format!(
-            "{} and {}.",
-            n(tracks as usize, "track", "tracks"),
-            n(lists, "playlist", "playlists")
+            "{} ({} streamed), {} and {}.",
+            n(tracks + streamed, "track", "tracks"),
+            streamed,
+            n(lists, "playlist", "playlists"),
+            n(
+                lib.sessions.len(),
+                "session of history",
+                "sessions of history"
+            ),
         ))
     }
 
@@ -120,49 +158,61 @@ impl LibraryImport for Djay {
     }
 }
 
-/// Opens djay's database read-only. When SQLite can't read it in place (djay
-/// left its write-ahead log without the index SQLite needs to read it
-/// read-only), it reads a copy.
-fn open(path: &Path) -> Result<Connection, String> {
-    let try_open = |p: &Path| -> Result<Connection, String> {
-        let db = Connection::open_with_flags(
-            p,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .map_err(|e| e.to_string())?;
-        db.query_row("SELECT COUNT(*) FROM database2 LIMIT 1", [], |r| {
-            r.get::<_, i64>(0)
-        })
-        .map_err(|e| e.to_string())?;
-        Ok(db)
+/// A copy of djay's database in a folder of its own, removed when dropped.
+/// djay keeps writing its library while it runs; reading a copy (with its
+/// write-ahead log) never gets in its way or touches its files.
+struct Copy {
+    dir: PathBuf,
+}
+
+impl Drop for Copy {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn open(path: &Path) -> Result<(Connection, Copy), String> {
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "opendj-djay-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let copy = Copy { dir };
+    let to = copy.dir.join("MediaLibrary.db");
+    let side = |p: &Path, s: &str| {
+        let mut o = p.as_os_str().to_owned();
+        o.push(s);
+        PathBuf::from(o)
     };
-    match try_open(path) {
-        Ok(db) => Ok(db),
-        Err(first) => {
-            let dir = std::env::temp_dir().join(format!("opendj-djay-{}", std::process::id()));
-            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            let copy = dir.join("MediaLibrary.db");
-            let side = |p: &Path, s: &str| {
-                let mut o = p.as_os_str().to_owned();
-                o.push(s);
-                PathBuf::from(o)
-            };
-            std::fs::copy(path, &copy)
-                .map_err(|_| format!("can't open djay's library: {first}"))?;
-            for s in ["-wal", "-shm"] {
-                let _ = std::fs::remove_file(side(&copy, s));
-                if side(path, s).is_file() {
-                    let _ = std::fs::copy(side(path, s), side(&copy, s));
-                }
-            }
-            let db = Connection::open(&copy)
-                .and_then(|db| {
-                    db.query_row("SELECT COUNT(*) FROM database2", [], |r| r.get::<_, i64>(0))?;
-                    Ok(db)
-                })
-                .map_err(|e| format!("can't open djay's library: {e}"))?;
-            Ok(db)
+    std::fs::copy(path, &to).map_err(|e| format!("can't read djay's library: {e}"))?;
+    for s in ["-wal", "-shm"] {
+        if side(path, s).is_file() {
+            let _ = std::fs::copy(side(path, s), side(&to, s));
         }
+    }
+    let db = Connection::open_with_flags(&to, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .and_then(|db| {
+            db.query_row("SELECT COUNT(*) FROM database2", [], |r| r.get::<_, i64>(0))?;
+            Ok(db)
+        })
+        .map_err(|e| format!("can't read djay's library: {e}"))?;
+    Ok((db, copy))
+}
+
+/// A record, in whichever format djay wrote it.
+fn decode(data: &[u8]) -> Option<Obj> {
+    let v = if data.starts_with(b"TSAF") {
+        tsaf::parse(data).ok()?
+    } else if data.starts_with(b"bplist") {
+        keyed::parse(data).ok()?
+    } else {
+        return None;
+    };
+    match v {
+        Value::Obj(o) => Some(o),
+        _ => None,
     }
 }
 
@@ -170,35 +220,55 @@ fn open(path: &Path) -> Result<Connection, String> {
 #[derive(Default)]
 struct Item {
     title: Option<Obj>,
-    location: Option<Obj>,
+    media: Option<Obj>,
+    local: Option<Obj>,
+    global: Option<Obj>,
     analyzed: Option<Obj>,
     user: Option<Obj>,
 }
 
-const COLLECTIONS: [&str; 5] = [
+const COLLECTIONS: [&str; 13] = [
     "mediaItemTitleIDs",
+    "mediaItems",
     "localMediaItemLocations",
     "globalMediaItemLocations",
     "mediaItemAnalyzedData",
     "mediaItemUserData",
+    "mediaAlbums",
+    "mediaGenres",
+    "mediaItemPlaylists",
+    "mediaItemPlaylistItems",
+    "historySessions",
+    "historySessionItems",
+    "mediaArtists",
 ];
 
-/// The tracks whose files `exists` says are here, and the playlists in
-/// `groups`.
-pub fn read(
-    path: &Path,
-    groups: &[&str],
-    exists: impl Fn(&Path) -> bool,
-) -> Result<ImportedLibrary, String> {
-    let db = open(path)?;
-    let mut items: HashMap<String, Item> = HashMap::new();
-    let mut order: Vec<String> = Vec::new();
-    {
+/// The records the importer reads, by collection and key.
+#[derive(Default)]
+struct Library {
+    items: HashMap<String, Item>,
+    /// Track keys in the order djay added them.
+    order: Vec<String>,
+    names: HashMap<String, String>,
+    playlists: HashMap<String, Obj>,
+    playlist_items: HashMap<String, Obj>,
+    sessions: Vec<Obj>,
+    session_items: HashMap<String, Obj>,
+}
+
+impl Library {
+    fn load(path: &Path) -> Result<Self, String> {
+        let (db, _copy) = open(path)?;
+        let mut lib = Library::default();
+        let marks = (1..=COLLECTIONS.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         let mut stmt = db
-            .prepare(
+            .prepare(&format!(
                 "SELECT collection, key, data FROM database2 \
-                 WHERE collection IN (?1, ?2, ?3, ?4, ?5) ORDER BY rowid",
-            )
+                 WHERE collection IN ({marks}) ORDER BY rowid"
+            ))
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(COLLECTIONS, |r| {
@@ -211,47 +281,269 @@ pub fn read(
             .map_err(|e| e.to_string())?;
         for row in rows {
             let (collection, key, data) = row.map_err(|e| e.to_string())?;
-            // A record djay wrote in a way this reader doesn't know is left
-            // out rather than stopping the import.
-            let Some(Value::Obj(obj)) = data.and_then(|d| tsaf::parse(&d).ok()) else {
+            // A record this reader can't follow is left out rather than
+            // stopping the import.
+            let Some(obj) = data.as_deref().and_then(decode) else {
                 continue;
             };
-            if !items.contains_key(&key) {
-                order.push(key.clone());
-            }
-            let item = items.entry(key).or_default();
-            match collection.as_str() {
-                "mediaItemTitleIDs" => item.title = Some(obj),
-                "localMediaItemLocations" => item.location = Some(obj),
-                "globalMediaItemLocations" => {
-                    item.location.get_or_insert(obj);
+            let slot = match collection.as_str() {
+                "mediaAlbums" | "mediaGenres" | "mediaArtists" => {
+                    let name = obj.text("name");
+                    if !name.is_empty() {
+                        lib.names.insert(key, name);
+                    }
+                    continue;
                 }
-                "mediaItemAnalyzedData" => item.analyzed = Some(obj),
-                _ => item.user = Some(obj),
+                "mediaItemPlaylists" => {
+                    lib.playlists.insert(key, obj);
+                    continue;
+                }
+                "mediaItemPlaylistItems" => {
+                    lib.playlist_items.insert(key, obj);
+                    continue;
+                }
+                "historySessions" => {
+                    lib.sessions.push(obj);
+                    continue;
+                }
+                "historySessionItems" => {
+                    lib.session_items.insert(key, obj);
+                    continue;
+                }
+                _ => {
+                    if !lib.items.contains_key(&key) {
+                        lib.order.push(key.clone());
+                    }
+                    lib.items.entry(key).or_default()
+                }
+            };
+            match collection.as_str() {
+                "mediaItemTitleIDs" => slot.title = Some(obj),
+                "mediaItems" => slot.media = Some(obj),
+                "localMediaItemLocations" => slot.local = Some(obj),
+                "globalMediaItemLocations" => slot.global = Some(obj),
+                "mediaItemAnalyzedData" => slot.analyzed = Some(obj),
+                _ => slot.user = Some(obj),
+            }
+        }
+        Ok(lib)
+    }
+
+    /// How a list names track `key`: its file, or the streamed track it
+    /// stands for.
+    fn entry(&self, key: &str, files: &HashMap<String, PathBuf>) -> Option<ImportedEntry> {
+        if let Some(f) = files.get(key) {
+            return Some(ImportedEntry::new(f.clone(), None));
+        }
+        let item = self.items.get(key)?;
+        let uri = item.global.as_ref().and_then(stream_uri)?;
+        let mut entry = ImportedEntry::new(uri, None);
+        let title = title_id(item);
+        if let (Some(s), Some(t)) = (entry.streamed.as_mut(), title) {
+            s.artist = t.text("artist");
+            s.title = t.text("title");
+            s.duration = t.number("duration").unwrap_or(0.0).max(0.0);
+            s.isrc = t.text("isrc");
+        }
+        entry.streamed.is_some().then_some(entry)
+    }
+
+    /// djay's playlists, folders within folders as djay shows them, each in
+    /// djay's order. Smart playlists stay out: djay doesn't keep their rules
+    /// in the library.
+    fn playlists(&self, files: &HashMap<String, PathBuf>) -> Vec<ImportedList> {
+        let by_uuid: HashMap<String, &Obj> = self
+            .playlists
+            .iter()
+            .map(|(k, o)| {
+                let uuid = Some(o.text("uuid")).filter(|u| !u.is_empty());
+                (uuid.unwrap_or_else(|| k.clone()), o)
+            })
+            .collect();
+        let mut out = Vec::new();
+        match by_uuid.get(ROOT) {
+            Some(root) => self.walk(root, &by_uuid, &mut Vec::new(), files, &mut out, 0),
+            // No tree: every playlist at the top.
+            None => {
+                let mut lists: Vec<&&Obj> = by_uuid
+                    .values()
+                    .filter(|o| o.number("type").unwrap_or(0.0) == 0.0)
+                    .collect();
+                lists.sort_by_key(|o| o.text("name").to_lowercase());
+                for o in lists {
+                    out.push(self.list(o, Vec::new(), files));
+                }
+            }
+        }
+        out
+    }
+
+    fn walk(
+        &self,
+        folder: &Obj,
+        by_uuid: &HashMap<String, &Obj>,
+        path: &mut Vec<String>,
+        files: &HashMap<String, PathBuf>,
+        out: &mut Vec<ImportedList>,
+        depth: usize,
+    ) {
+        if depth > 32 {
+            return;
+        }
+        let children = folder
+            .get("childUUIDs")
+            .map(Value::items)
+            .unwrap_or_default();
+        for child in children.iter().filter_map(Value::as_str) {
+            let Some(o) = by_uuid.get(child) else {
+                continue;
+            };
+            match o.number("type").unwrap_or(0.0) as i64 {
+                0 => out.push(self.list(o, path.clone(), files)),
+                1 => {
+                    path.push(o.text("name"));
+                    self.walk(o, by_uuid, path, files, out, depth + 1);
+                    path.pop();
+                }
+                _ => {}
             }
         }
     }
+
+    fn list(
+        &self,
+        o: &Obj,
+        folders: Vec<String>,
+        files: &HashMap<String, PathBuf>,
+    ) -> ImportedList {
+        let entries = o
+            .get("itemUUIDs")
+            .map(Value::items)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(Value::as_str)
+            .filter_map(|i| self.playlist_items.get(i))
+            .filter_map(|i| self.entry(&i.text("mediaItemUUID"), files))
+            .collect();
+        ImportedList {
+            folders,
+            name: o.text("name"),
+            kind: ImportedListKind::List,
+            entries,
+        }
+    }
+
+    /// Each history session, oldest first, named by its day.
+    fn history(&self, files: &HashMap<String, PathBuf>) -> Vec<ImportedList> {
+        let mut out: Vec<ImportedList> = self
+            .sessions
+            .iter()
+            .filter_map(|s| {
+                let entries: Vec<ImportedEntry> = s
+                    .get("itemUUIDs")
+                    .map(Value::items)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(|i| self.session_items.get(i))
+                    .filter_map(|i| {
+                        let key = i
+                            .get("titleID")
+                            .and_then(Value::as_obj)
+                            .map(|t| t.text("uuid"))?;
+                        let mut e = self.entry(&key, files)?;
+                        e.played_at = apple_time(i.number("startTime"));
+                        Some(e)
+                    })
+                    .collect();
+                if entries.is_empty() {
+                    return None;
+                }
+                let started = apple_time(s.number("startDate"))
+                    .or_else(|| entries.iter().filter_map(|e| e.played_at).min())?;
+                let name = Some(s.text("name"))
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| day_name(started));
+                Some(ImportedList {
+                    folders: Vec::new(),
+                    name,
+                    kind: ImportedListKind::History { started },
+                    entries,
+                })
+            })
+            .collect();
+        out.sort_by_key(|l| match l.kind {
+            ImportedListKind::History { started } => started,
+            _ => 0,
+        });
+        out
+    }
+}
+
+/// A djay date (seconds from 2001) as a Unix time.
+fn apple_time(seconds: Option<f64>) -> Option<i64> {
+    let s = seconds.filter(|s| s.is_finite() && *s > 0.0)?;
+    Some((s + APPLE_EPOCH) as i64)
+}
+
+/// "2026-11-10", in UTC.
+fn day_name(unix: i64) -> String {
+    // Howard Hinnant's days-to-civil.
+    let z = unix.div_euclid(86_400) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// The tracks whose files `exists` says are here, and the lists in `groups`.
+pub fn read(
+    path: &Path,
+    groups: &[&str],
+    exists: impl Fn(&Path) -> bool,
+) -> Result<ImportedLibrary, String> {
+    let lib = Library::load(path)?;
     let mut files: HashMap<String, PathBuf> = HashMap::new();
     let mut tracks = Vec::new();
-    for key in &order {
-        let item = &items[key];
-        let Some(file) = item.location.as_ref().and_then(location) else {
+    for key in &lib.order {
+        let item = &lib.items[key];
+        let Some(file) = item.local.as_ref().and_then(location) else {
             continue;
         };
         if exists(&file) {
-            tracks.push(track(item, file.clone()));
+            tracks.push(track(&lib, item, file.clone()));
         }
         files.insert(key.clone(), file);
     }
-    let lists = if groups.contains(&PLAYLISTS) {
-        playlists(&db, &files)
-    } else {
-        Vec::new()
-    };
+    let mut lists = Vec::new();
+    if groups.contains(&PLAYLISTS) {
+        lists.extend(lib.playlists(&files));
+    }
+    if groups.contains(&HISTORY) {
+        lists.extend(lib.history(&files));
+    }
     Ok(ImportedLibrary { tracks, lists })
 }
 
-/// The file a location names: a `file://` URL, or a macOS bookmark.
+/// A streamed track's address in its location ("tidal:track:123").
+fn stream_uri(obj: &Obj) -> Option<String> {
+    fn find(v: &Value) -> Option<String> {
+        match v {
+            Value::Url(s) | Value::Str(s) => {
+                opendj_engine::import::StreamedTrack::parse(s).map(|_| s.clone())
+            }
+            Value::Arr(items) => items.iter().find_map(find),
+            _ => None,
+        }
+    }
+    obj.get("sourceURIs").and_then(find)
+}
+
 fn location(obj: &Obj) -> Option<PathBuf> {
     fn find(v: &Value) -> Option<PathBuf> {
         match v {
@@ -334,71 +626,90 @@ fn color(index: f64) -> Option<u32> {
     }
 }
 
-/// A cue point as a hot cue numbered by its pad (0 to 7, or `None`): its
-/// time, where its loop ends (if it is one), name and color.
-fn cue(c: &Obj) -> Option<(Option<usize>, Hotcue)> {
-    let time = c.number("time").filter(|t| t.is_finite() && *t >= 0.0)?;
+/// The track's title ID: its own record, or the copy inside another.
+fn title_id(item: &Item) -> Option<&Obj> {
+    item.title.as_ref().or_else(|| {
+        [&item.media, &item.local, &item.analyzed, &item.user]
+            .into_iter()
+            .flatten()
+            .find_map(|o| match o.get("titleID").or_else(|| o.get("titleIDs"))? {
+                Value::Obj(t) => Some(t),
+                v => v.items().iter().find_map(Value::as_obj),
+            })
+    })
+}
+
+/// A cue point as a hot cue: its pad (from 0) when it has one, its time,
+/// where its loop ends (if it is one) and its name. djay numbers pads 1 to
+/// 8; a time of -1 is a pad with no place yet.
+fn cue(c: &Obj, start: &str) -> Option<(Option<usize>, Hotcue)> {
+    let time = c.number(start).filter(|t| t.is_finite() && *t >= 0.0)?;
     let end = c.number("endTime").filter(|e| e.is_finite() && *e > time);
     let pad = c
         .number("number")
-        .filter(|n| (0.0..8.0).contains(n))
-        .map(|n| n as usize);
-    let name = c.text("comment");
+        .filter(|n| (1.0..=8.0).contains(n))
+        .map(|n| n as usize - 1);
     let hotcue = Hotcue {
         number: 0,
         seconds: time,
-        name,
+        name: c.text("comment"),
         end,
         color: c.number("colorIndex").and_then(color),
     };
     Some((pad, hotcue))
 }
 
-fn track(item: &Item, file: PathBuf) -> Track {
-    // The title ID is its own record, and is copied into the others.
-    let title = item.title.as_ref().cloned().or_else(|| {
-        [&item.location, &item.analyzed, &item.user]
-            .into_iter()
-            .flatten()
-            .find_map(|o| {
-                o.get("titleIDs")?
-                    .items()
-                    .iter()
-                    .find_map(|v| v.as_obj().cloned())
-            })
-    });
-    let title = title.unwrap_or_default();
-    let analyzed = item.analyzed.clone().unwrap_or_default();
-    let user = item.user.clone().unwrap_or_default();
+/// Whether the DJ set `field` in djay, rather than it being djay's default.
+fn changed(user: &Obj, field: &str) -> bool {
+    user.get("userChangedCloudKeys")
+        .map(Value::items)
+        .unwrap_or_default()
+        .iter()
+        .any(|k| k.as_str() == Some(field))
+}
+
+fn track(lib: &Library, item: &Item, file: PathBuf) -> Track {
+    let empty = Obj::default();
+    let title = title_id(item).unwrap_or(&empty);
+    let media = item.media.as_ref().unwrap_or(&empty);
+    let analyzed = item.analyzed.as_ref().unwrap_or(&empty);
+    let user = item.user.as_ref().unwrap_or(&empty);
 
     let mut hotcues: Vec<Hotcue> = Vec::new();
     let mut memory = MEMORY_CUE;
-    let cue_points = user.get("cuePoints").map(Value::items).unwrap_or_default();
-    // Saved loops, if djay keeps them apart from the cue points.
-    let loops = user
-        .fields
-        .iter()
-        .filter(|(n, _)| {
-            n.as_deref()
-                .is_some_and(|n| n.to_lowercase().contains("loop"))
-        })
-        .flat_map(|(_, v)| v.items());
-    for (from_loops, c) in cue_points
-        .iter()
-        .map(|c| (false, c))
-        .chain(loops.map(|c| (true, c)))
-    {
-        let Some((pad, mut hotcue)) = c.as_obj().and_then(cue) else {
-            continue;
-        };
-        hotcue.number = match pad {
-            Some(p) if !from_loops && !hotcues.iter().any(|h| h.number == p) => p,
+    let mut add = |pad: Option<usize>, mut h: Hotcue, hotcues: &mut Vec<Hotcue>| {
+        h.number = match pad {
+            Some(p) if !hotcues.iter().any(|x| x.number == p) => p,
             _ => {
                 memory += 1;
                 memory - 1
             }
         };
-        hotcues.push(hotcue);
+        hotcues.push(h);
+    };
+    for c in user
+        .get("cuePoints")
+        .map(Value::items)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(Value::as_obj)
+    {
+        if let Some((pad, h)) = cue(c, "time") {
+            add(pad, h, &mut hotcues);
+        }
+    }
+    // Saved loops have pads of their own in djay; here they are memory
+    // cues with an end.
+    for l in user
+        .get("loopRegions")
+        .map(Value::items)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(Value::as_obj)
+    {
+        if let Some((_, h)) = cue(l, "startTime").filter(|(_, h)| h.end.is_some()) {
+            add(None, h, &mut hotcues);
+        }
     }
     hotcues.sort_by_key(|h| h.number);
 
@@ -424,32 +735,52 @@ fn track(item: &Item, file: PathBuf) -> Track {
         }
     }
 
-    let bpm = analyzed
-        .number("bpm")
-        .filter(|b| b.is_finite() && *b > 0.0)
+    let positive = |v: Option<f64>| v.filter(|b| b.is_finite() && *b > 0.0);
+    let bpm = positive(user.number("manualBPM"))
+        .or_else(|| positive(analyzed.number("bpm")))
+        .or_else(|| positive(media.number("bpm")))
         .unwrap_or(0.0);
+    // A key index of 0 (D flat) is real, so a key is only djay's when the
+    // field is there; the DJ's own only when they changed it.
+    let key = changed(user, "manualKeySignatureIndex")
+        .then(|| user.number("manualKeySignatureIndex"))
+        .flatten()
+        .or_else(|| analyzed.number("keySignatureIndex"))
+        .or_else(|| media.number("musicalKeySignatureIndex"))
+        .and_then(key_name)
+        .unwrap_or_default();
     let anchor = user
         .get("beatGridEdits")
         .and_then(Value::as_obj)
         .and_then(|g| g.number("firstDownbeatPosition"))
         .filter(|s| s.is_finite() && *s >= 0.0);
+    let name_of = |v: Option<&Value>| -> String {
+        let id = match v {
+            Some(Value::Arr(items)) => items.first().and_then(Value::as_str),
+            Some(v) => v.as_str(),
+            None => None,
+        };
+        id.and_then(|id| lib.names.get(id))
+            .cloned()
+            .unwrap_or_default()
+    };
+    let artist = Some(title.text("artist"))
+        .filter(|a| !a.is_empty())
+        .unwrap_or_else(|| name_of(media.get("artistUUIDs")));
     let mut t = Track {
         id: 0,
-        artist: title.text("artist"),
-        title: title.text("title"),
-        album: title.text("album"),
-        genre: String::new(),
-        rating: 0,
+        artist,
+        title: Some(title.text("title"))
+            .filter(|a| !a.is_empty())
+            .unwrap_or_else(|| media.text("title")),
+        album: name_of(media.get("albumUUID")),
+        genre: name_of(media.get("genreUUIDs")),
+        rating: user.number("rating").unwrap_or(0.0).clamp(0.0, 5.0) as u8,
         bpm,
-        key: analyzed
-            .number("keySignatureIndex")
-            .and_then(key_name)
-            .unwrap_or_default(),
-        duration: title
-            .number("duration")
-            .filter(|d| d.is_finite())
-            .unwrap_or(0.0)
-            .max(0.0),
+        key,
+        duration: positive(title.number("duration"))
+            .or_else(|| positive(media.number("duration")))
+            .unwrap_or(0.0),
         first_beat: anchor.unwrap_or(0.0),
         grid: Default::default(),
         source: Source::File(file),
@@ -457,6 +788,13 @@ fn track(item: &Item, file: PathBuf) -> Track {
         audio: None,
         cover: None,
         info: LibraryInfo {
+            comment: media.text("comments"),
+            grouping: media.text("grouping"),
+            composer: media.text("composer"),
+            year: positive(media.number("year"))
+                .map(|y| format!("{}", y as i64))
+                .unwrap_or_default(),
+            added: apple_time(media.number("addedDate")).unwrap_or(0),
             color: user.number("colorIndex").and_then(color),
             play_count: user.number("playCount").unwrap_or(0.0).max(0.0) as u32,
             hotcues,
@@ -472,160 +810,6 @@ fn track(item: &Item, file: PathBuf) -> Track {
     t
 }
 
-const PAGES: &str = "view_mediaItemPlaylistView_page";
-const MAP: &str = "view_mediaItemPlaylistView_map";
-
-/// Each playlist's name as the DJ sees it, by the view's `group`. A group
-/// may be a playlist's uuid; then its name is looked up in djay's playlist
-/// records.
-fn playlist_names(db: &Connection) -> Vec<(String, String)> {
-    let groups: Vec<String> = db
-        .prepare(&format!(
-            "SELECT DISTINCT \"group\" FROM {PAGES} WHERE \"group\" IS NOT NULL AND \"group\" != ''"
-        ))
-        .and_then(|mut s| {
-            s.query_map([], |r| r.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .unwrap_or_default();
-    if groups.is_empty() {
-        return Vec::new();
-    }
-    let mut by_uuid: HashMap<String, String> = HashMap::new();
-    if groups.iter().any(|g| is_uuid(g)) {
-        let rows: Vec<(String, Option<Vec<u8>>)> = db
-            .prepare("SELECT key, data FROM database2 WHERE collection LIKE '%laylist%'")
-            .and_then(|mut s| {
-                s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .unwrap_or_default();
-        for (key, data) in rows {
-            if let Some(Value::Obj(o)) = data.and_then(|d| tsaf::parse(&d).ok()) {
-                let name = Some(o.text("name"))
-                    .filter(|n| !n.is_empty())
-                    .unwrap_or_else(|| o.text("title"));
-                if !name.is_empty() {
-                    let uuid = Some(o.text("uuid"))
-                        .filter(|u| !u.is_empty())
-                        .unwrap_or(key);
-                    by_uuid.insert(uuid, name);
-                }
-            }
-        }
-    }
-    let mut out: Vec<(String, String)> = groups
-        .into_iter()
-        .map(|g| {
-            let name = by_uuid.get(&g).cloned().unwrap_or_else(|| g.clone());
-            (g, name)
-        })
-        .collect();
-    out.sort_by_key(|(_, name)| name.to_lowercase());
-    out
-}
-
-fn is_uuid(s: &str) -> bool {
-    let hex: String = s.chars().filter(|c| *c != '-').collect();
-    hex.len() == 32 && hex.chars().all(|c| c.is_ascii_hexdigit())
-}
-
-/// A page of the playlist view: a run of one playlist's rows.
-struct Page {
-    key: String,
-    group: String,
-    prev: Option<String>,
-    data: Option<Vec<u8>>,
-}
-
-/// The rows of a page, in order: YapDatabase writes them as 64-bit row ids.
-fn page_rows(data: &[u8]) -> Vec<i64> {
-    if data.starts_with(b"bplist") || !data.len().is_multiple_of(8) {
-        return Vec::new();
-    }
-    data.as_chunks::<8>()
-        .0
-        .iter()
-        .map(|c| i64::from_le_bytes(*c))
-        .collect()
-}
-
-/// djay's playlists, each track in the order djay shows it. Tracks that
-/// aren't files (streamed ones) stay out.
-fn playlists(db: &Connection, files: &HashMap<String, PathBuf>) -> Vec<ImportedList> {
-    // Every row in a playlist: its page's group and the track's key.
-    let members: Vec<(i64, String, String)> = db
-        .prepare(&format!(
-            "SELECT m.rowid, p.\"group\", d.key FROM {MAP} m \
-             JOIN {PAGES} p ON p.pageKey = m.pageKey \
-             JOIN database2 d ON d.rowid = m.rowid ORDER BY m.rowid"
-        ))
-        .and_then(|mut s| {
-            s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .unwrap_or_default();
-    let key_of: HashMap<i64, &str> = members.iter().map(|(r, _, k)| (*r, k.as_str())).collect();
-    // Pages in order within each group, following prevPageKey.
-    let pages: Vec<Page> = db
-        .prepare(&format!(
-            "SELECT pageKey, \"group\", prevPageKey, data FROM {PAGES}"
-        ))
-        .and_then(|mut s| {
-            s.query_map([], |r| {
-                Ok(Page {
-                    key: r.get(0)?,
-                    group: r.get(1)?,
-                    prev: r.get(2)?,
-                    data: r.get(3)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()
-        })
-        .unwrap_or_default();
-
-    let mut out = Vec::new();
-    for (group, name) in playlist_names(db) {
-        let mut rows: Vec<i64> = Vec::new();
-        let in_group: Vec<_> = pages.iter().filter(|p| p.group == group).collect();
-        let mut prev: Option<&str> = None;
-        for _ in 0..in_group.len() {
-            let Some(page) = in_group
-                .iter()
-                .find(|p| p.prev.as_deref().filter(|k| !k.is_empty()) == prev)
-            else {
-                break;
-            };
-            rows.extend(
-                page_rows(page.data.as_deref().unwrap_or_default())
-                    .into_iter()
-                    .filter(|r| key_of.contains_key(r)),
-            );
-            prev = Some(page.key.as_str());
-        }
-        rows.dedup();
-        // Rows the pages didn't give in order come after, by row id.
-        let seen: HashSet<i64> = rows.iter().copied().collect();
-        for (r, g, _) in &members {
-            if *g == group && !seen.contains(r) {
-                rows.push(*r);
-            }
-        }
-        let entries: Vec<ImportedEntry> = rows
-            .iter()
-            .filter_map(|r| files.get(key_of[r]))
-            .map(|f| ImportedEntry::new(f.clone(), None))
-            .collect();
-        out.push(ImportedList {
-            folders: Vec::new(),
-            name,
-            kind: ImportedListKind::List,
-            entries,
-        });
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::tsaf::write::{obj, Writer};
@@ -639,21 +823,28 @@ mod tests {
                 ("title", Value::Str(title.into())),
                 ("artist", Value::Str(artist.into())),
                 ("duration", Value::F32(duration)),
+                ("isrc", Value::Str(format!("ISRC{title}"))),
             ],
         )
     }
 
-    fn cue(time: f32, end: f32, number: i64, comment: &str) -> Value {
-        let mut f = vec![("time", Value::F32(time)), ("endTime", Value::F32(end))];
+    fn cue(number: i64, time: f32, comment: &str) -> Value {
+        let mut f = vec![("number", Value::Int(number)), ("time", Value::F32(time))];
+        f.push(("endTime", Value::F32(-1.0)));
         if !comment.is_empty() {
             f.push(("comment", Value::Str(comment.into())));
         }
-        f.push(("number", Value::Int(number)));
         obj("ADCCuePoint", f)
     }
 
-    /// A small djay library: two local tracks (one by URL, one by
-    /// bookmark), one streamed, a playlist with all three.
+    fn strs(items: &[&str]) -> Value {
+        Value::Arr(items.iter().map(|s| Value::Str(s.to_string())).collect())
+    }
+
+    /// A small djay library, its records in both formats: a local track
+    /// with cues by file URL (keyed archive), one by bookmark (TSAF), a
+    /// TIDAL track, playlists in a folder, a smart playlist and a session
+    /// of history.
     fn library(name: &str) -> PathBuf {
         let path =
             std::env::temp_dir().join(format!("opendj-djay-{name}-{}.db", std::process::id()));
@@ -661,28 +852,67 @@ mod tests {
         let db = Connection::open(&path).unwrap();
         db.execute_batch(
             "CREATE TABLE database2 (rowid INTEGER PRIMARY KEY, collection CHAR NOT NULL, \
-               key CHAR NOT NULL, data BLOB, metadata BLOB);
-             CREATE TABLE view_mediaItemPlaylistView_map (rowid INTEGER PRIMARY KEY, pageKey CHAR NOT NULL);
-             CREATE TABLE view_mediaItemPlaylistView_page (pageKey CHAR NOT NULL PRIMARY KEY, \
-               \"group\" CHAR NOT NULL, prevPageKey CHAR, count INTEGER, data BLOB);",
+               key CHAR NOT NULL, data BLOB, metadata BLOB);",
         )
         .unwrap();
-        let mut rowid = 0;
-        let mut put = |collection: &str, key: &str, v: Value| -> i64 {
-            rowid += 1;
+        let put = |collection: &str, key: &str, v: Value, old: bool| {
+            let blob = if old {
+                keyed::write(&v)
+            } else {
+                Writer::blob(&v)
+            };
             db.execute(
-                "INSERT INTO database2 (rowid, collection, key, data) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![rowid, collection, key, Writer::blob(&v)],
+                "INSERT INTO database2 (collection, key, data) VALUES (?1, ?2, ?3)",
+                rusqlite::params![collection, key, blob],
             )
             .unwrap();
-            rowid
         };
         let a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         let s = "cccccccccccccccccccccccccccccccc";
-        let ra = put("mediaItemTitleIDs", a, title_id(a, "Glue", "Bicep", 269.0));
-        let rb = put("mediaItemTitleIDs", b, title_id(b, "Just", "Bicep", 372.5));
-        let rs = put("mediaItemTitleIDs", s, title_id(s, "Streamed", "X", 200.0));
+        put(
+            "mediaItemTitleIDs",
+            a,
+            title_id(a, "Glue", "Bicep", 269.0),
+            true,
+        );
+        put(
+            "mediaItemTitleIDs",
+            s,
+            title_id(s, "Streamed", "X", 200.0),
+            false,
+        );
+        put(
+            "mediaItems",
+            a,
+            obj(
+                "ADCMediaItem",
+                vec![
+                    ("title", Value::Str("Glue".into())),
+                    ("albumUUID", Value::Str("alb".into())),
+                    ("genreUUIDs", strs(&["gen"])),
+                    ("year", Value::Int(2017)),
+                    ("addedDate", Value::F64(600_000_000.0)),
+                    ("comments", Value::Str("nice".into())),
+                ],
+            ),
+            true,
+        );
+        put(
+            "mediaAlbums",
+            "alb",
+            obj("ADCMediaAlbum", vec![("name", Value::Str("Bicep".into()))]),
+            true,
+        );
+        put(
+            "mediaGenres",
+            "gen",
+            obj(
+                "ADCMediaGenre",
+                vec![("name", Value::Str("Electronic".into()))],
+            ),
+            true,
+        );
         put(
             "localMediaItemLocations",
             a,
@@ -690,6 +920,7 @@ mod tests {
                 "ADCMediaItemLocation",
                 vec![
                     ("uuid", Value::Str(a.into())),
+                    ("type", Value::Int(0)),
                     (
                         "sourceURIs",
                         Value::Arr(vec![Value::Url(
@@ -698,6 +929,7 @@ mod tests {
                     ),
                 ],
             ),
+            true,
         );
         put(
             "localMediaItemLocations",
@@ -712,10 +944,30 @@ mod tests {
                     ),
                     (
                         "sourceURIs",
+                        Value::Arr(vec![Value::Url("com.apple.iTunes:123".into())]),
+                    ),
+                    (
+                        "urlBookmarkData",
                         Value::Data(bookmark::make(&["Volumes", "USB", "Just.mp3"])),
                     ),
                 ],
             ),
+            false,
+        );
+        put(
+            "globalMediaItemLocations",
+            s,
+            obj(
+                "ADCMediaItemLocation",
+                vec![
+                    ("type", Value::Int(1)),
+                    (
+                        "sourceURIs",
+                        Value::Arr(vec![Value::Url("tidal:track:149747167".into())]),
+                    ),
+                ],
+            ),
+            true,
         );
         put(
             "mediaItemAnalyzedData",
@@ -723,14 +975,26 @@ mod tests {
             obj(
                 "ADCMediaItemAnalyzedData",
                 vec![
-                    ("uuid", Value::Str(a.into())),
                     ("bpm", Value::F32(120.0)),
                     ("keySignatureIndex", Value::Int(15)),
-                    ("isStraightGrid", Value::Bool(true)),
                 ],
             ),
+            false,
         );
-        let automix = |t: f32| cue(t, -1.0, 1, "");
+        // djay's own key 0 is D flat, not "no key".
+        put(
+            "mediaItemAnalyzedData",
+            b,
+            obj(
+                "ADCMediaItemAnalyzedData",
+                vec![
+                    ("bpm", Value::F32(122.0)),
+                    ("keySignatureIndex", Value::Int(0)),
+                ],
+            ),
+            false,
+        );
+        let automix = |t: f32| cue(0, t, "");
         put(
             "mediaItemUserData",
             a,
@@ -738,21 +1002,44 @@ mod tests {
                 "ADCMediaItemUserData",
                 vec![
                     ("uuid", Value::Str(a.into())),
-                    (
-                        "userChangedCloudKeys",
-                        Value::Arr(vec![Value::Str("cuePoints".into())]),
-                    ),
-                    (
-                        "titleIDs",
-                        Value::Arr(vec![title_id(a, "Glue", "Bicep", 269.0)]),
-                    ),
+                    ("userChangedCloudKeys", strs(&["cuePoints", "playCount"])),
                     (
                         "cuePoints",
                         Value::Arr(vec![
-                            cue(0.5, -1.0, 0, "First Beat"),
-                            cue(64.0, 72.0, 3, ""),
-                            cue(96.0, -1.0, 1, "Drop"),
+                            cue(1, 0.5, "First Beat"),
+                            cue(2, 96.0, "Drop"),
+                            cue(4, -1.0, ""),
+                            cue(6, 2.0, ""),
                         ]),
+                    ),
+                    ("automixStartPoint", automix(16.0)),
+                    ("automixEndPoint", automix(240.0)),
+                    ("playCount", Value::Int(7)),
+                    ("rating", Value::Int(4)),
+                    ("manualBPM", Value::F64(0.0)),
+                    ("manualKeySignatureIndex", Value::Int(0)),
+                ],
+            ),
+            true,
+        );
+        put(
+            "mediaItemUserData",
+            b,
+            obj(
+                "ADCMediaItemUserData",
+                vec![
+                    ("cuePoints", Value::Arr(vec![cue(1, 1.0, "")])),
+                    (
+                        "loopRegions",
+                        Value::Arr(vec![obj(
+                            "ADCLoopRegion",
+                            vec![
+                                ("startTime", Value::F32(14.0)),
+                                ("endTime", Value::F32(16.0)),
+                                ("comment", Value::Str("saved loop 1".into())),
+                                ("number", Value::Int(1)),
+                            ],
+                        )]),
                     ),
                     (
                         "beatGridEdits",
@@ -761,46 +1048,117 @@ mod tests {
                             vec![("firstDownbeatPosition", Value::F32(0.25))],
                         ),
                     ),
-                    ("automixStartPoint", automix(16.0)),
-                    ("automixEndPoint", automix(240.0)),
-                    ("playCount", Value::Int(7)),
-                    ("colorIndex", Value::Int(4)),
                 ],
             ),
+            false,
         );
         // A record this reader can't follow is skipped.
         db.execute(
-            "INSERT INTO database2 (collection, key, data) VALUES ('mediaItemUserData', ?1, X'545341460000')",
-            [b],
+            "INSERT INTO database2 (collection, key, data) VALUES ('mediaItemUserData', 'x', X'545341460000')",
+            [],
         )
         .unwrap();
-        // One playlist over two pages, in an order other than row ids.
-        for (r, page) in [(rb, "p1"), (rs, "p1"), (ra, "p2")] {
-            db.execute(
-                "INSERT INTO view_mediaItemPlaylistView_map (rowid, pageKey) VALUES (?1, ?2)",
-                rusqlite::params![r, page],
+        // Playlists: root › Gigs › Friday (b, streamed, a), root › Warmup (a),
+        // and a smart playlist.
+        let item = |k: &str, track: &str| {
+            put(
+                "mediaItemPlaylistItems",
+                k,
+                obj(
+                    "ADCMediaItemPlaylistItem",
+                    vec![("mediaItemUUID", Value::Str(track.into()))],
+                ),
+                k.ends_with('1'),
             )
-            .unwrap();
+        };
+        item("i1", b);
+        item("i2", s);
+        item("i3", a);
+        item("i4", a);
+        let list = |uuid: &str, name: &str, kind: i64, children: &[&str], items: &[&str]| {
+            let mut f = vec![
+                ("uuid", Value::Str(uuid.into())),
+                ("name", Value::Str(name.into())),
+                ("type", Value::Int(kind)),
+            ];
+            if !children.is_empty() {
+                f.push(("childUUIDs", strs(children)));
+            }
+            if !items.is_empty() {
+                f.push(("itemUUIDs", strs(items)));
+            }
+            obj("ADCMediaItemPlaylist", f)
+        };
+        put(
+            "mediaItemPlaylists",
+            ROOT,
+            list(ROOT, "Playlists", 1, &["G", "W", "S"], &[]),
+            false,
+        );
+        put(
+            "mediaItemPlaylists",
+            "G",
+            list("G", "Gigs", 1, &["F"], &[]),
+            true,
+        );
+        put(
+            "mediaItemPlaylists",
+            "F",
+            list("F", "Friday", 0, &[], &["i1", "i2", "i3"]),
+            true,
+        );
+        put(
+            "mediaItemPlaylists",
+            "W",
+            list("W", "Warmup", 0, &[], &["i4"]),
+            false,
+        );
+        put(
+            "mediaItemPlaylists",
+            "S",
+            list("S", "Smart", 2, &[], &[]),
+            true,
+        );
+        put(
+            "historySessions",
+            "h",
+            obj(
+                "ADCHistorySession",
+                vec![
+                    ("startDate", Value::F64(628_386_655.7)),
+                    ("itemUUIDs", strs(&["h1", "h2"])),
+                ],
+            ),
+            true,
+        );
+        for (k, track, at) in [("h1", a, 628_386_700.0), ("h2", s, 628_386_900.0)] {
+            put(
+                "historySessionItems",
+                k,
+                obj(
+                    "ADCHistorySessionItem",
+                    vec![
+                        ("deckNumber", Value::Int(2)),
+                        ("startTime", Value::F64(at)),
+                        ("titleID", title_id(track, "t", "a", 1.0)),
+                    ],
+                ),
+                true,
+            );
         }
-        let rows = |r: &[i64]| r.iter().flat_map(|r| r.to_le_bytes()).collect::<Vec<u8>>();
-        db.execute(
-            "INSERT INTO view_mediaItemPlaylistView_page VALUES ('p2', 'Friday', 'p1', 1, ?1)",
-            [rows(&[ra])],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO view_mediaItemPlaylistView_page VALUES ('p1', 'Friday', NULL, 2, ?1)",
-            [rows(&[rb, rs])],
-        )
-        .unwrap();
         path
     }
 
     #[test]
     fn reads_a_djay_library() {
         let path = library("read");
-        let lib = read(&path, &[PLAYLISTS], |_| true).unwrap();
-        assert_eq!(preview(&path), "2 tracks and 1 playlist.");
+        let lib = read(&path, &[PLAYLISTS, HISTORY], |_| true).unwrap();
+        assert_eq!(
+            Djay.preview(&path).unwrap(),
+            "3 tracks (1 streamed), 2 playlists and 1 session of history."
+        );
+        // djay's own files are left as they were.
+        assert!(!Path::new(&format!("{}-wal", path.display())).exists());
         std::fs::remove_file(&path).ok();
 
         assert_eq!(lib.tracks.len(), 2);
@@ -808,57 +1166,96 @@ mod tests {
         assert!(
             matches!(&t.source, Source::File(p) if p == Path::new("/Users/dj/Music/Bicep - Glue.mp3"))
         );
-        assert_eq!((t.artist.as_str(), t.title.as_str()), ("Bicep", "Glue"));
-        assert_eq!((t.bpm, t.key.as_str(), t.duration), (120.0, "Fm", 269.0));
-        let i = &t.info;
-        assert_eq!((i.play_count, i.color), (7, Some(0x43_A047)));
-        assert!(i.fixed_grid);
-        assert_eq!(t.grid.markers().len(), 1);
+        assert_eq!(
+            (t.artist.as_str(), t.title.as_str(), t.album.as_str()),
+            ("Bicep", "Glue", "Bicep")
+        );
+        assert_eq!(
+            (
+                t.genre.as_str(),
+                t.info.year.as_str(),
+                t.info.comment.as_str()
+            ),
+            ("Electronic", "2017", "nice")
+        );
+        assert_eq!(
+            (t.bpm, t.key.as_str(), t.duration, t.rating),
+            (120.0, "Fm", 269.0, 4)
+        );
+        assert_eq!(t.info.added, 600_000_000 + 978_307_200);
+        assert_eq!((t.info.play_count, t.info.isrc.as_str()), (7, "ISRCGlue"));
+        // Pads 1, 2 and 6; pad 4 had no place yet.
+        let pads: Vec<(usize, &str)> = t
+            .info
+            .hotcues
+            .iter()
+            .map(|h| (h.number, h.name.as_str()))
+            .collect();
+        assert_eq!(pads, [(0, "First Beat"), (1, "Drop"), (5, "")]);
+        let automix: Vec<(&str, f64)> = t
+            .info
+            .markers
+            .iter()
+            .map(|m| (m.name.as_str(), m.seconds))
+            .collect();
+        assert_eq!(automix, [("realStart", 16.0), ("fadeStart", 240.0)]);
+        assert!(!t.info.fixed_grid);
+
+        // Its file from a bookmark, its title from the location's copy.
+        let t = &lib.tracks[1];
+        assert_eq!(t.title, "Just");
+        assert!(matches!(&t.source, Source::File(p) if p == Path::new("/Volumes/USB/Just.mp3")));
+        assert_eq!(t.key, "Db");
+        assert!(t.info.fixed_grid);
         assert_eq!(t.first_beat, 0.25);
-        let pads: Vec<(usize, &str, Option<f64>)> = i
+        let pads: Vec<(usize, &str, Option<f64>)> = t
+            .info
             .hotcues
             .iter()
             .map(|h| (h.number, h.name.as_str(), h.end))
             .collect();
         assert_eq!(
             pads,
-            [
-                (0, "First Beat", None),
-                (1, "Drop", None),
-                (3, "", Some(72.0))
-            ]
+            [(0, "", None), (MEMORY_CUE, "saved loop 1", Some(16.0))]
         );
-        let automix: Vec<(&str, f64)> = i
-            .markers
-            .iter()
-            .map(|m| (m.name.as_str(), m.seconds))
-            .collect();
-        assert_eq!(automix, [("realStart", 16.0), ("fadeStart", 240.0)]);
 
-        // Its title from the location's copy; its file from a bookmark.
-        let t = &lib.tracks[1];
-        assert_eq!(t.title, "Just");
-        assert!(matches!(&t.source, Source::File(p) if p == Path::new("/Volumes/USB/Just.mp3")));
-        assert!(t.info.hotcues.is_empty() && !t.info.fixed_grid);
-
-        assert_eq!(lib.lists.len(), 1);
-        assert_eq!(lib.lists[0].name, "Friday");
-        let files: Vec<&Path> = lib.lists[0]
-            .entries
+        let names: Vec<String> = lib
+            .lists
             .iter()
-            .map(|e| e.path.as_path())
+            .map(|l| {
+                let mut p = l.folders.clone();
+                p.push(l.name.clone());
+                p.join("/")
+            })
             .collect();
+        assert_eq!(names, ["Gigs/Friday", "Warmup", "2020-11-29"]);
+        let friday = &lib.lists[0].entries;
+        assert_eq!(friday[0].path, Path::new("/Volumes/USB/Just.mp3"));
+        let streamed = friday[1].streamed.as_ref().unwrap();
         assert_eq!(
-            files,
-            [
-                Path::new("/Volumes/USB/Just.mp3"),
-                Path::new("/Users/dj/Music/Bicep - Glue.mp3")
-            ]
+            (streamed.service.as_str(), streamed.id.as_str()),
+            ("tidal", "149747167")
         );
-    }
-
-    fn preview(path: &Path) -> String {
-        Djay.preview(path).unwrap()
+        assert_eq!(
+            (streamed.title.as_str(), streamed.duration),
+            ("Streamed", 200.0)
+        );
+        assert_eq!(
+            friday[2].path,
+            Path::new("/Users/dj/Music/Bicep - Glue.mp3")
+        );
+        let history = &lib.lists[2];
+        assert!(matches!(
+            history.kind,
+            ImportedListKind::History {
+                started: 1_606_693_855
+            }
+        ));
+        assert_eq!(history.entries.len(), 2);
+        assert_eq!(
+            history.entries[0].played_at,
+            Some(628_386_700 + 978_307_200)
+        );
     }
 
     #[test]
@@ -871,7 +1268,7 @@ mod tests {
     }
 
     #[test]
-    fn keys_and_urls() {
+    fn keys_urls_and_days() {
         assert_eq!(key_name(0.0).as_deref(), Some("Db"));
         assert_eq!(key_name(1.0).as_deref(), Some("Bbm"));
         assert_eq!(key_name(22.0).as_deref(), Some("C"));
@@ -887,5 +1284,7 @@ mod tests {
             Some(PathBuf::from("/Users/x.mp3"))
         );
         assert_eq!(file_url("https://tidal.com/x"), None);
+        assert_eq!(day_name(0), "1970-01-01");
+        assert_eq!(day_name(1_606_693_855), "2020-11-29");
     }
 }

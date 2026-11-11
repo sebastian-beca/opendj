@@ -48,7 +48,7 @@ export struct Folder {
     // Another app's imported list or folder (or the Imported heading):
     // read-only, since its next import makes it again.
     locked: bool,
-    // The top folder of an import: its menu offers Make These Lists Mine.
+    // A list or folder of an import: its menu offers Make These Lists Mine.
     adoptable: bool,
     // An album downloaded into the Inbox: its menu offers Move to Albums.
     bundle: bool,
@@ -3147,12 +3147,12 @@ component FolderTree inherits Rectangle {
                             vertical-alignment: center;
                         }
                         if f.count >= 0: Rectangle { width: 2px; }
-                        // An import's top folder: read-only until made the DJ's own.
-                        if f.adoptable && i != naming-row: VerticalLayout {
+                        // An imported list: read-only until made the DJ's own.
+                        if f.locked && i != naming-row: VerticalLayout {
                             alignment: center;
                             Padlock { tint: i == current ? Theme.on-row-selection : Theme.text-dim; }
                         }
-                        if f.adoptable: Rectangle { width: 4px; }
+                        if f.locked && i != naming-row: Rectangle { width: 4px; }
                         // New crate, or a new folder in Playlists.
                         if f.kind == 18 && tab == 0 && !f.locked: Rectangle {
                             width: 26px;

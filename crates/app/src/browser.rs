@@ -11,6 +11,7 @@ use std::cell::{OnceCell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 
 use opendj_control::{ControlHandle, ControlRegistry};
@@ -429,6 +430,9 @@ fn is_browsed(t: &Track) -> bool {
     (BROWSED_BASE..opendj_library::ID_BASE).contains(&t.id)
 }
 
+/// A file picked for a missing track, and the track's id.
+type Located = (usize, PathBuf);
+
 fn file_path(t: &Track) -> Option<&Path> {
     match &t.source {
         opendj_engine::Source::File(p) => Some(p),
@@ -630,9 +634,11 @@ pub struct Browser {
     area_start: std::cell::RefCell<HashMap<Area, usize>>,
     /// The review card's place among the listed tracks, while it's open.
     review_at: Option<usize>,
-    /// Audio files in the stage and music folders by lower-case name, for
-    /// the Fix column of missing files; read when first needed.
-    relink_files: OnceCell<HashMap<String, Vec<PathBuf>>>,
+    /// Audio files in the stage and music folders, and what the collection
+    /// knows of them, to find missing files in; read when first needed.
+    relink_files: OnceCell<opendj_library::relocate::Index>,
+    /// Files picked with "Find file…" for a missing track (by id).
+    located: (Sender<Located>, Receiver<Located>),
     /// The node selected on the other tab, to go back to.
     other_tab_node: usize,
     /// The list or history session the sort was last set up for: each
@@ -1283,6 +1289,7 @@ impl Browser {
             area_start: Default::default(),
             review_at: None,
             relink_files: OnceCell::new(),
+            located: std::sync::mpsc::channel(),
             other_tab_node: 0,
             sorted_list: None,
             view_sort: (1, true),
@@ -3409,7 +3416,8 @@ impl Browser {
         crates.separator = true;
         sections.push(crates);
         let mut depth: HashMap<i64, i32> = HashMap::new();
-        let mut locked: HashSet<i64> = HashSet::new();
+        // Each imported list's import, by the source of its top folder.
+        let mut locked: HashMap<i64, Option<String>> = HashMap::new();
         let mut in_crates: HashSet<i64> = HashSet::new();
         let mut sessions = Vec::new();
         let mut smart = Vec::new();
@@ -3425,9 +3433,13 @@ impl Browser {
             if Some(p.id) == inbox {
                 continue;
             }
-            let lock = is_imported(p) || p.parent.is_some_and(|id| locked.contains(&id));
-            if lock {
-                locked.insert(p.id);
+            let root = match p.parent.and_then(|id| locked.get(&id)) {
+                Some(root) => Some(root.clone()),
+                None => is_imported(p).then(|| p.source.clone()),
+            };
+            let lock = root.is_some();
+            if let Some(root) = &root {
+                locked.insert(p.id, root.clone());
             }
             let crate_side = match p.parent {
                 None => is_crate(p) || p.source.as_deref() == Some(CRATE_FOLDER),
@@ -3468,9 +3480,10 @@ impl Browser {
             };
             let node = Node {
                 locked: lock,
-                import_root: (lock && p.parent.is_none())
-                    .then(|| p.source.clone())
-                    .flatten(),
+                // Every row of an import offers to make the whole import
+                // the DJ's own, and reads dimmer than the DJ's own lists.
+                import_root: root.flatten(),
+                dim: node.dim || lock,
                 ..node
             };
             if lock {
@@ -3765,7 +3778,7 @@ impl Browser {
         n.playlist.filter(|_| !n.locked)
     }
 
-    /// Makes the import whose top folder is at `row` the DJ's own: its
+    /// Makes the import with a list or folder at `row` the DJ's own: its
     /// lists stay, become editable, and its next import leaves them be.
     fn adopt_import_at(&mut self, row: usize) {
         let Some(source) = self

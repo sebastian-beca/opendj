@@ -1,4 +1,5 @@
-//! Export to USB from the tree's menu: the dialog (see `ui/usb_export.slint`),
+//! Export to USB (for Pioneer DJ and Engine DJ players) from File › Export
+//! and the tree's menu: the dialog (see `ui/usb_export.slint`),
 //! the lists and tracks of the node it was opened on, and the export
 //! itself on a thread of its own (see [`opendj_export`]).
 
@@ -173,8 +174,9 @@ impl Browser {
         let options = Options {
             name: drive_name(&root),
             root,
-            device_library: format != 2,
-            one_library: format != 1,
+            device_library: matches!(format, 0 | 1 | 4),
+            one_library: matches!(format, 0 | 2 | 4),
+            engine_dj: matches!(format, 3 | 4),
             camelot: self.camelot,
         };
         let tracks = std::mem::take(&mut self.usb.tracks);

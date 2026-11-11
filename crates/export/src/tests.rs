@@ -103,6 +103,7 @@ fn an_export_reads_back_in_both_formats() {
         name: "TEST".into(),
         device_library: true,
         one_library: true,
+        engine_dj: false,
         camelot: true,
     };
     let mut steps = Vec::new();
@@ -231,6 +232,164 @@ fn an_export_reads_back_in_both_formats() {
     // Stopping leaves the library as it was.
     let err = export(&tracks, &lists, &options, &mut |_| false).unwrap_err();
     assert!(matches!(err, Error::Cancelled));
+}
+
+#[test]
+fn an_engine_dj_export_reads_back() {
+    use rusqlite::Connection;
+    let music = tempfile::tempdir().unwrap();
+    let stick = tempfile::tempdir().unwrap();
+    std::env::set_var("OPENDJ_CACHE", music.path().join("cache"));
+
+    let mut tracks = Vec::new();
+    for (i, title) in ["One", "Two"].iter().enumerate() {
+        let path = music.path().join(format!("{title}.wav"));
+        click_track(&path, 6.0);
+        let mut t = scan::read_track(i + 1, &path);
+        t.artist = "Ana".into();
+        t.title = title.to_string();
+        t.album = "Clicks".into();
+        t.key = "Am".into();
+        t.rating = 4;
+        t.info.hotcues = vec![hotcue(0, 0.5), hotcue(9, 1.0)];
+        tracks.push(t);
+    }
+    let lists = vec![
+        List {
+            name: "Gigs".into(),
+            folder: true,
+            ..List::default()
+        },
+        List {
+            name: "Friday".into(),
+            parent: Some(0),
+            tracks: vec![1, 0],
+            ..List::default()
+        },
+        List {
+            name: "Friday".into(),
+            parent: Some(0),
+            tracks: vec![0],
+            ..List::default()
+        },
+    ];
+    let options = Options {
+        root: stick.path().to_path_buf(),
+        name: "TEST".into(),
+        device_library: false,
+        one_library: false,
+        engine_dj: true,
+        camelot: true,
+    };
+    let report = export(&tracks, &lists, &options, &mut |_| true).unwrap();
+    assert_eq!((report.tracks, report.lists), (2, 2));
+    assert!(!stick.path().join("PIONEER").exists(), "no Pioneer files");
+
+    let db = Connection::open(stick.path().join("Engine Library/Database2/m.db")).unwrap();
+    let version: (i64, i64, i64) = db
+        .query_row(
+            "SELECT schemaVersionMajor, schemaVersionMinor, schemaVersionPatch FROM Information",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(version, (3, 0, 2));
+    let rows: Vec<(String, String, i64, i64, i64, bool)> = db
+        .prepare("SELECT title, path, key, rating, bpm, isAnalyzed FROM Track ORDER BY id")
+        .unwrap()
+        .query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(rows.len(), 2);
+    // Tracks come in the order the lists first hold them: Friday is Two, One.
+    let (title, path, key, rating, bpm, analysed) = &rows[1];
+    assert_eq!(title, "One");
+    assert_eq!(path, "../Contents/Ana/Clicks/One.wav");
+    assert!(stick.path().join("Engine Library").join(path).is_file());
+    assert_eq!((*key, *rating, *bpm), (1, 80, 120));
+    assert!(*analysed, "a grid and a waveform are there");
+
+    // The performance data decodes: grid from the first beat, cue A only.
+    let (beats, cues): (Vec<u8>, Vec<u8>) = db
+        .query_row(
+            "SELECT beatData, quickCues FROM PerformanceData WHERE trackId = 2",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    let beats = engine::perf::tests::unq(&beats);
+    assert_eq!(f64::from_be_bytes(beats[..8].try_into().unwrap()), 44100.0);
+    assert!(u64::from_be_bytes(beats[17..25].try_into().unwrap()) >= 2);
+    let cues = engine::perf::tests::unq(&cues);
+    assert_eq!(&cues[8..14], b"\x05cue 0");
+
+    // Lists in their folder, in order, with unique names.
+    let lists: Vec<(i64, String, i64)> = db
+        .prepare("SELECT id, title, parentListId FROM Playlist ORDER BY id")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let names: Vec<&str> = lists.iter().map(|l| l.1.as_str()).collect();
+    assert_eq!(names, ["Gigs", "Friday", "Friday (2)"]);
+    assert_eq!(lists[1].2, lists[0].0);
+    let order: Vec<String> = db
+        .prepare(
+            "WITH RECURSIVE chain(id, trackId, nextEntityId) AS ( \
+               SELECT id, trackId, nextEntityId FROM PlaylistEntity \
+                 WHERE listId = ?1 AND id NOT IN \
+                   (SELECT nextEntityId FROM PlaylistEntity WHERE listId = ?1) \
+               UNION ALL SELECT e.id, e.trackId, e.nextEntityId FROM PlaylistEntity e \
+                 JOIN chain c ON e.id = c.nextEntityId) \
+             SELECT t.title FROM chain JOIN Track t ON t.id = chain.trackId",
+        )
+        .unwrap()
+        .query_map([lists[1].0], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(order, ["Two", "One"]);
+    drop(db);
+
+    // Exporting again replaces openDJ's own library.
+    export(&tracks, &lists_one(), &options, &mut |_| true).unwrap();
+    let db = Connection::open(stick.path().join("Engine Library/Database2/m.db")).unwrap();
+    let n: i64 = db
+        .query_row("SELECT count(*) FROM Track", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 1);
+    drop(db);
+
+    // A library Engine DJ wrote is left alone.
+    let other = tempfile::tempdir().unwrap();
+    let db2 = other.path().join("Engine Library/Database2");
+    fs::create_dir_all(&db2).unwrap();
+    fs::write(db2.join("m.db"), b"engine's").unwrap();
+    let options_other = Options {
+        root: other.path().to_path_buf(),
+        ..options.clone()
+    };
+    assert!(export(&tracks, &lists_one(), &options_other, &mut |_| true).is_err());
+    assert_eq!(fs::read(db2.join("m.db")).unwrap(), b"engine's");
+}
+
+fn lists_one() -> Vec<List> {
+    vec![List {
+        name: "Only".into(),
+        tracks: vec![0],
+        ..List::default()
+    }]
 }
 
 fn walk(dir: &Path) -> Vec<PathBuf> {
@@ -406,6 +565,7 @@ fn a_full_stick_reads_back_in_an_independent_reader() {
         name: "TEST".into(),
         device_library: true,
         one_library: true,
+        engine_dj: false,
         camelot: false,
     };
     let report = export(&tracks, &lists, &options, &mut |_| true).unwrap();
@@ -602,6 +762,7 @@ fn the_independent_reader_refuses_broken_files() {
         name: "TEST".into(),
         device_library: true,
         one_library: false,
+        engine_dj: false,
         camelot: true,
     };
     export(&[t], &lists, &options, &mut |_| true).unwrap();

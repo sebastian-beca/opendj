@@ -1565,6 +1565,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 browser.borrow_mut().poll_inbox_albums();
                 browser.borrow_mut().poll_rekordbox_xml();
                 browser.borrow_mut().poll_covers();
+                browser.borrow_mut().poll_located();
                 browser.borrow_mut().poll_cleanup();
                 browser.borrow_mut().poll_files();
                 sampler.borrow_mut().poll();
@@ -1919,13 +1920,23 @@ fn sync_library(library_path: Option<PathBuf>, tx: std::sync::mpsc::Sender<Vec<A
             });
         let tracks: Vec<Arc<Track>> = match synced {
             Some(Ok(tracks)) => tracks.into_iter().map(Arc::new).collect(),
-            other => {
-                if let Some(Err(e)) = other {
-                    eprintln!("can't update the library: {e}");
+            Some(Err(e)) => {
+                eprintln!("can't update the library: {e}");
+                // The saved collection stays, as it was last time: the bare
+                // scan has no lists, stages or Collection Health.
+                let saved = library_path
+                    .as_deref()
+                    .and_then(|p| Library::open(p).ok())
+                    .and_then(|db| db.all_tracks(Path::exists).ok())
+                    .unwrap_or_default();
+                if saved.is_empty() {
+                    scanned
+                } else {
+                    saved.into_iter().map(Arc::new).collect()
                 }
-                // Without a library database, show what was found.
-                scanned
             }
+            // Without a library database, show what was found.
+            None => scanned,
         };
         if !tracks.is_empty() {
             let _ = tx.send(tracks);
@@ -2742,6 +2753,15 @@ impl Gpu {
                 1 => app.set_spin_2(spin),
                 // Decks 3 and 4 have no jog.
                 _ => {}
+            }
+            // The lyrics under the waveform move with it.
+            let lyrics = app.global::<WaveLyrics>();
+            let at = play_seconds as f32;
+            match d {
+                0 => lyrics.set_now_1(at),
+                1 => lyrics.set_now_2(at),
+                2 => lyrics.set_now_3(at),
+                _ => lyrics.set_now_4(at),
             }
             // Decks 3 and 4 show only in 4-Deck.
             if d >= 2 && !four {
