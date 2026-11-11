@@ -4239,7 +4239,7 @@ fn applescript_string(text: &str) -> String {
 /// The channels an input can take from a device with `channels` of them:
 /// each one for the microphone; each pair, then each one (mono), for an
 /// auxiliary input.
-fn channel_choices(role: InputRole, channels: u16) -> Vec<(u16, bool)> {
+pub(crate) fn channel_choices(role: InputRole, channels: u16) -> Vec<(u16, bool)> {
     let mut out = Vec::new();
     if role.can_be_stereo() {
         out.extend(
