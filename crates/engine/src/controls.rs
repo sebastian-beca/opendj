@@ -540,7 +540,7 @@ impl DeckControls {
                 "live_input",
                 0.0,
                 0.0,
-                crate::inputs::NUM_INPUTS as f64,
+                crate::inputs::MIXER as f64,
                 Behavior::Free,
             ),
             live_trim: reg.create(g, "live_trim", 0.0, -12.0, 24.0, Behavior::Linear),

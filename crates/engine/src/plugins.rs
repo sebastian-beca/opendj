@@ -1583,8 +1583,17 @@ mod tests {
             let target = input_target(INSTRUMENT);
             self.instrument
                 .start(FRAMES, &mut self.rack, target, on_deck);
-            self.instrument
-                .render(FRAMES, &mut self.rack, target, 0.01, on_deck);
+            self.instrument.render(
+                FRAMES,
+                &mut self.rack,
+                target,
+                0.01,
+                if on_deck {
+                    crate::inputs::Routing::Deck
+                } else {
+                    crate::inputs::Routing::Main
+                },
+            );
             self.rack.finish(FRAMES);
             self.now += FRAMES as f64 / SR as f64;
             self.instrument.buf[FRAMES - 1][0]

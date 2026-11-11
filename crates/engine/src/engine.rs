@@ -23,7 +23,9 @@ use crate::effects::{
     TAP_GAP, TARGETS,
 };
 use crate::groove::{pick_source, GrooveBox};
-use crate::inputs::{Ducker, Input, InputFeed, AUXILIARIES, INSTRUMENT, MICROPHONE, NUM_INPUTS};
+use crate::inputs::{
+    Ducker, Input, InputFeed, Routing, AUXILIARIES, INSTRUMENT, MICROPHONE, MIXER, NUM_INPUTS,
+};
 use crate::key::{self, Key};
 use crate::keyshift::{transpose_factor, KeyShifter, MAX_RATE};
 use crate::link::{phase_error, Link, Moment};
@@ -469,9 +471,10 @@ impl Deck {
     }
 
     /// Takes the track off the deck; it goes back to the loader to be freed.
-    /// The input played through the deck: 0 none, else 1 + the input.
+    /// The input played through the deck: 0 none, 1 + the input, or
+    /// [`MIXER`] for the Mixer's strips.
     fn live_input(&self) -> usize {
-        (self.c.live_input.get().round().max(0.0) as usize).min(NUM_INPUTS)
+        (self.c.live_input.get().round().max(0.0) as usize).min(MIXER)
     }
 
     fn unload(&mut self) -> Option<Arc<Track>> {
@@ -2262,8 +2265,9 @@ impl Engine {
                     d.side_before_live = Some(d.c.orientation.get());
                     d.c.orientation.set(1.0);
                 }
-                // An untouched trim is set from what it first plays.
-                if d.c.live_trim.get() == 0.0 {
+                // An untouched trim is set from what it first plays; the
+                // Mixer's strips have trims of their own.
+                if d.c.live_trim.get() == 0.0 && live != MIXER {
                     d.auto_trim.arm();
                 } else {
                     d.auto_trim.disarm();
@@ -3011,7 +3015,7 @@ impl Engine {
         debug_assert_eq!(TARGETS, NUM_DECKS + 1 + NUM_INPUTS);
         // The input each deck plays instead of a track, if any: that input's
         // own channel is quiet meanwhile.
-        let live_on: [usize; NUM_DECKS] = std::array::from_fn(|i| {
+        let source_on: [usize; NUM_DECKS] = std::array::from_fn(|i| {
             let d = &self.decks[i];
             if d.track.is_none() && !self.grooves[i].enabled() && !self.loopers.loopers[i].enabled()
             {
@@ -3020,6 +3024,10 @@ impl Engine {
                 0
             }
         });
+        let live_on = source_on.map(|v| if v == MIXER { 0 } else { v });
+        // Decks playing the Mixer: the auxiliary channels summed, each
+        // strip at its own level (one deck at a time, see `live_inputs`).
+        let mixer_on = source_on.map(|v| v == MIXER);
         // Decks playing their Looper, and the input each plays through
         // (0 for the main mix, which it only records).
         let looper_on: [bool; NUM_DECKS] = std::array::from_fn(|i| {
@@ -3428,9 +3436,18 @@ impl Engine {
                 .then_some(sr),
             }
         });
+        let mixing = mixer_on.contains(&true);
+        let any_solo = mixing && AUXILIARIES.iter().any(|&k| self.inputs[k].soloed());
         for (i, input) in self.inputs.iter_mut().enumerate() {
             let on_deck = live_on.contains(&(i + 1)) || looper_in.contains(&(i + 1));
-            input.render(frames, &mut self.fx, input_target(i), dt as f32, on_deck);
+            let routing = if on_deck {
+                Routing::Deck
+            } else if mixing && AUXILIARIES.contains(&i) {
+                Routing::Mixer { any_solo }
+            } else {
+                Routing::Main
+            };
+            input.render(frames, &mut self.fx, input_target(i), dt as f32, routing);
         }
         let master = (self.master_gain, master_target);
         let balance = (self.balance, balance_target);
@@ -3536,7 +3553,7 @@ impl Engine {
             }
         }
         for (i, wave) in self.live_waves.iter_mut().enumerate() {
-            if live_on[i] == 0 && !groove_on[i] && !looper_on[i] {
+            if live_on[i] == 0 && !mixer_on[i] && !groove_on[i] && !looper_on[i] {
                 wave.idle();
             }
         }
@@ -3635,8 +3652,19 @@ impl Engine {
                 if looper_on[i] {
                     s = looper_buf[i][f];
                 }
-                if live_on[i] > 0 {
-                    let x = self.inputs[live_on[i] - 1].raw[f];
+                if live_on[i] > 0 || mixer_on[i] {
+                    let x = if mixer_on[i] {
+                        // The strips after their trim, effects, pan and
+                        // fader: the deck's own trim, EQ, effects and fader
+                        // act on the sum, the Mixer's master.
+                        AUXILIARIES.iter().fold([0.0f32; 2], |m, &k| {
+                            let inp = &self.inputs[k];
+                            let g = lerp(inp.level_ramp);
+                            [m[0] + inp.buf[f][0] * g, m[1] + inp.buf[f][1] * g]
+                        })
+                    } else {
+                        self.inputs[live_on[i] - 1].raw[f]
+                    };
                     d.auto_trim.listen(x);
                     let [l, r] = live_balance(lerp(p.live_pan));
                     let t = lerp(p.live_trim);
@@ -3647,7 +3675,7 @@ impl Engine {
                 s = [s[0] * pre, s[1] * pre];
                 // A live deck's sound for its waveform, after the trim and
                 // before the EQ, as a track's waveform shows the track.
-                if live_on[i] > 0 || groove_on[i] || looper_on[i] {
+                if live_on[i] > 0 || mixer_on[i] || groove_on[i] || looper_on[i] {
                     self.live_waves[i].push(s);
                 }
                 if tap == Some(DeckTap::Clean) {
@@ -3664,7 +3692,7 @@ impl Engine {
                 if !external {
                     s = d.sculpt.process(s);
                 }
-                if live_on[i] > 0 || looper_on[i] {
+                if live_on[i] > 0 || mixer_on[i] || looper_on[i] {
                     s = d.live_limiter.process(s);
                 }
                 deck_buf[i][f] = s;
@@ -3741,7 +3769,12 @@ impl Engine {
             for input in std::iter::once(INSTRUMENT).chain(AUXILIARIES) {
                 let inp = &self.inputs[input];
                 let a = inp.buf[f];
-                let ga = lerp(inp.level_ramp);
+                // A Mixer strip is in its deck's sound instead.
+                let ga = if inp.in_mixer {
+                    0.0
+                } else {
+                    lerp(inp.level_ramp)
+                };
                 for c in 0..2 {
                     main[c] += a[c] * ga;
                 }
@@ -7143,6 +7176,111 @@ mod tests {
         let live = reg.get("[Channel1]", "live_input").unwrap();
         live.set((AUXILIARY_8 + 1) as f64);
         assert_eq!(live.get(), (AUXILIARY_8 + 1) as f64);
+    }
+
+    /// Runs the engine for `seconds` with a 500 Hz tone coming into
+    /// Auxiliary 1 and a 700 Hz one into Auxiliary 2; returns the output.
+    fn two_strips(
+        engine: &mut Engine,
+        tx: &mut [rtrb::Producer<f32>; 2],
+        seconds: f64,
+    ) -> Vec<f32> {
+        let tones = [sine(500.0, 0.4), sine(700.0, 0.4)];
+        let mut out = Vec::new();
+        let mut buf = vec![0.0f32; 512 * 2];
+        let mut n = 0;
+        for _ in 0..(seconds * SR / 512.0).ceil() as usize {
+            for _ in 0..512 {
+                for (t, tone) in tx.iter_mut().zip(&tones) {
+                    let v = tone(n);
+                    let _ = t.push(v);
+                    let _ = t.push(v);
+                }
+                n += 1;
+            }
+            engine.process(&mut buf, 2);
+            out.extend_from_slice(&buf);
+        }
+        out
+    }
+
+    #[test]
+    fn a_deck_plays_the_mixer_strips_summed() {
+        use crate::inputs::{AUXILIARY_2, MIXER};
+        let (reg, mut engine, _input) = setup();
+        let aux = |n: usize, k: &str| reg.get(&format!("[Auxiliary{n}]"), k).unwrap();
+        let ch = |k: &str| reg.get("[Channel1]", k).unwrap();
+        let (f1, t1) = mic_feed();
+        let (f2, t2) = mic_feed();
+        engine.set_input(AUXILIARY, Some(f1));
+        engine.set_input(AUXILIARY_2, Some(f2));
+        let mut tx = [t1, t2];
+        let levels = |out: &[f32]| {
+            let tail = &out[out.len() / 2..];
+            (level_at(tail, 500.0), level_at(tail, 700.0))
+        };
+        ch("live_input").set(MIXER as f64);
+        assert_eq!(ch("live_input").get(), MIXER as f64);
+        // New strips are off: the Mixer is silent.
+        let out = two_strips(&mut engine, &mut tx, 0.3);
+        assert!(peak(&out[out.len() / 2..]) < 1e-4);
+        // Both on: both play through the deck, each once.
+        aux(1, "main_mix").set_bool(true);
+        aux(2, "main_mix").set_bool(true);
+        let (a, b) = levels(&two_strips(&mut engine, &mut tx, 0.4));
+        assert!(a > 0.1 && b > 0.1, "{a} {b}");
+        assert!((a - b).abs() < 0.03, "{a} {b}");
+        assert!(ch("vu_meter").get() > 0.5);
+        // A strip's fader and the deck's fader, the Mixer's master.
+        aux(2, "volume").set(0.0);
+        two_strips(&mut engine, &mut tx, 0.1);
+        let (a2, b2) = levels(&two_strips(&mut engine, &mut tx, 0.3));
+        assert!((a2 - a).abs() < 0.03 && b2 < 0.01, "{a2} {b2}");
+        aux(2, "volume").set(1.0);
+        // Solo beats off and leaves only the soloed strips.
+        aux(2, "main_mix").set_bool(false);
+        aux(2, "solo").set_bool(true);
+        two_strips(&mut engine, &mut tx, 0.1);
+        let (a3, b3) = levels(&two_strips(&mut engine, &mut tx, 0.3));
+        assert!(a3 < 0.01 && b3 > 0.1, "{a3} {b3}");
+        aux(2, "solo").set_bool(false);
+        aux(2, "main_mix").set_bool(true);
+        // Muted, a strip is silent.
+        aux(1, "mute").set_bool(true);
+        two_strips(&mut engine, &mut tx, 0.1);
+        let (a4, b4) = levels(&two_strips(&mut engine, &mut tx, 0.3));
+        assert!(a4 < 0.01 && b4 > 0.1, "{a4} {b4}");
+        aux(1, "mute").set_bool(false);
+        ch("volume").set(0.0);
+        two_strips(&mut engine, &mut tx, 0.1);
+        let out = two_strips(&mut engine, &mut tx, 0.3);
+        assert!(peak(&out[out.len() / 2..]) < 1e-3);
+        // Off the deck, the strips that are on join the music on their own.
+        ch("volume").set(1.0);
+        ch("live_input").set(0.0);
+        two_strips(&mut engine, &mut tx, 0.1);
+        let (a5, b5) = levels(&two_strips(&mut engine, &mut tx, 0.3));
+        assert!(
+            (a5 - 0.4).abs() < 0.03 && (b5 - 0.4).abs() < 0.03,
+            "{a5} {b5}"
+        );
+    }
+
+    #[test]
+    fn a_mixer_strip_cues_in_the_headphones() {
+        use crate::inputs::MIXER;
+        let (reg, mut engine, _input) = setup();
+        let (feed, mut tx) = mic_feed();
+        engine.set_input(AUXILIARY, Some(feed));
+        reg.get("[Channel1]", "live_input")
+            .unwrap()
+            .set(MIXER as f64);
+        // Off in the Mixer, yet heard in the headphones: cue is pre-fader.
+        reg.get("[Auxiliary1]", "pfl").unwrap().set_bool(true);
+        run(&mut engine, 0.05);
+        talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
+        assert!(engine.inputs[AUXILIARY].pfl);
+        assert!(engine.inputs[AUXILIARY].in_mixer);
     }
 
     #[test]

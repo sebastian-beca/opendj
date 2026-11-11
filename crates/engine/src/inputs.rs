@@ -54,6 +54,24 @@ pub const AUXILIARIES: [usize; NUM_AUXILIARIES] = [
     AUXILIARY_8,
 ];
 
+/// `[ChannelN],live_input` for the Mixer: the deck plays the auxiliary
+/// channels, the Mixer's strips, summed (see [`Routing::Mixer`]). After the
+/// inputs' own values, 1 + each input.
+pub const MIXER: usize = NUM_INPUTS + 1;
+
+/// Where an input's sound goes this buffer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Routing {
+    /// Into the main mix, on its own channel, while it is on.
+    Main,
+    /// A deck plays it on its own (from `raw`): its channel is quiet.
+    Deck,
+    /// A strip of the Mixer a deck plays: its fader level is the strip's,
+    /// for the deck to sum. A soloed strip plays whether on or off; while
+    /// any strip of the Mixer is soloed (`any_solo`), only soloed ones do.
+    Mixer { any_solo: bool },
+}
+
 /// Knobs the instrument's plugin parameters show on:
 /// `[Instrument1],parameter1` to `parameter32`, 0 to 1 across each one's
 /// own range. As many as the plugin host shares with a helper.
@@ -188,6 +206,8 @@ struct InputControls {
     peak: ControlHandle,
     /// An auxiliary input's place between left (-1) and right (1).
     pan: Option<ControlHandle>,
+    /// An auxiliary input's `solo` in the Mixer.
+    solo: Option<ControlHandle>,
 }
 
 impl InputControls {
@@ -281,10 +301,10 @@ impl InputControls {
             // interface's channels today; later the Groove Box or a plugin).
             // `solo` and `fx` are the Mixer's: solo within the Mixer, and
             // the strip through the deck's effects.
-            reg.toggle(g, "solo");
             reg.toggle(g, "fx");
             reg.create(g, "pan", 0.0, -1.0, 1.0, Behavior::Linear)
         });
+        let solo = AUXILIARIES.contains(&input).then(|| reg.toggle(g, "solo"));
         let configured = reg.indicator(g, "input_configured", 1.0);
         alias(reg, g, "enabled", g, "input_configured");
         Self {
@@ -309,6 +329,7 @@ impl InputControls {
             vu_lr: ["L", "R"].map(|s| reg.indicator(g, &format!("VuMeter{s}"), 1.0)),
             peak: reg.indicator(g, "PeakIndicator", 1.0),
             pan,
+            solo,
         }
     }
 }
@@ -350,6 +371,9 @@ pub(crate) struct Input {
     pub(crate) level_ramp: (f32, f32),
     /// Heard in the headphones.
     pub(crate) pfl: bool,
+    /// A strip of the Mixer a deck plays: the deck sums it at
+    /// `level_ramp`, so it stays out of the main mix itself.
+    pub(crate) in_mixer: bool,
     /// On and connected: the microphone is talking over the music.
     pub(crate) live: bool,
 }
@@ -414,8 +438,14 @@ impl Input {
             raw: vec![[0.0; 2]; 4096],
             level_ramp: (0.0, 0.0),
             pfl: false,
+            in_mixer: false,
             live: false,
         }
+    }
+
+    /// Soloed in the Mixer.
+    pub(crate) fn soloed(&self) -> bool {
+        self.c.solo.as_ref().is_some_and(|s| s.get_bool())
     }
 
     /// The master deck's key now, which scale mode Auto plays in.
@@ -491,15 +521,15 @@ impl Input {
 
     /// Takes in `frames` from the device and runs them through the gain,
     /// the EQ and the effects routed to `target`; the result is in `buf`.
-    /// `dt` is the buffer's length in seconds. While `on_deck`, a deck
-    /// plays the input (from `raw`) and its own channel is quiet.
+    /// `dt` is the buffer's length in seconds. `routing` says where it is
+    /// heard (see [`Routing`]).
     pub(crate) fn render(
         &mut self,
         frames: usize,
         fx: &mut EffectRack,
         target: usize,
         dt: f32,
-        on_deck: bool,
+        routing: Routing,
     ) {
         if self.buf.len() < frames {
             self.buf.resize(frames, [0.0; 2]);
@@ -522,12 +552,24 @@ impl Input {
         };
 
         self.raw[..frames].copy_from_slice(buf);
-        let on = self.c.on.get_bool() && !self.c.mute.get_bool() && source && !on_deck;
+        let on = self.c.on.get_bool();
+        let (on, live) = match routing {
+            Routing::Main => (on && !self.c.mute.get_bool(), on),
+            Routing::Deck => (false, false),
+            Routing::Mixer { any_solo } => {
+                let solo = self.c.solo.as_ref().is_some_and(|s| s.get_bool());
+                let heard = if any_solo { solo } else { on };
+                let heard = heard && !self.c.mute.get_bool();
+                (heard, heard)
+            }
+        };
+        let on = on && source;
         let level = if on { self.c.volume.get() as f32 } else { 0.0 };
         self.level_ramp = (self.level, level);
         self.level = level;
-        self.live = self.c.on.get_bool() && source && !on_deck;
-        self.pfl = self.c.pfl.get_bool() && !on_deck;
+        self.live = live && source;
+        self.pfl = self.c.pfl.get_bool() && routing != Routing::Deck;
+        self.in_mixer = matches!(routing, Routing::Mixer { .. });
         let pre = (self.pregain, self.c.pregain.get() as f32);
         self.pregain = pre.1;
         let eq_from = self.eq_gains;
