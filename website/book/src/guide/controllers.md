@@ -28,6 +28,35 @@ Traktor Kontrol X1 (first model) is a MIDI controller and has a MIDI mapping.
 
 The **Pioneer DDJ-FLX4** has a page of its own: [Pioneer DDJ-FLX4](controllers/ddj-flx4.md).
 
+## MIDI keyboards and decks
+
+A MIDI device with no mapping, such as a keyboard, plays the instrument
+plugin on a deck (see [Instruments](fx.md#instruments)). Its row in
+**Settings › Controllers** says **Plays instruments**. A controller running
+a mapping never plays instruments. Neither do a keyboard's DAW or Mackie
+Control port (marked **DAW port: not used**), the computer's own ports, or
+the MIDI side of an HID controller running its HID mapping. To make any of
+them play instruments, pick **Play instruments** in its mapping menu.
+
+The menu before the mapping picks the deck the device plays:
+
+- **Auto**: follows the instrument for a device that plays instruments, and
+  as mapped for the rest. The menu shows which, **Auto · Follow** or
+  **Auto · Mapped**.
+- **As mapped**: the decks its mapping names.
+- **Follow instrument**: the deck that holds the instrument plugin, or else
+  the Groove Box. Drag the instrument to another deck and the device goes
+  with it.
+- **Deck 1** to **Deck 4**: that deck. A keyboard set to a deck plays the
+  instrument only while the instrument is on that deck.
+
+With **Follow instrument** or a deck, the mapping moves along so that its
+deck 1 is that deck, lights and all. openDJ keeps these choices.
+
+The first time a keyboard plays the instrument, a message names it, so a
+device that shouldn't play it is easy to spot. The keyboard button in the
+instrument deck's header shows which keyboard played it last.
+
 ## Controller Editor
 
 To see what every control does, press **Edit** next to a controller in
