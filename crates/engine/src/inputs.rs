@@ -298,8 +298,8 @@ pub(crate) struct Input {
     /// The master deck's key, for Auto.
     master_key: Option<crate::key::Key>,
     feed: Option<InputFeed>,
-    /// Waiting for the queue to fill before playing from it.
-    filling: bool,
+    /// How full its queue runs.
+    queue: Queue,
     eq: Isolator,
     eq_gains: [f32; 3],
     pregain: f32,
@@ -367,7 +367,7 @@ impl Input {
                 Vec::new()
             },
             feed: None,
-            filling: true,
+            queue: Queue::default(),
             eq: Isolator::new(sample_rate),
             eq_gains: [1.0; 3],
             pregain: 1.0,
@@ -390,7 +390,7 @@ impl Input {
     /// Plays from `feed` from now on, or from nothing. Returns the old feed,
     /// to be dropped off the audio thread.
     pub(crate) fn set_feed(&mut self, feed: Option<InputFeed>) -> Option<InputFeed> {
-        self.filling = true;
+        self.queue = Queue::default();
         self.c.configured.set_bool(feed.is_some());
         std::mem::replace(&mut self.feed, feed)
     }
@@ -478,7 +478,7 @@ impl Input {
             playing
         } else {
             let got = match &mut self.feed {
-                Some(feed) => pull(feed, &mut self.filling, buf),
+                Some(feed) => pull(feed, &mut self.queue, buf),
                 None => 0,
             };
             buf[got..].fill([0.0; 2]);
@@ -532,25 +532,64 @@ impl Input {
     }
 }
 
+/// Frames an input's queue keeps in hand at its emptiest, against the
+/// jitter between the input's and the output's callbacks: 1.3 ms at 48 kHz.
+const QUEUE_SLACK: usize = 64;
+/// Frames played between looks at how low the queue ran: about a third of
+/// a second at 48 kHz.
+const QUEUE_WINDOW: usize = 16_384;
+
+/// How full an input's queue runs, to keep its delay down.
+struct Queue {
+    /// Waiting for the queue to fill before playing from it.
+    filling: bool,
+    /// The fewest frames left queued after a read in this window.
+    low: usize,
+    /// Frames played in this window.
+    played: usize,
+}
+
+impl Default for Queue {
+    fn default() -> Self {
+        Self {
+            filling: true,
+            low: usize::MAX,
+            played: 0,
+        }
+    }
+}
+
+/// Throws away `frames` of the oldest audio in `feed`.
+fn skip(feed: &mut InputFeed, frames: usize) {
+    if let Ok(chunk) = feed.rx.read_chunk(frames * 2) {
+        chunk.commit_all();
+    }
+}
+
 /// Reads up to `out.len()` frames from `feed`, keeping its queue short.
 /// Returns how many it read.
-fn pull(feed: &mut InputFeed, filling: &mut bool, out: &mut [[f32; 2]]) -> usize {
+///
+/// Audio waiting in the queue is heard as delay, so the queue is kept as
+/// short as the callbacks allow: it waits for one input callback and one
+/// output buffer before playing, and every window it drops what was never
+/// needed, the queue's low point less [`QUEUE_SLACK`]. A device running
+/// ahead is cut back at once.
+fn pull(feed: &mut InputFeed, q: &mut Queue, out: &mut [[f32; 2]]) -> usize {
     let frames = out.len();
-    // Enough to cover one input callback and one output buffer: the queue
-    // waits for this much, and is cut back to it when it grows past twice.
     let enough = feed.period.load(Ordering::Relaxed).max(frames);
     let queued = feed.rx.slots() / 2;
-    if *filling {
+    if q.filling {
         if queued < enough {
             return 0;
         }
-        *filling = false;
+        q.filling = false;
+        q.low = usize::MAX;
+        q.played = 0;
     }
     if queued > 2 * enough + frames {
-        let drop = queued - enough;
-        if let Ok(chunk) = feed.rx.read_chunk(drop * 2) {
-            chunk.commit_all();
-        }
+        skip(feed, queued - enough);
+        q.low = usize::MAX;
+        q.played = 0;
     }
     let n = (feed.rx.slots() / 2).min(frames);
     if let Ok(chunk) = feed.rx.read_chunk(n * 2) {
@@ -561,7 +600,17 @@ fn pull(feed: &mut InputFeed, filling: &mut bool, out: &mut [[f32; 2]]) -> usize
         chunk.commit_all();
     }
     if n < frames {
-        *filling = true;
+        q.filling = true;
+        return n;
+    }
+    q.low = q.low.min(feed.rx.slots() / 2);
+    q.played += n;
+    if q.played >= QUEUE_WINDOW {
+        if q.low > QUEUE_SLACK {
+            skip(feed, q.low - QUEUE_SLACK);
+        }
+        q.low = usize::MAX;
+        q.played = 0;
     }
     n
 }
@@ -658,22 +707,47 @@ mod tests {
     #[test]
     fn the_queue_stays_short_and_waits_out_gaps() {
         let (mut feed, mut tx) = feed(128);
-        let mut filling = true;
+        let mut q = Queue::default();
         let mut out = [[0.0f32; 2]; 256];
         // Waits for a buffer's worth before playing.
         push(&mut tx, 128, 1.0);
-        assert_eq!(pull(&mut feed, &mut filling, &mut out), 0);
+        assert_eq!(pull(&mut feed, &mut q, &mut out), 0);
         push(&mut tx, 128, 1.0);
-        assert_eq!(pull(&mut feed, &mut filling, &mut out), 256);
+        assert_eq!(pull(&mut feed, &mut q, &mut out), 256);
         assert_eq!(out[255], [1.0, 1.0]);
         // A device that ran ahead is cut back to one buffer queued.
         push(&mut tx, 2048, 2.0);
-        assert_eq!(pull(&mut feed, &mut filling, &mut out), 256);
+        assert_eq!(pull(&mut feed, &mut q, &mut out), 256);
         assert_eq!(feed.rx.slots() / 2, 0);
         // Running dry plays what is there and waits again.
         push(&mut tx, 100, 3.0);
-        assert_eq!(pull(&mut feed, &mut filling, &mut out), 100);
-        assert!(filling);
+        assert_eq!(pull(&mut feed, &mut q, &mut out), 100);
+        assert!(q.filling);
+    }
+
+    #[test]
+    fn a_queue_that_stays_full_is_trimmed_to_a_little_slack() {
+        // An input delivering 512 frames at a time into 256-frame output
+        // buffers, with 400 frames more than it needs sitting in the queue:
+        // under the cut-back point, so heard as 8 ms of extra delay.
+        let (mut feed, mut tx) = feed(512);
+        let mut q = Queue::default();
+        let mut out = [[0.0f32; 2]; 256];
+        push(&mut tx, 512 + 400, 1.0);
+        let mut delay = Vec::new();
+        for k in 0..400 {
+            if k % 2 == 1 {
+                push(&mut tx, 512, 1.0);
+            }
+            assert_eq!(pull(&mut feed, &mut q, &mut out), 256, "dropout at {k}");
+            delay.push(feed.rx.slots() / 2);
+        }
+        // Never ran dry, and after a window or two the low point is just
+        // the slack: what is left is the input's own callback.
+        assert!(!q.filling);
+        let low = delay[200..].iter().min().unwrap();
+        assert!(*low <= QUEUE_SLACK, "{low}");
+        assert!(delay[200..].iter().max().unwrap() <= &(512 + QUEUE_SLACK));
     }
 
     #[test]

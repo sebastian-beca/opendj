@@ -575,6 +575,11 @@ pub(crate) struct Outputs {
     setup: AudioSetup,
     /// When to look for a lost device next.
     retry_at: Option<Instant>,
+    /// An input stream stopped (its device reset or went away): set from
+    /// its error callback, so the inputs are reopened.
+    input_lost: Arc<AtomicBool>,
+    /// When to try reopening the inputs next.
+    input_retry_at: Option<Instant>,
     /// The person was told the device went away.
     lost_reported: bool,
 }
@@ -596,6 +601,8 @@ impl Outputs {
             health,
             setup: setup.clone(),
             retry_at: None,
+            input_lost: Arc::new(AtomicBool::new(false)),
+            input_retry_at: None,
             lost_reported: false,
         };
         o.configure(setup);
@@ -614,6 +621,10 @@ impl Outputs {
         // Stop the old streams before taking their queues from the engine.
         self.inputs.clear();
         self.heard = Default::default();
+        self.input_lost.store(false, Ordering::Release);
+        // Kept for reopening them after their device resets.
+        self.setup.inputs = setup.inputs.clone();
+        let frames = setup.buffer_frames;
         let mut old = Vec::new();
         for role in InputRole::ALL {
             let i = role.index();
@@ -627,7 +638,7 @@ impl Outputs {
                     self.input_status[i] = format!("{} unavailable", r.device);
                     None
                 }
-                Some(r) => match self.open_input(r) {
+                Some(r) => match self.open_input(r, frames) {
                     Ok((stream, feed, status, heard)) => {
                         self.inputs.push(stream);
                         self.heard[i] = Some(heard);
@@ -668,11 +679,13 @@ impl Outputs {
             .collect()
     }
 
-    /// Opens the input device `r` names. Also returns whether it has sent
-    /// anything but silence yet.
+    /// Opens the input device `r` names, with buffers of `frames` as the
+    /// outputs have (else the device's default). Also returns whether it has
+    /// sent anything but silence yet.
     fn open_input(
         &self,
         r: &InputRoute,
+        frames: Option<u32>,
     ) -> Result<(cpal::Stream, InputFeed, String, Arc<AtomicBool>), String> {
         let label = if r.device.is_empty() {
             "System default"
@@ -696,7 +709,7 @@ impl Outputs {
         let period = Arc::new(AtomicUsize::new(0));
         let heard = Arc::new(AtomicBool::new(false));
         let stereo = r.channels() == 2;
-        let stream = input_stream(&device, &config, {
+        let stream = input_stream(&device, &config, frames, &self.input_lost, {
             let (period, heard) = (period.clone(), heard.clone());
             move |data: &[f32]| {
                 period.store(data.len() / channels, Ordering::Relaxed);
@@ -726,7 +739,7 @@ impl Outputs {
     /// what happened, for the person at the decks.
     pub(crate) fn recover(&mut self) -> Option<String> {
         if !self.health.lost.load(Ordering::Acquire) {
-            return None;
+            return self.recover_inputs();
         }
         let now = Instant::now();
         if self.retry_at.is_some_and(|t| now < t) {
@@ -763,11 +776,41 @@ impl Outputs {
         self.health.lost.store(false, Ordering::Release);
         let setup = self.setup.clone();
         self.configure_outputs(&setup);
+        // The device's inputs went with it (an interface that resets takes
+        // both): open them again too, or nothing comes in until the input
+        // is picked again.
+        self.configure_inputs(&setup);
         Some(if std::mem::take(&mut self.lost_reported) {
             format!("{label} is back.")
         } else {
             format!("{label} stopped; openDJ reopened it.")
         })
+    }
+
+    /// Reopens the inputs after one of their streams stopped, every so often
+    /// until they open again.
+    fn recover_inputs(&mut self) -> Option<String> {
+        if !self.input_lost.load(Ordering::Acquire) {
+            return None;
+        }
+        let now = Instant::now();
+        if self.input_retry_at.is_some_and(|t| now < t) {
+            return None;
+        }
+        self.input_retry_at = Some(now + RETRY);
+        let setup = self.setup.clone();
+        self.configure_inputs(&setup);
+        let wanted = InputRole::ALL
+            .iter()
+            .filter(|role| setup.inputs.iter().any(|r| r.role == **role))
+            .count();
+        if self.inputs.len() < wanted {
+            // Not back yet: try again in a while.
+            self.input_lost.store(true, Ordering::Release);
+            return None;
+        }
+        self.input_retry_at = None;
+        Some("An audio input stopped; openDJ reopened it.".to_string())
     }
 
     /// Whether the system refused the audio thread real-time priority.
@@ -1063,18 +1106,49 @@ fn input_config_at(
 }
 
 /// Opens and starts an input stream that hands `take` its audio in f32,
-/// interleaved.
+/// interleaved, with buffers of `frames` if the device takes them (the
+/// outputs' size: a bigger input buffer is heard as delay), else its
+/// default. `lost` is set if the stream stops.
 fn input_stream(
     device: &cpal::Device,
     config: &cpal::SupportedStreamConfig,
+    frames: Option<u32>,
+    lost: &Arc<AtomicBool>,
     take: impl FnMut(&[f32]) + Send + 'static,
 ) -> Result<cpal::Stream, String> {
-    let stream = match config.sample_format() {
-        SampleFormat::F32 => build_input::<f32>(device, config, take),
-        SampleFormat::I16 => build_input::<i16>(device, config, take),
-        SampleFormat::I32 => build_input::<i32>(device, config, take),
-        SampleFormat::U16 => build_input::<u16>(device, config, take),
-        other => Err(format!("unsupported sample format {other:?}")),
+    let take = Arc::new(Mutex::new(take));
+    let open = |size: BufferSize| {
+        let take = take.clone();
+        // Only this stream's callback locks it, so it never waits.
+        let take = move |data: &[f32]| {
+            if let Ok(mut t) = take.try_lock() {
+                t(data)
+            }
+        };
+        let lost = lost.clone();
+        let error = move |err: cpal::Error| match err.kind() {
+            ErrorKind::Xrun => {}
+            ErrorKind::DeviceNotAvailable | ErrorKind::StreamInvalidated => {
+                lost.store(true, Ordering::Release);
+                eprintln!("audio input lost: {err}");
+            }
+            _ => eprintln!("audio input error: {err}"),
+        };
+        match config.sample_format() {
+            SampleFormat::F32 => build_input::<f32>(device, config, size, take, error),
+            SampleFormat::I16 => build_input::<i16>(device, config, size, take, error),
+            SampleFormat::I32 => build_input::<i32>(device, config, size, take, error),
+            SampleFormat::U16 => build_input::<u16>(device, config, size, take, error),
+            other => Err(format!("unsupported sample format {other:?}")),
+        }
+    };
+    let size = buffer_frames(config, frames);
+    let stream = match open(size) {
+        Err(e) if size != BufferSize::Default => {
+            eprintln!("audio input: {size:?} refused ({e}); using the device's default");
+            open(BufferSize::Default)
+        }
+        other => other,
     }?;
     stream.play().map_err(|e| e.to_string())?;
     Ok(stream)
@@ -1083,7 +1157,9 @@ fn input_stream(
 fn build_input<T>(
     device: &cpal::Device,
     config: &cpal::SupportedStreamConfig,
+    buffer_size: BufferSize,
     mut take: impl FnMut(&[f32]) + Send + 'static,
+    error: impl FnMut(cpal::Error) + Send + 'static,
 ) -> Result<cpal::Stream, String>
 where
     T: SizedSample,
@@ -1093,7 +1169,10 @@ where
     let mut scratch = vec![0.0f32; 16_384 * channels];
     device
         .build_input_stream::<T, _, _>(
-            config.config(),
+            cpal::StreamConfig {
+                buffer_size,
+                ..config.config()
+            },
             move |data: &[T], _| {
                 if scratch.len() < data.len() {
                     // Rare: a device delivering more than asked for.
@@ -1105,7 +1184,7 @@ where
                 }
                 take(buf);
             },
-            |err| eprintln!("audio input error: {err}"),
+            error,
             None,
         )
         .map_err(|e| e.to_string())
