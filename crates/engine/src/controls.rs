@@ -255,6 +255,10 @@ pub(crate) struct DeckControls {
     /// Clicks on each beat of the grid, louder on bar 1 (openDJ's own), to
     /// check the grid by ear.
     pub(crate) metronome: ControlHandle,
+    /// The deck's grid edit mode (openDJ's own): while on, the scrolling
+    /// waveform draws the grid louder and dragging it moves the grid. Turns
+    /// off when a new track loads.
+    pub(crate) beats_edit: ControlHandle,
     /// A live input played through the deck instead of a track (openDJ's
     /// own): 0 none, else 1 + the input (see [`crate::inputs`]), so 1 the
     /// microphone, 2 the auxiliary input, 3 the instrument.
@@ -530,6 +534,7 @@ impl DeckControls {
             keylock: reg.toggle(g, "keylock"),
             bpmlock: reg.toggle(g, "bpmlock"),
             metronome: reg.toggle(g, "metronome"),
+            beats_edit: reg.toggle(g, "beats_edit"),
             live_input: reg.create(
                 g,
                 "live_input",

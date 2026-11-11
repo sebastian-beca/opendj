@@ -81,6 +81,7 @@ mod now_playing_view;
 mod osc;
 mod osc_events;
 mod prefs;
+mod prep_click;
 mod presets;
 mod quality;
 mod quick_search;
@@ -1394,6 +1395,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let layout_next_version = Cell::new(layout_next.version());
     // Whether the In Prep list was shown for a start in the Prep layout.
     let prep_shown = Cell::new(false);
+    // Prep's metronome, on while its grid is open.
+    let prep_click = RefCell::new(prep_click::PrepClick::new(&registry, "[Channel1]"));
     // Switched off or on from the crossfader's menu, a controller or a
     // script: remembered for next time, as the Settings switch is.
     let xfader_enabled = registry.create(
@@ -1572,6 +1575,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tour.borrow_mut().poll();
                 controller_editor.borrow_mut().poll();
                 map_mode.borrow_mut().poll();
+                prep_click
+                    .borrow_mut()
+                    .tick(app.get_layout() == PREP_LAYOUT);
                 if let Some(c) = &controllers {
                     let names: Vec<String> = c.connected().into_iter().map(|c| c.port).collect();
                     let status = if names.is_empty() {
@@ -2142,6 +2148,10 @@ struct DeckHandles {
     /// The gain knob, which sizes the waveforms when Size follows gain is on.
     pregain: ControlHandle,
     keylock: ControlHandle,
+    /// Grid edit mode (the pencil) and the grid lock: an unlocked grid in
+    /// edit mode is drawn louder.
+    beats_edit: ControlHandle,
+    bpmlock: ControlHandle,
     /// Key shift in semitones, the key being played and the file's key.
     pitch: ControlHandle,
     key: ControlHandle,
@@ -2200,6 +2210,8 @@ impl Decks {
                 beatloop_size: c("beatloop_size"),
                 pregain: c("pregain"),
                 keylock: c("keylock"),
+                beats_edit: c("beats_edit"),
+                bpmlock: c("bpmlock"),
                 pitch: c("pitch"),
                 key: c("key"),
                 file_key: c("file_key"),
@@ -2797,6 +2809,11 @@ impl Gpu {
                 }
             };
             self.scrolling[d].set_live(window.is_some());
+            // Grid edit mode (Prep's deck 1 always), while the grid is unlocked.
+            let prep_deck = prep_bars.is_some() && d == 0;
+            let h = &decks.0[d];
+            self.scrolling[d]
+                .set_grid_edit((h.beats_edit.get_bool() || prep_deck) && !h.bpmlock.get_bool());
             if window.is_none() {
                 self.scrolling[d].set_lanes(None);
             }

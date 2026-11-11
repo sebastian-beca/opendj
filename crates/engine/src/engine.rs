@@ -2028,6 +2028,7 @@ impl Engine {
                     d.c.duration.set(track.duration);
                     d.c.track_loaded.set_bool(true);
                     d.show_grid_lock(track.info.grid_locked);
+                    d.c.beats_edit.set_bool(false);
                     d.c.cue_point.set(track.first_beat);
                     d.c.loop_enabled.set_bool(false);
                     d.loop_in_pending = false;

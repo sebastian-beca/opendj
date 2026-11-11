@@ -146,7 +146,7 @@ component GridNudge inherits HorizontalLayout {
 // adjust the tempo, and add or remove tempo sections for tracks whose
 // tempo drifts. Shows where the grid came from, clicks along with it,
 // locks it, and goes back to the detected grid.
-component GridMenu inherits PopupWindow {
+export component GridMenu inherits PopupWindow {
     in property <string> group;
     in property <DeckInfo> info;
     width: 240px;

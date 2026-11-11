@@ -48,6 +48,7 @@ struct Params {
     atlas_w: f32,                      // the text atlas's width and height
     atlas_h: f32,
     half: u32,                         // 1: drawn from the bottom edge up (overview only)
+    grid_edit: u32,                    // 1: the grid is being edited: drawn louder, over the waveform too
     lane_tint: vec4<u32>,              // bit n: row n tinted (a scale note)
     mark_color: vec4<f32>,
     lit_color: vec4<f32>,
@@ -456,11 +457,17 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         let is_bar = in_bar == 0;
         // The first section's beats run back to the start of the track.
         if (sec > 0u || p.grid_start[sec] + n * beat_len >= 0.0) {
-            let a = line(x, bx, 0.5 * k);
+            // Bar lines a little wider while the grid is edited.
+            let a = line(x, bx, select(0.5, 0.9, is_bar && p.grid_edit == 1u) * k);
             if (is_bar) { bar_a = a; } else { beat_a = a; }
         }
-        color = over(color, vec3<f32>(1.0), beat_a * 0.10);
-        color = over(color, AMBER, bar_a * 0.30);
+        if (p.grid_edit == 1u) {
+            color = over(color, vec3<f32>(1.0), beat_a * 0.30);
+            color = over(color, LOOP_LILAC, bar_a * 0.70);
+        } else {
+            color = over(color, vec3<f32>(1.0), beat_a * 0.10);
+            color = over(color, AMBER, bar_a * 0.30);
+        }
     }
 
     // Faint centre line, so silence still reads as a track.
@@ -544,12 +551,20 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         }
     }
 
-    // Beat ticks along the top and bottom edges, over the waveform.
+    // Beat ticks along the top and bottom edges, over the waveform. While
+    // the grid is edited, its lines run through the waveform as well, bars
+    // in lilac.
     if (beats_visible && in_grid) {
         let edge = edge_dist;
         let tick = clamp(6.0 * k - edge + 0.5, 0.0, 1.0);
+        let editing = p.grid_edit == 1u;
+        let bar_color = select(AMBER, LOOP_LILAC, editing);
+        if (editing) {
+            color = over(color, vec3<f32>(1.0), beat_a * 0.35);
+            color = over(color, LOOP_LILAC, bar_a * 0.75);
+        }
         color = over(color, vec3<f32>(0.85), beat_a * tick * 0.8);
-        color = over(color, AMBER, bar_a * clamp(10.0 * k - edge + 0.5, 0.0, 1.0));
+        color = over(color, bar_color, bar_a * clamp(10.0 * k - edge + 0.5, 0.0, 1.0));
         color = over(color, vec3<f32>(1.0), bar_number(x, y, k, sec) * 0.85);
     }
 
