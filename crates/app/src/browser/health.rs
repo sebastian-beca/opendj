@@ -12,6 +12,7 @@ use opendj_library::cleanup::Field;
 use opendj_library::dupes::{self, Case, FileFacts, Group};
 use opendj_library::health::{self, Area, Check, Facts};
 use opendj_library::query::Indexed;
+use opendj_library::relocate::{self, Lookup};
 use opendj_library::stages::Stage;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
@@ -31,6 +32,10 @@ const MIX_TAG: &str = "mix";
 enum Fix {
     /// Out of the library; the file stays.
     Remove,
+    /// Points missing tracks at the files found for them.
+    Relink,
+    /// Asks the DJ for a missing track's file.
+    Locate,
     /// The check leaves it alone: for "Not music", it is music after all.
     MarkMusic,
     ToTriage,
@@ -57,6 +62,8 @@ impl Fix {
         match self {
             Fix::Remove => "Remove from collection",
             Fix::MarkMusic => "It's music",
+            Fix::Relink => "Relink",
+            Fix::Locate => "Find file…",
             Fix::ToTriage => "Move to In Prep",
             Fix::FillFromName => "Fill from file name…",
             Fix::TagMix => "Tag as #mix",
@@ -81,9 +88,10 @@ fn fixes(check: Check, stages: bool) -> Vec<Fix> {
         // The bar's "Analyze" does these.
         Check::NotAnalyzed => Vec::new(),
         Check::MissingInfo => vec![Fix::LookUp, Fix::FillFromName],
-        // The bar's "Auto-fix" relinks files found once by name,
-        // and merges the easy copies.
-        Check::Missing => vec![Fix::Remove],
+        // The bar's "Auto-fix" relinks the files found surely (see
+        // `relocate`), and merges the easy copies; "Relink" takes the
+        // likely ones too.
+        Check::Missing => vec![Fix::Relink, Fix::Locate, Fix::Remove],
         Check::Long => vec![Fix::TagMix],
         Check::Duplicate => Vec::new(),
         Check::Junk => vec![Fix::CleanUp, Fix::LookUp],
@@ -201,8 +209,9 @@ fn percent(part: usize, whole: usize) -> i32 {
 }
 
 /// Every audio file under `roots`, by its file name in lower case.
-fn files_by_name(roots: &[PathBuf]) -> HashMap<String, Vec<PathBuf>> {
-    let mut out: HashMap<String, Vec<PathBuf>> = HashMap::new();
+/// The audio files below these folders.
+fn audio_files(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut out = Vec::new();
     let mut stack: Vec<PathBuf> = roots.to_vec();
     let mut seen = HashSet::new();
     while let Some(dir) = stack.pop() {
@@ -217,10 +226,7 @@ fn files_by_name(roots: &[PathBuf]) -> HashMap<String, Vec<PathBuf>> {
             let hidden = e.file_name().to_string_lossy().starts_with('.');
             match e.file_type() {
                 Ok(t) if t.is_dir() && !hidden => stack.push(path),
-                Ok(t) if t.is_file() && opendj_engine::scan::is_audio(&path) => {
-                    let name = e.file_name().to_string_lossy().to_lowercase();
-                    out.entry(name).or_default().push(path);
-                }
+                Ok(t) if t.is_file() && opendj_engine::scan::is_audio(&path) => out.push(path),
                 _ => {}
             }
         }
@@ -415,18 +421,20 @@ impl Browser {
         roots
     }
 
-    /// The one file a missing track's name matches, if exactly one does.
-    fn relink_match(&self, t: &Track) -> Result<&Path, usize> {
-        let found = self
-            .relink_files
-            .get_or_init(|| files_by_name(&self.relink_roots()));
-        let name = file_path(t)
-            .and_then(Path::file_name)
-            .map(|n| n.to_string_lossy().to_lowercase());
-        match name.and_then(|n| found.get(&n)).map(Vec::as_slice) {
-            Some([one]) => Ok(one),
-            Some(many) => Err(many.len()),
-            None => Err(0),
+    /// Where a missing track's file may be now (see [`relocate`]).
+    fn relink_lookup(&self, t: &Track) -> Lookup {
+        let index = self.relink_files.get_or_init(|| {
+            let mut index = relocate::Index::new(audio_files(&self.relink_roots()));
+            for t in self.library.iter().filter(|t| !t.info.missing) {
+                if let Some(p) = file_path(t) {
+                    index.know(p, &t.artist, &t.title, t.duration);
+                }
+            }
+            index
+        });
+        match file_path(t) {
+            Some(p) => index.find(p, &t.artist, &t.title, t.duration),
+            None => Lookup::Nothing,
         }
     }
 
@@ -459,15 +467,26 @@ impl Browser {
         };
         let s = |a: &str, b: &str| (a.to_string(), b.to_string());
         match check {
-            Check::Missing => match self.relink_match(t) {
-                Ok(p) => ("File not found".into(), format!("Relink to {}", short(p))),
-                Err(0) => s(
+            Check::Missing => match self.relink_lookup(t) {
+                Lookup::Found(f) if f.sure && f.tier == relocate::Tier::Name => (
+                    "File not found".into(),
+                    format!("Relink to {}", short(&f.path)),
+                ),
+                Lookup::Found(f) if f.sure => (
+                    "File not found".into(),
+                    format!("Relink to {} ({})", short(&f.path), f.tier.why()),
+                ),
+                Lookup::Found(f) => (
+                    "File not found".into(),
+                    format!("Maybe {} ({}): check it", short(&f.path), f.tier.why()),
+                ),
+                Lookup::Several(n) => (
+                    "File not found".into(),
+                    format!("{n} files match: find the right one"),
+                ),
+                Lookup::Nothing => s(
                     "File not found",
                     "Not found in your folders: find it or remove it",
-                ),
-                Err(n) => (
-                    "File not found".into(),
-                    format!("{n} files match: pick one"),
                 ),
             },
             Check::LowBitrate => (
@@ -928,11 +947,7 @@ impl Browser {
         let Some(root) = self.quarantine_root() else {
             return 0;
         };
-        let there: usize = files_by_name(std::slice::from_ref(&root))
-            .values()
-            .map(Vec::len)
-            .sum();
-        there
+        audio_files(std::slice::from_ref(&root)).len()
             + self
                 .pending_moves
                 .values()
@@ -1280,7 +1295,8 @@ impl Browser {
             return Some("Keep this copy".into());
         }
         let check = self.listed_check()?;
-        self.offered(check).first().map(|f| f.label().to_string())
+        let i = *self.listed().get(self.review_at.unwrap_or(0))?;
+        self.first_fix(check, i).map(|f| f.label().to_string())
     }
 
     /// Shows the review card as things are now.
@@ -1348,10 +1364,7 @@ impl Browser {
                     if let Some(r) = row(self) {
                         self.keep_this(r as i32);
                     }
-                } else if let Some(fix) = self
-                    .listed_check()
-                    .and_then(|c| self.offered(c).first().copied())
-                {
+                } else if let Some(fix) = self.listed_check().and_then(|c| self.first_fix(c, i)) {
                     self.fix(fix, &[i]);
                 }
                 // A fix that leaves the track listed (one that opens a
@@ -1519,6 +1532,26 @@ impl Browser {
         }
         self.health_status = match fix {
             Fix::Remove => self.remove_tracks(indices),
+            Fix::Relink => {
+                let plan = self.relinks(indices, false);
+                let left = indices.len() - plan.len();
+                let mut status = if plan.is_empty() {
+                    String::new()
+                } else {
+                    self.relink_sure(&plan) + " "
+                };
+                if left > 0 {
+                    status += &format!(
+                        "No one file found for {}: use Find file… or remove.",
+                        tracks(left)
+                    );
+                }
+                status.trim_end().to_string()
+            }
+            Fix::Locate => {
+                self.locate(indices[0]);
+                String::new()
+            }
             Fix::MarkMusic => {
                 self.ignore(Check::NotMusic, indices);
                 format!("{} kept as music.", tracks(indices.len()))
@@ -1634,6 +1667,8 @@ impl Browser {
     /// Reads the library again (after tracks left it or came back),
     /// staying on the node shown.
     pub(super) fn reload_library(&mut self) {
+        // What it knows of the files found may have changed.
+        self.relink_files = OnceCell::new();
         let Some(db) = &self.db else { return };
         let tracks = match db.all_tracks(Path::exists) {
             Ok(t) => t,
@@ -1694,13 +1729,69 @@ impl Browser {
         }
     }
 
-    /// Missing tracks (indices into `library`) whose file name matches
-    /// exactly one file: the sure relinks, with the file each goes to.
-    fn sure_relinks(&self) -> Vec<(usize, PathBuf)> {
-        self.health_tracks(Check::Missing)
-            .into_iter()
-            .filter_map(|i| Some((i, self.relink_match(&self.library[i]).ok()?.to_path_buf())))
+    /// Missing tracks (indices into `library`) with a file found for
+    /// them, and that file; only the sure ones with `sure`. A file two
+    /// tracks would get is left for the DJ to pick.
+    fn relinks(&self, indices: &[usize], sure: bool) -> Vec<(usize, PathBuf)> {
+        let plan: Vec<(usize, PathBuf)> = indices
+            .iter()
+            .filter_map(|&i| match self.relink_lookup(&self.library[i]) {
+                Lookup::Found(f) if f.sure || !sure => Some((i, f.path)),
+                _ => None,
+            })
+            .collect();
+        let mut taken: HashMap<&Path, usize> = HashMap::new();
+        for (_, p) in &plan {
+            *taken.entry(p).or_default() += 1;
+        }
+        plan.iter()
+            .filter(|(_, p)| taken[p.as_path()] == 1)
+            .cloned()
             .collect()
+    }
+
+    /// The relinks "Auto-fix" makes: the missing tracks found surely.
+    fn sure_relinks(&self) -> Vec<(usize, PathBuf)> {
+        self.relinks(&self.health_tracks(Check::Missing), true)
+    }
+
+    /// Asks for the file of a missing track (an index into `library`);
+    /// [`Browser::poll_located`] relinks it.
+    fn locate(&self, i: usize) {
+        let id = self.library[i].id;
+        let tx = self.located.0.clone();
+        crate::prefs::choose_file("Find the track's file", move |path| {
+            let _ = tx.send((id, path));
+        });
+    }
+
+    /// Relinks missing tracks to the files picked for them.
+    pub fn poll_located(&mut self) {
+        let picked: Vec<(usize, PathBuf)> = self.located.1.try_iter().collect();
+        let plan: Vec<(usize, PathBuf)> = picked
+            .into_iter()
+            .filter_map(|(id, p)| Some((*self.index_of.get(&id)?, p)))
+            .collect();
+        if plan.is_empty() || !self.saved() {
+            return;
+        }
+        self.health_status = self.relink_sure(&plan);
+        self.refresh_crates();
+        self.refresh_tree();
+        self.refresh_rows();
+    }
+
+    /// The fix the review card's ↵ makes for the track listed at `i` (an
+    /// index into `library`): a missing file found is relinked, else
+    /// asked for.
+    fn first_fix(&self, check: Check, i: usize) -> Option<Fix> {
+        if check == Check::Missing {
+            return Some(match self.relink_lookup(&self.library[i]) {
+                Lookup::Found(_) => Fix::Relink,
+                _ => Fix::Locate,
+            });
+        }
+        self.offered(check).first().copied()
     }
 
     /// What the clean-up rules take out of names that have junk in them,
@@ -1911,9 +2002,8 @@ mod tests {
         std::fs::create_dir_all(dir.join("a/b")).unwrap();
         std::fs::write(dir.join("a/b/Song.MP3"), b"x").unwrap();
         std::fs::write(dir.join("a/notes.txt"), b"x").unwrap();
-        let found = files_by_name(std::slice::from_ref(&dir));
-        assert_eq!(found["song.mp3"], [dir.join("a/b/Song.MP3")]);
-        assert!(!found.contains_key("notes.txt"));
+        let found = audio_files(std::slice::from_ref(&dir));
+        assert_eq!(found, [dir.join("a/b/Song.MP3")]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

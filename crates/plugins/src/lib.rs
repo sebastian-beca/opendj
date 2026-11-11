@@ -24,6 +24,7 @@ pub use opendj_engine::import::{ImportedLibrary, ImportedList, ListGroup};
 pub mod archive;
 pub mod bandcamp;
 pub mod buy;
+pub mod djay;
 pub mod inbox;
 pub mod itunes;
 pub mod jellyfin;
@@ -345,6 +346,7 @@ pub fn importers() -> Vec<Box<dyn LibraryImport>> {
         Box::new(rekordbox::Rekordbox),
         Box::new(mixxx::Mixxx),
         Box::new(traktor::Traktor),
+        Box::new(djay::Djay),
     ]
 }
 

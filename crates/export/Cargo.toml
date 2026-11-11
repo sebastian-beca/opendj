@@ -1,6 +1,6 @@
 [package]
 name = "opendj-export"
-description = "Writes the library to a USB stick that Pioneer DJ players read: export.pdb, OneLibrary and analysis files"
+description = "Writes the library to a USB stick that Pioneer DJ players (export.pdb, OneLibrary and analysis files) and Engine DJ players (m.db) read"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -17,6 +17,12 @@ lofty = "0.25"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 unicode-normalization = "0.1"
 tempfile = "3"
+# Engine DJ's m.db is plain SQLite; its blobs are zlib.
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+flate2 = "1"
+sha1 = "0.11"
+base64 = "0.22"
+getrandom = "0.4"
 
 # OneLibrary is SQLCipher. macOS builds it on CommonCrypto; Linux builds
 # OpenSSL in, so the AppImage needs no system libcrypto.
@@ -25,3 +31,8 @@ rbox-onelib = { version = "0.3.0", default-features = false, features = ["bundle
 
 [target.'cfg(not(target_vendor = "apple"))'.dependencies]
 rbox-onelib = { version = "0.3.0", default-features = false, features = ["bundled-vendored-openssl"] }
+
+[dev-dependencies]
+# The tests read OneLibrary back without rbox; this is the workspace's own
+# SQLite, which rbox-onelib already builds with SQLCipher.
+rusqlite = "0.40.2"

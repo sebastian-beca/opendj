@@ -44,6 +44,14 @@ pub struct TrackRow {
     pub artwork: i64,
     /// The track's id in openDJ's library.
     pub library_id: i64,
+    /// When it was added, as a Unix time.
+    pub added_unix: i64,
+    /// Engine DJ's own: its performance data, key number, album art id
+    /// (0 for none) and whether the DJ locked the grid.
+    pub engine: Option<crate::engine::Performance>,
+    pub engine_key: Option<u32>,
+    pub art_id: i64,
+    pub grid_locked: bool,
 }
 
 /// A list or folder. Folders come before what they hold.
@@ -69,6 +77,8 @@ pub struct Model {
     /// The stick's export folder: `PIONEER`, or `.PIONEER` where rekordbox
     /// already wrote it hidden.
     pub export_dir: &'static str,
+    /// Engine DJ's album art.
+    pub art: crate::engine::Art,
 }
 
 /// The library id the stick's databases name as where they came from, for

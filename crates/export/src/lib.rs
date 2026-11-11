@@ -8,12 +8,16 @@
 //! - **OneLibrary** (`exportLibrary.db`): CDJ-3000X, XDJ-AZ, OPUS-QUAD and
 //!   OMNIS-DUO, which don't read the Device Library.
 //!
-//! The files are written with rbox (<https://github.com/dylanljones/rbox>).
+//! - **Engine DJ** (`Engine Library/Database2/m.db`): Denon DJ, Numark and
+//!   Rane players running Engine OS (see [`engine`]).
+//!
+//! The Pioneer files are written with rbox (<https://github.com/dylanljones/rbox>).
 //! Everything comes from openDJ's own library and analysis; tracks that were
 //! never analysed are analysed first.
 
 mod anlz;
 mod artwork;
+pub mod engine;
 mod layout;
 mod model;
 mod mp3;
@@ -42,8 +46,17 @@ pub struct Options {
     pub device_library: bool,
     /// Write `exportLibrary.db` for the CDJ-3000X, XDJ-AZ and OPUS-QUAD.
     pub one_library: bool,
+    /// Write Engine DJ's `m.db` for Denon, Numark and Rane players.
+    pub engine_dj: bool,
     /// Keys in Camelot notation ("8A") rather than notes ("Am").
     pub camelot: bool,
+}
+
+impl Options {
+    /// Writes a Pioneer library (either format).
+    pub fn pioneer(&self) -> bool {
+        self.device_library || self.one_library
+    }
 }
 
 /// A list or folder to put on the stick. Folders come before what they hold.
@@ -244,7 +257,7 @@ pub fn export(
     options: &Options,
     progress: &mut dyn FnMut(Step) -> bool,
 ) -> Result<Report, Error> {
-    if !options.device_library && !options.one_library {
+    if !options.pioneer() && !options.engine_dj {
         return Err(Error::Other("no library format picked".into()));
     }
     if !options.root.is_dir() {
@@ -254,7 +267,14 @@ pub fn export(
         )));
     }
     let root = &options.root;
-    let export_dir = export_dir(root)?;
+    let export_dir = if options.pioneer() {
+        export_dir(root)?
+    } else {
+        "PIONEER"
+    };
+    if options.engine_dj {
+        engine::check(root)?;
+    }
     let today = date(chrono::Utc::now().timestamp());
 
     // Every track the lists hold, once, in the order they first appear.
@@ -395,26 +415,28 @@ fn put_track(
         .count();
 
     let err = |e: &dyn fmt::Display| e.to_string();
-    let anlz_stem = on_stick(root, &stem);
-    fs::create_dir_all(anlz_stem.parent().unwrap()).map_err(|e| err(&e))?;
     let cues: Vec<Hotcue> = track.info.hotcues.clone();
-    let mp3_frames = (file_type(source) == 1)
-        .then(|| mp3::frames(source))
-        .flatten();
-    let files = anlz::build(
-        &anlz_stem,
-        anlz::TrackAnalysis {
-            stick_path: &stick_path,
-            beats: anlz::beats(&grid, duration),
-            bpm,
-            cues: &cues,
-            waveforms: wave::waveforms(&analysis.waveform, duration),
-            mp3_frames,
-        },
-    )
-    .map_err(|e| err(&e))?;
-    for mut f in files {
-        f.dump().map_err(|e| err(&e))?;
+    if options.pioneer() {
+        let anlz_stem = on_stick(root, &stem);
+        fs::create_dir_all(anlz_stem.parent().unwrap()).map_err(|e| err(&e))?;
+        let mp3_frames = (file_type(source) == 1)
+            .then(|| mp3::frames(source))
+            .flatten();
+        let files = anlz::build(
+            &anlz_stem,
+            anlz::TrackAnalysis {
+                stick_path: &stick_path,
+                beats: anlz::beats(&grid, duration),
+                bpm,
+                cues: &cues,
+                waveforms: wave::waveforms(&analysis.waveform, duration),
+                mp3_frames,
+            },
+        )
+        .map_err(|e| err(&e))?;
+        for mut f in files {
+            f.dump().map_err(|e| err(&e))?;
+        }
     }
 
     let dest = on_stick(root, &stick_path);
@@ -427,7 +449,12 @@ fn put_track(
         }
     };
 
-    let artwork = match artwork::for_track(source, &track.album) {
+    let thumbs = artwork::for_track(source, &track.album);
+    let art_id = match (&thumbs, options.engine_dj) {
+        (Some(t), true) => model.art.add(t.medium.clone()),
+        _ => 0,
+    };
+    let artwork = match thumbs.filter(|_| options.pioneer()) {
         Some(thumbs) => {
             let id = model.artworks + 1;
             for copy in ['a', 'b'] {
@@ -447,7 +474,18 @@ fn put_track(
     };
 
     let (sample_rate, bitrate, bit_depth) = properties(source);
-    let key = Key::parse(&track.key)
+    let parsed_key = Key::parse(&track.key);
+    let engine = options.engine_dj.then(|| {
+        engine::perf::build(&engine::perf::Input {
+            sample_rate: sample_rate as f64,
+            duration,
+            grid: &grid,
+            waveform: &analysis.waveform,
+            cues: &cues,
+            key: parsed_key,
+        })
+    });
+    let key = parsed_key
         .map(|k| {
             if options.camelot {
                 k.camelot()
@@ -491,6 +529,15 @@ fn put_track(
         play_count: info.play_count as i32,
         artwork,
         library_id: track.id as i64,
+        added_unix: if info.added > 0 {
+            info.added
+        } else {
+            chrono::Utc::now().timestamp()
+        },
+        engine,
+        engine_key: parsed_key.map(engine::perf::key_number),
+        art_id,
+        grid_locked: info.grid_locked,
     });
     Ok(Put {
         copied,
@@ -501,6 +548,12 @@ fn put_track(
 /// Builds the library files on this computer, then puts them on the stick
 /// in place of any old ones.
 fn write_library(root: &Path, options: &Options, model: &Model) -> Result<(), Error> {
+    if options.engine_dj {
+        engine::write(root, model)?;
+    }
+    if !options.pioneer() {
+        return Ok(());
+    }
     let work = tempfile::tempdir()?;
     let built = work.path().join("rekordbox");
     if options.device_library {
@@ -528,5 +581,7 @@ fn write_library(root: &Path, options: &Options, model: &Model) -> Result<(), Er
     Ok(())
 }
 
+#[cfg(test)]
+mod check;
 #[cfg(test)]
 mod tests;

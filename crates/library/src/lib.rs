@@ -30,6 +30,7 @@ pub mod health;
 mod moves;
 pub mod playlist_files;
 pub mod query;
+pub mod relocate;
 pub mod sets;
 pub mod stages;
 pub mod tags;

@@ -308,7 +308,7 @@ scrolling waveform to do the same for the flags; the two are separate.
 
 Press **Set up…** next to **Import from VirtualDJ** in **Settings ›
 Collection › Import**. That tab is always there and lists every DJ app openDJ
-can bring a library in from; Serato DJ and Traktor are marked coming soon.
+can bring a library in from; Serato DJ is marked coming soon.
 Three steps follow:
 
 1. **Find your library.** openDJ looks for `database.xml` in
@@ -454,6 +454,21 @@ hot cues 1 to 8 with their names, saved loops, its beat grid, other cues (as
 memory cues) and fade in and fade out (as Automix points). Playlists come in
 their folders, folders within folders just as Traktor shows them. Traktor's
 own `_LOOPS` and `_RECORDINGS` lists and its smart lists stay out.
+
+## Bringing in a djay Pro library
+
+**Import from djay Pro** works the same way. openDJ reads djay's
+`MediaLibrary.db` (only reading it, even while djay is open), which it finds
+in `Music/djay/djay Media Library.djayMediaLibrary` on a Mac or
+`Music/djay/djay Media Library` on Windows. If yours is elsewhere, choose
+the file in the first step.
+
+Each track that is a file on this computer keeps its title, artist, album,
+BPM, key, hot cues 1 to 8 with their names and colors, saved loops (as
+memory cues), Automix start and end (as Automix points), play count and
+color. When you set the first downbeat in djay, the grid starts there.
+Playlists come in a **djay Pro** folder, in djay's order. Tracks streamed
+from TIDAL, Beatport or Apple Music aren't brought in yet.
 
 ### The same song from two apps
 

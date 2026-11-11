@@ -118,17 +118,16 @@ fn run_rack(rack: &mut EffectRack, input: &[f32], buffers: usize, clock: &mut f6
         *clock += BUFFER as f64 / SR as f64;
         let chunk = &input[(b * BUFFER) % (input.len() - BUFFER)..];
         for (f, &x) in chunk[..BUFFER].iter().enumerate() {
-            let r = (f + 1) as f32 / BUFFER as f32;
             let mut main = [0.0f32; 2];
             for deck in 0..NUM_DECKS {
-                let y = rack.process(deck, [x, x], r);
+                let y = rack.process(deck, [x, x], f, BUFFER);
                 main[0] += y[0];
                 main[1] += y[1];
             }
-            let y = rack.process(MAIN, main, r);
+            let y = rack.process(MAIN, main, f, BUFFER);
             acc += y[0];
         }
-        rack.finish();
+        rack.finish(BUFFER);
     }
     acc
 }
@@ -197,9 +196,9 @@ fn an_empty_pool_leaves_the_effect_off_until_memory_comes_back() {
         let mut out = Vec::new();
         for f in 0..BUFFER {
             let x = if f == 0 { 1.0 } else { 0.0 };
-            out.push(rack.process(deck, [x, x], (f + 1) as f32 / BUFFER as f32)[0]);
+            out.push(rack.process(deck, [x, x], f, BUFFER)[0]);
         }
-        rack.finish();
+        rack.finish(BUFFER);
         out
     };
     click(&mut rack, 0);
@@ -580,4 +579,34 @@ fn no_effect_allocates_when_reset_or_run() {
         }
     }
     assert_eq!(allocations() - before, 0, "an effect allocated");
+}
+
+#[test]
+fn the_flanger_keeps_the_level_when_switched_on() {
+    // Mixing in the swept copy used to drop broadband music by up to 3 dB.
+    let white = noise(SR as usize * 4);
+    let mut acc = 0.0f32;
+    let music: Vec<f32> = white
+        .iter()
+        .enumerate()
+        .map(|(i, &w)| {
+            acc = acc * 0.98 + w * 0.2;
+            acc + 0.3 * (std::f32::consts::TAU * 55.0 * i as f32 / SR).sin()
+        })
+        .collect();
+    let rms = |v: &[f32]| (v.iter().map(|x| x * x).sum::<f32>() / v.len() as f32).sqrt();
+    for src in [&white, &music] {
+        for (depth, feedback) in [(0.5, 0.5), (1.0, 0.0), (1.0, 0.5)] {
+            let mut p = defaults(Kind::Flanger);
+            p[1] = depth;
+            p[3] = feedback;
+            let mut inst = instance(Kind::Flanger, p);
+            let out: Vec<f32> = src.iter().map(|&x| inst.process([x, x])[0]).collect();
+            let db = 20.0 * (rms(&out[4800..]) / rms(&src[4800..])).log10();
+            assert!(
+                db.abs() < 1.0,
+                "depth {depth} feedback {feedback}: {db:+.2} dB"
+            );
+        }
+    }
 }

@@ -155,6 +155,11 @@ true peak, which MP3, AAC and Opus need so they don't distort. For streams at
 low bitrates (96 kb/s or less), choose **−2 dBTP** in **Settings › Audio ›
 Loudness**.
 
+The headphones and booth don't go through the limiter (they would lag behind
+the master), so they have a soft clipper instead: nothing changes below
+**−1.5 dBFS**, and louder peaks are bent smoothly under full scale rather than
+squared off.
+
 ## For controllers
 
 | Control | Value |

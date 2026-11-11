@@ -17,9 +17,10 @@ use crate::controls::{
     create_global_controls, Action, DeckControls, Edge, MasterControls, HOTCUE_CUE, HOTCUE_LOOP,
     SCULPT_DEFAULTS,
 };
-use crate::dsp::{Isolator, Limiter, Sculpt};
+use crate::dsp::{soft_clip, Isolator, Limiter, Sculpt};
 use crate::effects::{
-    input_target, ColorFx, EffectRack, StemFx, BLOCK, COLOR_FX, MAIN, TAPS, TAP_GAP, TARGETS,
+    fade, fade_step, input_target, ColorFx, EffectRack, StemFx, BLOCK, COLOR_FX, MAIN, TAPS,
+    TAP_GAP, TARGETS,
 };
 use crate::groove::{pick_source, GrooveBox};
 use crate::inputs::{
@@ -2858,8 +2859,8 @@ impl Engine {
     /// Copies each deck's and the sampler's output for this buffer into its
     /// pair of `out` (after the mixes), as late as the limiter makes the
     /// master when `delayed` (else at once, for an external mixer, where
-    /// there is no master to keep in step with); channels past the last
-    /// pair are cleared.
+    /// there is no master to keep in step with), through the soft clipper;
+    /// channels past the last pair are cleared.
     fn write_taps(
         &mut self,
         taps: &[Vec<[f32; 2]>],
@@ -2874,16 +2875,16 @@ impl Engine {
             let at = MIX_CHANNELS + 2 * k;
             if !delayed {
                 for (o, v) in out.chunks_exact_mut(channels).zip(tap) {
-                    o[at] = v[0];
-                    o[at + 1] = v[1];
+                    o[at] = soft_clip(v[0]);
+                    o[at + 1] = soft_clip(v[1]);
                 }
                 continue;
             }
             let late = line.len();
             for (f, o) in out.chunks_exact_mut(channels).enumerate() {
                 let v = if f < late { line[f] } else { tap[f - late] };
-                o[at] = v[0];
-                o[at + 1] = v[1];
+                o[at] = soft_clip(v[0]);
+                o[at + 1] = soft_clip(v[1]);
             }
             // Keep the last `late` frames of what was waiting and this buffer.
             if frames >= late {
@@ -3441,6 +3442,7 @@ impl Engine {
         let mut master_clip = [false; 2];
         let mut ended = [false; NUM_DECKS];
         let out_rate = self.sample_rate;
+        let quick_step = fade_step(out_rate as f32);
         // The mix runs in stages over the whole buffer, so effects can work
         // a block at a time (plugin slots need that): each deck's audio up
         // to its effects, then the effects, then the mix up to the main
@@ -3655,7 +3657,9 @@ impl Engine {
                 }
                 s = d.eq.process(s, gains);
                 let filtered = d.filter.process(s);
-                let q = lerp(p.quick);
+                // Bypass fades at the effects' fixed rate, not over the
+                // buffer, so a short buffer doesn't click.
+                let q = fade(p.quick.0, p.quick.1, (f + 1) as f32 * quick_step);
                 for c in 0..2 {
                     s[c] += (filtered[c] - s[c]) * q;
                 }
@@ -3785,7 +3789,7 @@ impl Engine {
                 o[..mixes].fill(0.0);
                 if channels >= 4 {
                     for c in 0..2 {
-                        o[2 + c] = (cue[c] * head_gain).clamp(-1.0, 1.0);
+                        o[2 + c] = soft_clip(cue[c] * head_gain);
                     }
                 }
                 if tap.is_none() {
@@ -3810,8 +3814,9 @@ impl Engine {
                 to[0] += t;
                 to[1] += t;
             }
-            // The booth hears the main mix before the main level, at its own.
-            let booth = main.map(|v| (v * booth_gain).clamp(-1.0, 1.0));
+            // The booth hears the main mix before the main level, at its own,
+            // bent rather than clipped when it runs hot.
+            let booth = main.map(|v| soft_clip(v * booth_gain));
             let mg = lerp(master);
             let bal = balance_gains(lerp(balance));
             let mut hot = [0.0; 2];
@@ -3833,12 +3838,11 @@ impl Engine {
             if channels >= 4 {
                 if head_split {
                     let mono = |v: [f32; 2]| (v[0] + v[1]) * 0.5;
-                    o[2] = (mono(cue) * head_gain).clamp(-1.0, 1.0);
-                    o[3] = (mono(main) * head_gain).clamp(-1.0, 1.0);
+                    o[2] = soft_clip(mono(cue) * head_gain);
+                    o[3] = soft_clip(mono(main) * head_gain);
                 } else {
                     for c in 0..2 {
-                        o[2 + c] =
-                            ((cue[c] * cue_mix + main[c] * main_mix) * head_gain).clamp(-1.0, 1.0);
+                        o[2 + c] = soft_clip((cue[c] * cue_mix + main[c] * main_mix) * head_gain);
                     }
                 }
             }
@@ -3885,7 +3889,7 @@ impl Engine {
         self.main_buf = main_buf;
         self.cue_buf = cue_buf;
         self.tap_buf = tap_buf;
-        self.fx.finish();
+        self.fx.finish(frames);
 
         // Remember where the ramps ended, and publish positions and meters.
         self.clock += dt;
@@ -3903,7 +3907,7 @@ impl Engine {
             d.pregain = p.pre.1;
             d.live_trim = p.live_trim.1;
             d.live_pan = p.live_pan.1;
-            d.quick = p.quick.1;
+            d.quick = fade(p.quick.0, p.quick.1, frames as f32 * quick_step);
             d.volume = p.vol.1;
             self.xfade[i] = p.xf.1;
             d.velocity = if ended[i] { 0.0 } else { p.velocity.1 };
