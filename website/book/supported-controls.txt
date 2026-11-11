@@ -3890,12 +3890,16 @@
 [Microphone],VuMeterL
 [Microphone],VuMeterR
 [Microphone],enabled
+[Microphone],fx
 [Microphone],input_configured
+[Microphone],mixer
 [Microphone],mute
 [Microphone],orientation
+[Microphone],pan
 [Microphone],peak_indicator
 [Microphone],pfl
 [Microphone],pregain
+[Microphone],solo
 [Microphone],talkover
 [Microphone],volume
 [Microphone],vu_meter
