@@ -11,6 +11,8 @@ export { MiniPlayer } from "mini.slint";
 import { AppMenu, AppMenuButton } from "appmenu.slint";
 export { AppMenu, MenuEntry } from "appmenu.slint";
 import { PrepDeck, PrepUi } from "prep.slint";
+import { WaveZoom, ZoomBar, ZoomReadout } from "zoom.slint";
+export { WaveZoom }
 import { LayoutsUi } from "layouts.slint";
 export { LayoutsUi, LayoutEntry } from "layouts.slint";
 import { CueList } from "cues.slint";
@@ -98,13 +100,33 @@ component Waveform inherits Rectangle {
     in property <int> deck: -1;
     // The deck whose lyrics run along the bottom (0 up), in every layout.
     in property <int> lyrics-deck: deck;
-    // Prep's waveform: dragging it moves an unlocked grid with the audio,
-    // and it shows `zoom-seconds` across its width (set from the app).
+    // Prep's waveform: dragging it moves an unlocked grid with the audio.
     in property <bool> drag-grid;
-    in property <float> zoom-seconds;
-    // Must match the app's VISIBLE_SECONDS: the track seconds the waveform
-    // shows across its width at normal speed.
-    property <float> visible-seconds: (zoom-seconds > 0 ? zoom-seconds : 10) * (1 + Controls.value(rate-index, Controls.tick) * Controls.value(range-index, Controls.tick));
+    // The track seconds the waveform shows across its width: the shared
+    // zoom's, more when the deck plays faster (as the app draws it).
+    property <float> visible-seconds: WaveZoom.seconds * (1 + Controls.value(rate-index, Controls.tick) * Controls.value(range-index, Controls.tick));
+    // The wheel or trackpad's scroll not yet taken as a zoom step: a mouse
+    // wheel's notch is a step, a trackpad needs a swipe as long as one.
+    // Scroll that comes within a moment of a step is let go, as a notch can
+    // arrive as more than one event and a swipe runs on after its step.
+    property <length> wheel;
+    property <duration> wheel-stepped: -1s;
+    // The zoom's step shows a moment after it changes.
+    property <int> zoom-changes: WaveZoom.changes;
+    property <bool> zoom-flash;
+    changed zoom-changes => {
+        zoom-flash = true;
+        zoom-hide.running = false;
+        zoom-hide.running = true;
+    }
+    zoom-hide := Timer {
+        interval: 900ms;
+        running: false;
+        triggered => {
+            zoom-flash = false;
+            self.running = false;
+        }
+    }
     property <int> rate-index: Controls.resolve(group, "rate");
     property <int> range-index: Controls.resolve(group, "rateRange");
     property <int> position-index: Controls.resolve(group, "playposition");
@@ -131,8 +153,27 @@ component Waveform inherits Rectangle {
     // Where the right-click menu opens.
     property <length> menu-x;
     property <length> menu-y;
-    TouchArea {
+    wave-touch := TouchArea {
         mouse-cursor: Controls.value(duration-index, Controls.tick) > 0 ? ew-resize : default;
+        // Up zooms in, down out, on every large waveform at once.
+        scroll-event(e) => {
+            if e.delta-y == 0 {
+                return reject;
+            }
+            if (wheel > 0 && e.delta-y < 0) || (wheel < 0 && e.delta-y > 0) {
+                wheel = 0;
+            }
+            if animation-tick() - wheel-stepped < 90ms {
+                return accept;
+            }
+            wheel += e.delta-y;
+            if wheel >= 40px || wheel <= -40px {
+                WaveZoom.step(wheel > 0 ? 1 : -1);
+                wheel = 0;
+                wheel-stepped = animation-tick();
+            }
+            accept
+        }
         pointer-event(e) => {
             if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                 menu-x = self.mouse-x;
@@ -199,10 +240,24 @@ component Waveform inherits Rectangle {
         now: Controls.value(position-index, Controls.tick) * Controls.value(duration-index, Controls.tick);
         visible-seconds: root.visible-seconds;
     }
-    // Right-click: show or hide the phrase flags on every scrolling waveform.
+    // The zoom's bar at the left edge, while the pointer is over the
+    // waveform, and its step a moment after it changes.
+    ZoomBar {
+        x: 0;
+        y: 0;
+        height: parent.height;
+        shown: wave-touch.has-hover || zoom-flash;
+    }
+    ZoomReadout {
+        x: 26px;
+        y: 6px;
+        shown: zoom-flash;
+    }
+    // Right-click: show or hide the phrase flags on every scrolling
+    // waveform, and zoom them all.
     wave-menu := PopupWindow {
         x: min(menu-x, root.width - 130px);
-        y: min(menu-y, root.height - 32px);
+        y: min(menu-y, root.height - 104px);
         width: 130px;
         Rectangle {
             background: Theme.panel-raised;
@@ -230,6 +285,41 @@ component Waveform inherits Rectangle {
                     clicked => {
                         PhraseView.waveform-visible = !PhraseView.waveform-visible;
                         PhraseView.waveform-changed(PhraseView.waveform-visible);
+                    }
+                }
+            }
+            for item[i] in [
+                { text: "Zoom in", enabled: WaveZoom.level < WaveZoom.steps, by: 1 },
+                { text: "Zoom out", enabled: WaveZoom.level > 1, by: -1 },
+                { text: "Reset zoom", enabled: WaveZoom.level != WaveZoom.default-level, by: 0 },
+            ]: Rectangle {
+                height: 24px;
+                background: zta.has-hover && item.enabled ? Theme.panel-raised.brighter(0.3) : transparent;
+                border-radius: 4px;
+                Text {
+                    x: 10px;
+                    text: item.text;
+                    color: item.enabled ? Theme.text : Theme.text-dim;
+                    font-size: 11px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+                if i == 0: Text {
+                    x: parent.width - self.width - 10px;
+                    text: WaveZoom.percent(WaveZoom.level);
+                    color: Theme.text-dim;
+                    font-family: "Inter Tabular";
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+                zta := TouchArea {
+                    enabled: item.enabled;
+                    clicked => {
+                        if item.by == 0 {
+                            WaveZoom.reset();
+                        } else {
+                            WaveZoom.step(item.by);
+                        }
                     }
                 }
             }
@@ -1349,6 +1439,15 @@ export component AppWindow inherits Window {
                 return accept;
             }
             // ⌘F (Ctrl+F on Linux and Windows) goes to the library search.
+            // ⌘= (or ⌘+) and ⌘− zoom the large waveforms, ⌘0 resets them.
+            if (e.text == "=" || e.text == "+" || e.text == "-" || e.text == "0") && e.modifiers.control && !e.modifiers.alt && !Preferences.open {
+                if e.text == "0" {
+                    WaveZoom.reset();
+                } else {
+                    WaveZoom.step(e.text == "-" ? -1 : 1);
+                }
+                return accept;
+            }
             if (e.text == "f" || e.text == "F") && e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift && !Preferences.open {
                 find();
                 return accept;
@@ -1470,7 +1569,7 @@ export component AppWindow inherits Window {
                 if prep: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; lyrics-deck: 0; drag-grid: true; zoom-seconds: PrepUi.seconds; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; vertical-stretch: 1; lyrics-deck: 0; drag-grid: true; }
                     // The quick review keys, and how long this track has taken.
                     Rectangle {
                         height: 24px;

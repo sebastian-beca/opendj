@@ -3,11 +3,13 @@
 // row: the beat grid tools on the left, transport in the middle and eight
 // big hot cue pads on the right, with the track's stage and Play Ready,
 // next track above them. The large scrolling waveform above is deck 1's,
-// zoomed to a number of bars (PrepUi.bars). No mixer, crossfader or FX.
+// at the zoom every large waveform shares (zoom.slint). No mixer,
+// crossfader or FX.
 import { Theme } from "theme.slint";
 import { ControlButton, ControlKnob, Controls, CueHeadphones } from "controls.slint";
 import { DeckInfo, Header, PlayButton } from "deck.slint";
 import { CueList } from "cues.slint";
+import { WaveZoom } from "zoom.slint";
 
 export global PrepUi {
     // Whether the Prep layout is offered (off until v0.6).
@@ -17,11 +19,6 @@ export global PrepUi {
     in property <int> stage;
     // Tracks still In Prep, the one loaded included.
     in property <int> left;
-    // How many bars the large waveform shows.
-    in-out property <int> bars: 8;
-    // The track seconds those bars take at normal speed (0: no tempo),
-    // for dragging the waveform.
-    in property <float> seconds;
     // Checklist lines ticked on the loaded track, of how many: Play Ready
     // lights up when all are (see checklist.slint).
     in property <int> done;
@@ -261,16 +258,16 @@ component ReadyBar inherits HorizontalLayout {
         vertical-alignment: center;
     }
     Rectangle { horizontal-stretch: 1; }
-    ZoomButton { text: "−"; clicked => { PrepUi.bars = min(32, PrepUi.bars * 2); } }
+    ZoomButton { text: "−"; clicked => { WaveZoom.step(-1); } }
     Text {
-        text: PrepUi.bars + " bars";
+        text: "Zoom " + WaveZoom.percent(WaveZoom.level);
         color: Theme.text;
         font-size: 12px;
         horizontal-alignment: center;
         vertical-alignment: center;
-        width: 52px;
+        width: 72px;
     }
-    ZoomButton { text: "+"; clicked => { PrepUi.bars = max(2, PrepUi.bars / 2); } }
+    ZoomButton { text: "+"; clicked => { WaveZoom.step(1); } }
     Rectangle { width: 8px; }
     // Lit when every checklist line is ticked; outlined until then (it
     // still works, for a track that is fine as it is).
