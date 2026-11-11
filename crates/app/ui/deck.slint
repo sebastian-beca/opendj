@@ -4929,8 +4929,26 @@ component LivePanel inherits Rectangle {
                     clicked => { InstrumentsUi.open-settings(0, 0); }
                 }
             }
+            // The Mixer's strips on and off, until the strips have their
+            // own screen: lit is on, dim has no input picked.
+            if live == InstrumentsUi.mixer-live: HorizontalLayout {
+                alignment: center;
+                spacing: 2px;
+                for n in 8: ControlButton {
+                    group: "[Auxiliary" + (n + 1) + "]";
+                    key: "main_mix";
+                    text: n + 1;
+                    tint: Theme.accent;
+                    fill-when-lit: true;
+                    width: 17px;
+                    height: 18px;
+                    font-size: 10px;
+                    opacity: Controls.value(Controls.resolve("[Auxiliary" + (n + 1) + "]", "input_configured"), Controls.tick) > 0 ? 1 : 0.4;
+                }
+            }
             if live != 3: Text {
-                text: "Live through this deck's EQ, filter, effects and fader.";
+                text: live == InstrumentsUi.mixer-live ? "The aux inputs that are on, summed through this deck's EQ, filter, effects and fader."
+                    : "Live through this deck's EQ, filter, effects and fader.";
                 color: Theme.text-dim;
                 font-size: 11px;
                 horizontal-alignment: center;
