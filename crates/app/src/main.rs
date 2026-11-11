@@ -110,6 +110,7 @@ mod ui_font;
 mod update;
 mod vocal_pass;
 mod wave_look;
+mod waveform_height;
 mod waveform_zoom;
 mod waves;
 
@@ -706,6 +707,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let groove_keeper = RefCell::new(groove_box::Keeper::new(&registry));
     // The large waveforms' zoom, from the window and controllers.
     let _zoom_timer = waveform_zoom::install(&app, &registry);
+    // How tall they are, per layout, likewise.
+    let _height_timer = waveform_height::install(&app, &registry);
     let groove_timer = slint::Timer::default();
     {
         let app = app.as_weak();
@@ -1985,6 +1988,7 @@ fn control_list() -> String {
     browser::LibraryControls::create(&registry);
     automix::AutoMix::new(&registry);
     waveform_zoom::create_controls(&registry);
+    waveform_height::create_controls(&registry);
     let mut keys = registry.keys();
     keys.extend(registry.alias_keys());
     keys.sort();
