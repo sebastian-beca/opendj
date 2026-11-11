@@ -210,6 +210,8 @@ struct InputControls {
     solo: Option<ControlHandle>,
     /// An auxiliary input's `fx` in the Mixer: through the deck's effects.
     fx: Option<ControlHandle>,
+    /// The microphone's `mixer`: a strip of the Mixer.
+    mixer: Option<ControlHandle>,
 }
 
 impl InputControls {
@@ -298,15 +300,17 @@ impl InputControls {
             reg.create(g, "arp_octaves", 1.0, 1.0, 4.0, Behavior::Free);
             reg.create(g, "arp_hold", 0.0, 0.0, 1.0, Behavior::Free);
         }
-        let pan = AUXILIARIES.contains(&input).then(|| {
-            // The Mixer deck's strip controls: whatever feeds the strip (an
-            // interface's channels today; later the Groove Box or a plugin).
-            // `solo` and `fx` are the Mixer's: solo within the Mixer, and
-            // the strip through the deck's effects.
-            reg.create(g, "pan", 0.0, -1.0, 1.0, Behavior::Linear)
-        });
-        let solo = AUXILIARIES.contains(&input).then(|| reg.toggle(g, "solo"));
-        let fx = AUXILIARIES.contains(&input).then(|| reg.toggle(g, "fx"));
+        // The Mixer deck's strip controls, for the auxiliary inputs (fed by
+        // an interface's channels today; later the Groove Box or a plugin)
+        // and the microphone: `solo` within the Mixer, and `fx` for the
+        // strip through the deck's effects.
+        let strip = AUXILIARIES.contains(&input) || input == MICROPHONE;
+        let pan = strip.then(|| reg.create(g, "pan", 0.0, -1.0, 1.0, Behavior::Linear));
+        let solo = strip.then(|| reg.toggle(g, "solo"));
+        let fx = strip.then(|| reg.toggle(g, "fx"));
+        // The microphone as a strip of the Mixer too, while a deck plays
+        // it: off by default, so it stays on its own channel.
+        let mixer = (input == MICROPHONE).then(|| reg.toggle(g, "mixer"));
         let configured = reg.indicator(g, "input_configured", 1.0);
         alias(reg, g, "enabled", g, "input_configured");
         Self {
@@ -333,6 +337,7 @@ impl InputControls {
             pan,
             solo,
             fx,
+            mixer,
         }
     }
 }
@@ -450,6 +455,12 @@ impl Input {
     /// units; off, it skips them.
     pub(crate) fn through_fx(&self) -> bool {
         self.c.fx.as_ref().is_some_and(|s| s.get_bool())
+    }
+
+    /// A strip of the Mixer while a deck plays it: every auxiliary input,
+    /// and the microphone when its `mixer` is on.
+    pub(crate) fn mixer_strip(&self) -> bool {
+        AUXILIARIES.contains(&self.index) || self.c.mixer.as_ref().is_some_and(|m| m.get_bool())
     }
 
     /// Soloed in the Mixer.
