@@ -34,6 +34,7 @@ set '[Master],gain' 1             a control of another group
 | `play`, `pause`, `play_pause` | Start or stop the deck |
 | `goto_start` | Jump to the start of the track |
 | `sync`, `key_lock`, `quantize`, `slip` | Turn that on or off |
+| `edit_grid` | Start or finish editing the beat grid (G) |
 | `loop 4`, `loop_exit` | Loop that many beats (4 if left out), end the loop |
 | `hot_cue 1` | Play from a hot cue, or set it |
 | `eject` | Unload the deck |

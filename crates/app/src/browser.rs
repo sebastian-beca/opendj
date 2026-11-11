@@ -53,6 +53,7 @@ mod playlist_files;
 mod prep;
 mod rekordbox_xml;
 mod sets;
+mod side_tabs;
 mod spotify_export;
 mod staging;
 mod streamed;
@@ -1584,6 +1585,7 @@ impl Browser {
             .map(|n| !hidden.iter().any(|h| h == n))
             .collect();
         app.set_sources_shown(std::rc::Rc::new(slint::VecModel::from(shown)).into());
+        side_tabs::install(app);
         // Collection Health's rail button hides the same way.
         app.global::<HealthUi>()
             .set_rail_shown(!hidden.iter().any(|h| h == HEALTH_RAIL_NAME));
@@ -3414,7 +3416,8 @@ impl Browser {
         crates.separator = true;
         sections.push(crates);
         let mut depth: HashMap<i64, i32> = HashMap::new();
-        let mut locked: HashSet<i64> = HashSet::new();
+        // Each imported list's import, by the source of its top folder.
+        let mut locked: HashMap<i64, Option<String>> = HashMap::new();
         let mut in_crates: HashSet<i64> = HashSet::new();
         let mut sessions = Vec::new();
         let mut smart = Vec::new();
@@ -3430,9 +3433,13 @@ impl Browser {
             if Some(p.id) == inbox {
                 continue;
             }
-            let lock = is_imported(p) || p.parent.is_some_and(|id| locked.contains(&id));
-            if lock {
-                locked.insert(p.id);
+            let root = match p.parent.and_then(|id| locked.get(&id)) {
+                Some(root) => Some(root.clone()),
+                None => is_imported(p).then(|| p.source.clone()),
+            };
+            let lock = root.is_some();
+            if let Some(root) = &root {
+                locked.insert(p.id, root.clone());
             }
             let crate_side = match p.parent {
                 None => is_crate(p) || p.source.as_deref() == Some(CRATE_FOLDER),
@@ -3473,9 +3480,10 @@ impl Browser {
             };
             let node = Node {
                 locked: lock,
-                import_root: (lock && p.parent.is_none())
-                    .then(|| p.source.clone())
-                    .flatten(),
+                // Every row of an import offers to make the whole import
+                // the DJ's own, and reads dimmer than the DJ's own lists.
+                import_root: root.flatten(),
+                dim: node.dim || lock,
                 ..node
             };
             if lock {
@@ -3770,7 +3778,7 @@ impl Browser {
         n.playlist.filter(|_| !n.locked)
     }
 
-    /// Makes the import whose top folder is at `row` the DJ's own: its
+    /// Makes the import with a list or folder at `row` the DJ's own: its
     /// lists stay, become editable, and its next import leaves them be.
     fn adopt_import_at(&mut self, row: usize) {
         let Some(source) = self

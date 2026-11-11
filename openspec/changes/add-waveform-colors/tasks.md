@@ -9,9 +9,9 @@
 
 ## 2. Vocals
 
-- [ ] 2.1 Vocal-detection pass at analysis: a vocal level per waveform slice, stored with the waveform
+- [x] 2.1 Vocal-detection pass: Spleeter's vocal network alone, in the background on first load, kept beside the analysis
 - [ ] 2.2 Vocal level from the vocal stem when a track has stems
-- [ ] 2.3 Show vocals switch: sung parts tinted green on RGB, 3-Band and Blue
+- [x] 2.3 Show vocals switch: sung parts tinted green on RGB, 3-Band and Blue
 
 ## 3. Stems
 

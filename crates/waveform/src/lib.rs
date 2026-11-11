@@ -203,6 +203,10 @@ struct Params {
     atlas: [f32; 2],
     /// 1: drawn from the bottom edge up (overview only).
     half: u32,
+    /// 1: the grid is being edited: beats and bar lines drawn louder, over
+    /// the waveform too (scrolling only).
+    grid_edit: u32,
+    _pad: [u32; 3],
     /// Bit `n` set: lane `n` (from the bottom) is tinted.
     lane_tint: [u32; 4],
     mark_color: [f32; 4],
@@ -212,6 +216,9 @@ struct Params {
     /// Each mark's start and end, in slices, its row, and its kind (as in
     /// [`MarkKind`]).
     marks: [[f32; 4]; MAX_MARKS],
+    /// The vocal levels: first texel, count, finest slices per level, and
+    /// 1 to tint the sung parts.
+    vocal: [f32; 4],
 }
 
 /// The colours [`MarkKind::Level`]'s `color` 1 to 8 picks, as sRGB hex.
@@ -452,6 +459,9 @@ pub struct GpuTrack {
     level_offset: [[u32; 4]; 4],
     level_len: [[u32; 4]; 4],
     num_levels: u32,
+    /// Where the vocal levels start (in texels, four to a texel), how many
+    /// there are, and finest-level slices per level; none if `count` is 0.
+    vocal: [f32; 3],
 }
 
 impl GpuTrack {
@@ -467,7 +477,35 @@ impl GpuTrack {
         levels: &[Vec<[u8; 8]>],
         bins_per_second: f64,
     ) -> Self {
-        let capacity = BIN_ROW as usize * renderer.max_rows as usize;
+        Self::with_vocals(
+            device,
+            queue,
+            renderer,
+            id,
+            levels,
+            bins_per_second,
+            &[],
+            0.0,
+        )
+    }
+
+    /// Uploads `levels` as [`GpuTrack::new`] does, with the track's vocal
+    /// levels (0 to 255, `vocal_rate` a second) that
+    /// [`WaveformView::set_show_vocals`] tints the sung parts with.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_vocals(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        renderer: &WaveformRenderer,
+        id: usize,
+        levels: &[Vec<[u8; 8]>],
+        bins_per_second: f64,
+        vocals: &[u8],
+        vocal_rate: f64,
+    ) -> Self {
+        let vocals = if vocal_rate > 0.0 { vocals } else { &[] };
+        let capacity = (BIN_ROW as usize * renderer.max_rows as usize)
+            .saturating_sub(vocals.len().div_ceil(4));
         let texels = |from: usize| -> usize {
             levels[from..]
                 .iter()
@@ -479,17 +517,27 @@ impl GpuTrack {
             .find(|&b| texels(b) <= capacity)
             .unwrap_or(levels.len());
         let used = &levels[base..levels.len().min(base + MAX_LEVELS)];
-        let (data, level_offset, level_len) = pack(used);
+        let (data, level_offset, level_len, vocal_offset) = pack(used, vocals);
         let rows = data.len() / BIN_ROW as usize;
         let texture = bins_texture(device, rows as u32);
         write_bins(queue, &texture, &data);
+        let bins_per_second = bins_per_second / 2f64.powi(base as i32);
         Self {
             id,
             texture,
-            bins_per_second: bins_per_second / 2f64.powi(base as i32),
+            bins_per_second,
             level_offset,
             level_len,
             num_levels: used.len() as u32,
+            vocal: [
+                vocal_offset as f32,
+                vocals.len() as f32,
+                if vocals.is_empty() {
+                    0.0
+                } else {
+                    (bins_per_second / vocal_rate) as f32
+                },
+            ],
         }
     }
 
@@ -499,9 +547,10 @@ impl GpuTrack {
     /// new [`GpuTrack`] is needed then.
     pub fn rewrite(&self, queue: &wgpu::Queue, levels: &[Vec<[u8; 8]>]) -> bool {
         let used = &levels[..levels.len().min(MAX_LEVELS)];
-        let (data, level_offset, level_len) = pack(used);
+        let (data, level_offset, level_len, _) = pack(used, &[]);
         let rows = (data.len() / BIN_ROW as usize) as u32;
         if used.len() as u32 != self.num_levels
+            || self.vocal[1] > 0.0
             || level_len != self.level_len
             || level_offset != self.level_offset
             || rows != self.texture.height()
@@ -529,7 +578,7 @@ impl GpuTrack {
 /// Lays levels out as the shader reads them: two texels per slice, each
 /// level after the one before, padded to whole rows of [`BIN_ROW`].
 #[allow(clippy::type_complexity)]
-fn pack(used: &[Vec<[u8; 8]>]) -> (Vec<[u8; 4]>, [[u32; 4]; 4], [[u32; 4]; 4]) {
+fn pack(used: &[Vec<[u8; 8]>], vocals: &[u8]) -> (Vec<[u8; 4]>, [[u32; 4]; 4], [[u32; 4]; 4], u32) {
     let mut level_offset = [[0u32; 4]; 4];
     let mut level_len = [[0u32; 4]; 4];
     let mut data: Vec<[u8; 4]> = Vec::with_capacity(used.iter().map(|l| 2 * l.len()).sum());
@@ -541,10 +590,17 @@ fn pack(used: &[Vec<[u8; 8]>]) -> (Vec<[u8; 4]>, [[u32; 4]; 4], [[u32; 4]; 4]) {
             data.push([b[4], b[5], b[6], b[7]]);
         }
     }
+    // Then the vocal levels, four to a texel.
+    let vocal_offset = data.len() as u32;
+    data.extend(
+        vocals
+            .chunks(4)
+            .map(|c| std::array::from_fn(|k| c.get(k).copied().unwrap_or(0))),
+    );
     // Pad to whole rows so the upload is one rectangle.
     let rows = data.len().div_ceil(BIN_ROW as usize).max(1);
     data.resize(rows * BIN_ROW as usize, [0; 4]);
-    (data, level_offset, level_len)
+    (data, level_offset, level_len, vocal_offset)
 }
 
 /// Uploads packed slices (see [`pack`]) into a bins texture of their size.
@@ -573,6 +629,8 @@ pub struct WaveformView {
     palette: Palette,
     /// Drawn from the bottom up (see [`WaveformView::set_half`]).
     half: bool,
+    /// Tints the sung parts (see [`WaveformView::set_show_vocals`]).
+    show_vocals: bool,
     /// The next mix, as fractions of the track (Mono style).
     mix: Option<(f32, f32)>,
     texture: wgpu::Texture,
@@ -582,6 +640,8 @@ pub struct WaveformView {
     empty: wgpu::Texture,
     /// Draws a live deck (see [`WaveformView::set_live`]).
     live: bool,
+    /// Draws the grid louder (see [`WaveformView::set_grid_edit`]).
+    grid_edit: bool,
     /// Lanes of marks over the waveform (see [`WaveformView::set_lanes`]).
     lanes: Option<Lanes>,
 }
@@ -600,6 +660,7 @@ impl WaveformView {
             style: Style::default(),
             palette: Palette::default(),
             half: false,
+            show_vocals: false,
             mix: None,
             texture: create_texture(device, width, height),
             size: (width.max(1), height.max(1)),
@@ -607,6 +668,7 @@ impl WaveformView {
             track: None,
             empty,
             live: false,
+            grid_edit: false,
             lanes: None,
         }
     }
@@ -629,6 +691,12 @@ impl WaveformView {
         self.half = half;
     }
 
+    /// Tints the parts of the track where someone sings green, from the
+    /// vocal levels its [`GpuTrack::with_vocals`] has. Not in the Mono style.
+    pub fn set_show_vocals(&mut self, show: bool) {
+        self.show_vocals = show;
+    }
+
     /// The stretch where the next mix happens, as fractions of the track
     /// from 0 to 1; the Mono style draws it in a dim accent.
     pub fn set_mix(&mut self, mix: Option<(f32, f32)>) {
@@ -637,6 +705,11 @@ impl WaveformView {
 
     /// Whether the view shows a live deck, whose waveform ends at the play
     /// line: its beat grid and bar numbers then run on past the end.
+    /// Draws the beat grid louder, for editing it (scrolling only).
+    pub fn set_grid_edit(&mut self, on: bool) {
+        self.grid_edit = on;
+    }
+
     pub fn set_live(&mut self, live: bool) {
         self.live = live;
     }
@@ -753,12 +826,20 @@ impl WaveformView {
             mark_count: 0,
             atlas: renderer.digits.size,
             half: (self.half && self.mode == Mode::Overview) as u32,
+            grid_edit: (self.grid_edit && self.mode == Mode::Scrolling) as u32,
+            _pad: [0; 3],
             lane_tint: [0; 4],
             mark_color: [0.0; 4],
             lit_color: [0.0; 4],
             word_width: renderer.digits.words,
             marks: [[0.0; 4]; MAX_MARKS],
+            vocal: [0.0; 4],
         };
+        if let (Some(t), true) = (track, self.show_vocals) {
+            if t.vocal[1] > 0.0 && t.vocal[2] > 0.0 {
+                params.vocal = [t.vocal[0], t.vocal[1], t.vocal[2], 1.0];
+            }
+        }
         if let Some(l) = &self.lanes {
             params.trace_alpha = l.trace;
             params.lane_count = l.count.min(128);

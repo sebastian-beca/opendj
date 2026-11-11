@@ -265,6 +265,30 @@ grid while it plays: **Bar 1 here** on a downbeat puts bar 1 there,
 **New tempo section from here** starts a new tempo where a live track
 speeds up or slows down.
 
+### Edit Grid
+
+The quickest way to fix a grid is the pencil in the bottom corner of each
+deck's big waveform (left for decks 1 and 3, right for 2 and 4). It stays
+dimmed until you point at it. Click it, or press **G** for the master
+deck, to start editing: the beat lines run through the waveform, bar lines
+in lilac, and the pencil lights up. While you edit:
+
+- **Drag the waveform** to move the grid under the music; the audio slides
+  and the beat lines stay put until you let go. Hold **Alt** (⌥) to scrub as
+  usual instead.
+- **Set Downbeat** in the Edit Grid popover makes the beat at the play line
+  bar 1, and **◀ |** **| ▶** nudge the whole grid a little earlier or later.
+- **More…** opens the full grid menu: tempo, ½ and ×2, tempo sections,
+  undo and the metronome.
+- **Reset** goes back to the detected grid; **Lock** locks it.
+
+Click the pencil again, press **Done** or **Esc** to finish. Editing keeps
+whatever zoom the waveform is at, and loading another track finishes it.
+In the [Prep layout](layouts.md) the grid is always open for editing while
+it is unlocked, and the metronome turns on by itself there and back off
+once the grid is locked. Controllers and keyboard shortcuts can use
+`edit_grid` (the `beats_edit` control).
+
 To analyse tracks yourself, right-click them and choose **Analyze Track**
 (or **Analyze 12 Tracks** when you picked several), or right-click a
 list, folder or stage and choose **Analyze All**. They are analysed again
@@ -327,7 +351,9 @@ Press **Import**. Each track keeps VirtualDJ's tags, stars, color, comment,
 play count, dates, BPM, beat grid, key, hot cues with their names and
 colors, saved loops, gain, and its remix and automix points. Anything
 VirtualDJ leaves empty is filled in from the file's own tags. The lists go
-into a **VirtualDJ** folder, and history into the History tab.
+into a **VirtualDJ** folder, and history into the History tab. A VirtualDJ
+folder that holds songs itself becomes a folder whose first list, with the
+same name, holds those songs.
 
 openDJ only ever reads VirtualDJ's files. If you keep using VirtualDJ,
 openDJ checks its files each time it starts and brings in what changed.
@@ -457,18 +483,20 @@ own `_LOOPS` and `_RECORDINGS` lists and its smart lists stay out.
 
 ## Bringing in a djay Pro library
 
-**Import from djay Pro** works the same way. openDJ reads djay's
-`MediaLibrary.db` (only reading it, even while djay is open), which it finds
-in `Music/djay/djay Media Library.djayMediaLibrary` on a Mac or
+**Import from djay Pro** works the same way. openDJ reads a copy of djay's
+`MediaLibrary.db`, so djay can stay open and its library is never changed.
+It finds it in `Music/djay/djay Media Library.djayMediaLibrary` on a Mac or
 `Music/djay/djay Media Library` on Windows. If yours is elsewhere, choose
 the file in the first step.
 
 Each track that is a file on this computer keeps its title, artist, album,
-BPM, key, hot cues 1 to 8 with their names and colors, saved loops (as
-memory cues), Automix start and end (as Automix points), play count and
-color. When you set the first downbeat in djay, the grid starts there.
-Playlists come in a **djay Pro** folder, in djay's order. Tracks streamed
-from TIDAL, Beatport or Apple Music aren't brought in yet.
+genre, BPM, key, rating, year, comment, hot cues 1 to 8 with their names and
+colors, saved loops (as memory cues), Automix start and end (as Automix
+points), play count and color. When you set the first downbeat in djay, the
+grid starts there. Playlists come in a **djay Pro** folder, in djay's order
+and with djay's folders, and djay's history comes as one session per set.
+Tracks streamed from TIDAL, Beatport, SoundCloud or Spotify show in their
+lists as streamed tracks, with their artist, title and length.
 
 ### The same song from two apps
 
@@ -507,11 +535,11 @@ Drag a crate, playlist or folder onto a folder to move it there, or onto
 the **Crates** or **Playlists** heading to take it back to the top (a
 crate's top is Crates, a playlist's is Playlists; a folder can go under
 either).
-- **Imported**: other apps' lists (a folder per app, with a padlock) and
-  **Groupings and Tags**. They are read-only, because the app's next
-  import makes them again. To keep an app's lists as your own (say, once
-  you stop using that app), right-click its folder and pick **Make These
-  Lists Mine**: they move to Playlists and can be changed, and that
+- **Imported**: other apps' lists (a folder per app) and **Groupings and
+  Tags**. They are read-only, because the app's next import makes them
+  again, so they show a padlock and dimmer names. To keep an app's lists as
+  your own (say, once you stop using that app), right-click any of them and
+  pick **Make These Lists Mine**: they move to Playlists and can be changed, and that
   import keeps bringing in tracks, cues and grids but no more lists.
   Turning the import off and on again brings its lists back.
 

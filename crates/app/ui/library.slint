@@ -48,7 +48,7 @@ export struct Folder {
     // Another app's imported list or folder (or the Imported heading):
     // read-only, since its next import makes it again.
     locked: bool,
-    // The top folder of an import: its menu offers Make These Lists Mine.
+    // A list or folder of an import: its menu offers Make These Lists Mine.
     adoptable: bool,
     // An album downloaded into the Inbox: its menu offers Move to Albums.
     bundle: bool,
@@ -141,6 +141,34 @@ export global ColumnUi {
     in property <int> color-mode;
     // Settings picked a way to show them.
     callback set-color-mode(mode: int);
+}
+
+// One side panel tab in the chooser that its titles' right-click opens.
+export struct SideTab {
+    name: string,
+    // The tab's number, as SidePanel's `tab` has it (Lyrics is 6).
+    i: int,
+    on: bool,
+    // Its row in the chooser in the Prep layout, and out of it (-1: not
+    // listed there, as Cues and Checklist outside Prep).
+    pos: int,
+    pos-plain: int,
+}
+
+// Which side panel tabs show, and in what order; kept in settings.json.
+export global SideTabs {
+    // Every tab, in the order the DJ put them.
+    in property <[SideTab]> tabs;
+    // How many tabs the chooser lists in Prep and out of it, and how many
+    // of those are on: the last one on can't be switched off.
+    in property <int> listed;
+    in property <int> listed-plain;
+    in property <int> on-count;
+    in property <int> on-count-plain;
+    callback toggled(tab: int);
+    // Moves tab `tab` this many rows down the chooser (up when negative).
+    callback moved(tab: int, steps: int);
+    callback reset();
 }
 
 export struct SideRow {
@@ -3119,12 +3147,12 @@ component FolderTree inherits Rectangle {
                             vertical-alignment: center;
                         }
                         if f.count >= 0: Rectangle { width: 2px; }
-                        // An import's top folder: read-only until made the DJ's own.
-                        if f.adoptable && i != naming-row: VerticalLayout {
+                        // An imported list: read-only until made the DJ's own.
+                        if f.locked && i != naming-row: VerticalLayout {
                             alignment: center;
                             Padlock { tint: i == current ? Theme.on-row-selection : Theme.text-dim; }
                         }
-                        if f.adoptable: Rectangle { width: 4px; }
+                        if f.locked && i != naming-row: Rectangle { width: 4px; }
                         // New crate, or a new folder in Playlists.
                         if f.kind == 18 && tab == 0 && !f.locked: Rectangle {
                             width: 26px;
@@ -5496,16 +5524,17 @@ component SidePanel inherits Rectangle {
         y: 0px;
         height: 40px;
         HorizontalLayout {
-            // Each tab as wide as its word, with the room left shared out.
+            // Each tab as wide as its word, with the room left shared out,
+            // in the DJ's order. A tab switched off folds to nothing, unless
+            // it is the one open (Show Info opens Info even when it's off).
             // Cues and Checklist only in the Prep layout.
-            // Each tab with its number, as `tab` has it: Lyrics is 6
-            // wherever it sits.
-            for t in CueList.prep
-                ? [{ name: "Automix", i: 0 }, { name: "Sidelist", i: 1 }, { name: "Related", i: 2 }, { name: "Info", i: 3 }, { name: "Lyrics", i: 6 }, { name: "Cues", i: 4 }, { name: "Checklist", i: 5 }]
-                : [{ name: "Automix", i: 0 }, { name: "Sidelist", i: 1 }, { name: "Related", i: 2 }, { name: "Info", i: 3 }, { name: "Lyrics", i: 6 }]: Rectangle {
-                horizontal-stretch: 1;
-                preferred-width: tab-word.preferred-width + 8px;
-                min-width: tab-word.preferred-width + 4px;
+            for t in SideTabs.tabs: Rectangle {
+                property <bool> shown: (t.on || t.i == tab) && (CueList.prep ? t.pos : t.pos-plain) >= 0;
+                horizontal-stretch: shown ? 1 : 0;
+                preferred-width: shown ? tab-word.preferred-width + 8px : 0px;
+                min-width: shown ? tab-word.preferred-width + 4px : 0px;
+                max-width: shown ? 1000px : 0px;
+                visible: shown;
                 property <string> name: t.name;
                 property <int> i: t.i;
                 property <bool> on: i == tab;
@@ -5523,7 +5552,16 @@ component SidePanel inherits Rectangle {
                     height: 2px;
                     background: on ? Theme.accent : transparent;
                 }
-                tta := TouchArea { clicked => { tab = i; } }
+                // Right-click a title to pick the tabs and their order.
+                tta := TouchArea {
+                    clicked => { tab = i; }
+                    pointer-event(e) => {
+                        if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                            tabs-menu-x = parent.x + self.mouse-x;
+                            tabs-menu.show();
+                        }
+                    }
+                }
                 TourMark { id: i == 0 ? "ui,side_automix" : ""; }
             }
         }
@@ -5531,6 +5569,134 @@ component SidePanel inherits Rectangle {
             y: parent.height - 1px;
             height: 1px;
             background: Theme.separator;
+        }
+    }
+    // The tabs' chooser: a switch for each, and a grip to drag it up or down.
+    property <length> tabs-menu-x;
+    tabs-menu := PopupWindow {
+        property <int> n: CueList.prep ? SideTabs.listed : SideTabs.listed-plain;
+        property <int> on-count: CueList.prep ? SideTabs.on-count : SideTabs.on-count-plain;
+        property <length> row-h: 40px;
+        // The row being dragged, how far, and where it would land.
+        property <int> drag-from: -1;
+        property <length> drag-dy;
+        property <length> drag-start;
+        property <int> drag-to: drag-from < 0 ? -1 : max(0, min(n - 1, drag-from + round(drag-dy / row-h)));
+        property <string> drag-name;
+        property <bool> drag-on;
+        x: max(4px, min(root.width - self.width - 4px, tabs-menu-x - 30px));
+        y: tab-bar.height + 2px;
+        width: 240px;
+        height: menu-list.preferred-height;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: #2a2a2d;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000080;
+        }
+        menu-list := VerticalLayout {
+            padding: 8px;
+            spacing: 2px;
+            SourceMenuTitle { text: "SIDE PANEL TABS"; }
+            rows-box := Rectangle {
+                height: n * row-h;
+                for t in SideTabs.tabs: Rectangle {
+                    property <int> pos: CueList.prep ? t.pos : t.pos-plain;
+                    property <bool> locked: t.on && on-count <= 1;
+                    // Rows between where the dragged one was and where it
+                    // would go step aside for it.
+                    property <length> shift: drag-from < 0 || pos == drag-from ? 0px
+                        : drag-from < drag-to && pos > drag-from && pos <= drag-to ? -row-h
+                        : drag-from > drag-to && pos < drag-from && pos >= drag-to ? row-h : 0px;
+                    // The dragged row stays put, unseen, so its grip keeps the mouse.
+                    visible: pos >= 0;
+                    opacity: pos == drag-from ? 0 : 1;
+                    x: 0;
+                    y: max(0, pos) * row-h + shift;
+                    width: parent.width;
+                    height: row-h;
+                    animate y { duration: 100ms; }
+                    HorizontalLayout {
+                        padding-left: 4px;
+                        padding-right: 6px;
+                        spacing: 8px;
+                        Rectangle {
+                            width: 16px;
+                            Text { text: "⋮⋮"; color: grip.has-hover ? Theme.text : Theme.text-dim; font-size: 13px; }
+                            grip := TouchArea {
+                                mouse-cursor: drag-from >= 0 ? MouseCursor.grabbing : MouseCursor.grab;
+                                pointer-event(e) => {
+                                    if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                                        drag-from = pos;
+                                        drag-name = t.name;
+                                        drag-on = t.on;
+                                        drag-start = self.absolute-position.y + self.mouse-y;
+                                        drag-dy = 0px;
+                                    }
+                                    if e.button == PointerEventButton.left && e.kind == PointerEventKind.up && drag-from >= 0 {
+                                        if drag-to != drag-from {
+                                            SideTabs.moved(t.i, drag-to - drag-from);
+                                        }
+                                        drag-from = -1;
+                                        drag-dy = 0px;
+                                    }
+                                }
+                                moved => {
+                                    if drag-from >= 0 {
+                                        drag-dy = self.absolute-position.y + self.mouse-y - drag-start;
+                                    }
+                                }
+                            }
+                        }
+                        Text { text: t.name; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
+                        if (t.i == 4 || t.i == 5): Text { text: "Prep"; color: Theme.text-dim; font-size: 10px; vertical-alignment: center; }
+                        VerticalLayout {
+                            alignment: center;
+                            Switch {
+                                on: t.on;
+                                opacity: locked ? 0.45 : 1;
+                                toggled => {
+                                    if !locked {
+                                        SideTabs.toggled(t.i);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // The row being dragged, over the others.
+                if drag-from >= 0: Rectangle {
+                    y: max(0px, min(parent.height - row-h, drag-from * row-h + drag-dy));
+                    width: parent.width;
+                    height: row-h;
+                    border-radius: 8px;
+                    background: #36363b;
+                    drop-shadow-blur: 10px;
+                    drop-shadow-color: #00000080;
+                    HorizontalLayout {
+                        padding-left: 4px;
+                        padding-right: 6px;
+                        spacing: 8px;
+                        Rectangle {
+                            width: 16px;
+                            Text { text: "⋮⋮"; color: Theme.text; font-size: 13px; }
+                        }
+                        Text { text: drag-name; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
+                        VerticalLayout { alignment: center; Switch { on: drag-on; } }
+                    }
+                }
+            }
+            Rectangle { height: 9px; Rectangle { height: 1px; background: Theme.border; } }
+            reset-row-h := Rectangle {
+                height: 32px;
+                border-radius: 8px;
+                background: rta.has-hover ? #ffffff0d : transparent;
+                Text { x: 6px; text: "Reset to default"; color: rta.has-hover ? Theme.text : Theme.text-dim; font-size: 13px; vertical-alignment: center; }
+                rta := TouchArea { mouse-cursor: pointer; clicked => { SideTabs.reset(); } }
+            }
         }
     }
     if tab == 3: InfoPanel {

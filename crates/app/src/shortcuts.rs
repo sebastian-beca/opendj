@@ -39,6 +39,10 @@ pub const DEFAULTS: &[Shortcut] = &[
         key: "cmd+i",
         script: "show_info",
     },
+    Shortcut {
+        key: "g",
+        script: "edit_grid",
+    },
 ];
 
 /// Modifiers in the order keys are written.

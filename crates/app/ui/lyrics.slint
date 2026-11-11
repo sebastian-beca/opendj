@@ -106,13 +106,26 @@ export global WaveLyrics {
     in property <bool> shown: true;
     // Deck 1 first; a deck with no timed lyrics has no lines.
     in property <[DeckLines]> decks;
+    // Each deck's playhead in track seconds, set as each frame is drawn
+    // from the same smoothed clock as the waveform. (The controls' timer
+    // reads the engine's raw position, which steps once per audio buffer
+    // and ticks out of time with the display: the words tugged sideways
+    // against the waveform under them.)
+    in property <float> now-1;
+    in property <float> now-2;
+    in property <float> now-3;
+    in property <float> now-4;
+    pure public function now(deck: int) -> float {
+        deck == 0 ? now-1 : deck == 1 ? now-2 : deck == 2 ? now-3 : now-4
+    }
 }
 
 // The lyrics lane along the bottom of a big waveform, scrolling with the
 // audio: each line a faint strip from when it is sung to when it ends, and
 // each word a chip at its own time. Words already sung are lilac; the word
 // being sung is lit and fills with lilac as it is sung. Everything sits on
-// whole pixels, moved together by the playhead, so the words don't shimmer.
+// whole physical pixels, moved together by the playhead, so the words don't
+// shimmer and step no more than a screen pixel at a time.
 export component LyricsLane inherits Rectangle {
     in property <[WaveLine]> lines;
     // Seconds into the track at the playhead, and seconds across the width.
@@ -120,7 +133,9 @@ export component LyricsLane inherits Rectangle {
     in property <float> visible-seconds: 10;
     // Pixels per second, and where second 0 of the track is, in whole pixels.
     property <float> per-second: self.width / 1px / max(visible-seconds, 0.1);
-    property <float> origin: round(self.width / 2px) - round(now * per-second);
+    property <float> origin: round(self.width / 2px) - round(now * per-second * scale) / scale;
+    // Physical pixels per logical pixel: positions round to screen pixels.
+    property <float> scale: 1px / 1phx;
     height: 16px;
     clip: true;
     background: #000000a8;

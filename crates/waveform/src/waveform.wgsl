@@ -48,11 +48,13 @@ struct Params {
     atlas_w: f32,                      // the text atlas's width and height
     atlas_h: f32,
     half: u32,                         // 1: drawn from the bottom edge up (overview only)
+    grid_edit: u32,                    // 1: the grid is being edited: drawn louder, over the waveform too
     lane_tint: vec4<u32>,              // bit n: row n tinted (a scale note)
     mark_color: vec4<f32>,
     lit_color: vec4<f32>,
     word_width: array<vec4<f32>, 2>,   // each phrase name's width in the text atlas, by kind
     marks: array<vec4<f32>, 256>,      // start and end slice, row, kind (0 played, 1 held, 2 coming, 3 fill, 4 coming fill, 8+ level: 8 + colour * 2^20 + from * 1024 + to)
+    vocal: vec4<f32>,                  // vocal levels: first texel, count, finest slices per level, 1 = tint the sung parts
 };
 
 @group(0) @binding(0) var<uniform> p: Params;
@@ -86,6 +88,8 @@ const MONO_GREY = vec3<f32>(0.40, 0.40, 0.44);
 // Blue style: the body, and what it lightens towards where the highs are loud.
 const BLUE_BODY = vec3<f32>(0.173, 0.482, 0.898);   // #2C7BE5
 const BLUE_HIGHS = vec3<f32>(0.863, 0.922, 1.0);    // #DCEBFF
+// Show vocals: the sung parts lean towards this green.
+const VOCAL_GREEN = vec3<f32>(0.231, 0.890, 0.541); // #3BE38A
 // Phrase colours, in PhraseKind order: intro, build (up), drop (peak),
 // breakdown (break or bridge), outro, chorus (main), verse.
 const PHRASE_COLORS = array<vec3<f32>, 7>(
@@ -131,6 +135,33 @@ fn level_len(l: u32) -> u32 {
 
 fn texel(t: u32) -> vec4<f32> {
     return textureLoad(bins, vec2<u32>(t % ROW, t / ROW), 0);
+}
+
+// Vocal level `j` (0 to 1), four to a texel after the levels.
+fn vocal_level(j: u32) -> f32 {
+    let v = texel(u32(p.vocal.x) + j / 4u);
+    return v[j % 4u];
+}
+
+// How much of the track around `bin` is vocals, 0 to 1: interpolated
+// between levels, and on the overview the most over the column.
+fn vocal_at(bin: f32) -> f32 {
+    let count = u32(p.vocal.y);
+    if (count == 0u || p.vocal.z <= 0.0 || bin < 0.0) {
+        return 0.0;
+    }
+    let per = p.vocal.z;
+    let span = max(p.bins_per_pixel / per, 1.0);
+    var most = 0.0;
+    let steps = min(u32(ceil(span)), 16u);
+    for (var i = 0u; i < steps; i = i + 1u) {
+        let x = bin / per - 0.5 * span + (f32(i) + 0.5) * span / f32(steps);
+        let j = u32(clamp(floor(x), 0.0, f32(count - 1u)));
+        let k = min(j + 1u, count - 1u);
+        let v = mix(vocal_level(j), vocal_level(k), clamp(fract(x), 0.0, 1.0));
+        most = max(most, v);
+    }
+    return most;
 }
 
 // Levels are stored as square roots; this returns them as linear levels.
@@ -470,11 +501,17 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         let is_bar = in_bar == 0;
         // The first section's beats run back to the start of the track.
         if (sec > 0u || p.grid_start[sec] + n * beat_len >= 0.0) {
-            let a = line(x, bx, 0.5 * k);
+            // Bar lines a little wider while the grid is edited.
+            let a = line(x, bx, select(0.5, 0.9, is_bar && p.grid_edit == 1u) * k);
             if (is_bar) { bar_a = a; } else { beat_a = a; }
         }
-        color = over(color, vec3<f32>(1.0), beat_a * 0.10);
-        color = over(color, AMBER, bar_a * 0.30);
+        if (p.grid_edit == 1u) {
+            color = over(color, vec3<f32>(1.0), beat_a * 0.30);
+            color = over(color, LOOP_LILAC, bar_a * 0.70);
+        } else {
+            color = over(color, vec3<f32>(1.0), beat_a * 0.10);
+            color = over(color, AMBER, bar_a * 0.30);
+        }
     }
 
     // Faint centre line, so silence still reads as a track.
@@ -487,6 +524,14 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     if (has_track) {
         let cols = columns(bin);
         color = mix(wave(color, cols.a, bin, d, span), wave(color, cols.b, bin, d, span), cols.t);
+        // Show vocals: the shape leans green where someone sings.
+        if (p.vocal.w > 0.5 && p.style != 2u) {
+            let v = vocal_at(bin);
+            if (v > 0.0) {
+                let reach = height(mix(cols.a.peak.w, cols.b.peak.w, cols.t)) * span;
+                color = over(color, VOCAL_GREEN, v * 0.7 * fill(reach, d));
+            }
+        }
     }
 
     color = mix(under_wave, color, p.trace_alpha);
@@ -558,12 +603,20 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         }
     }
 
-    // Beat ticks along the top and bottom edges, over the waveform.
+    // Beat ticks along the top and bottom edges, over the waveform. While
+    // the grid is edited, its lines run through the waveform as well, bars
+    // in lilac.
     if (beats_visible && in_grid) {
         let edge = edge_dist;
         let tick = clamp(6.0 * k - edge + 0.5, 0.0, 1.0);
+        let editing = p.grid_edit == 1u;
+        let bar_color = select(AMBER, LOOP_LILAC, editing);
+        if (editing) {
+            color = over(color, vec3<f32>(1.0), beat_a * 0.35);
+            color = over(color, LOOP_LILAC, bar_a * 0.75);
+        }
         color = over(color, vec3<f32>(0.85), beat_a * tick * 0.8);
-        color = over(color, AMBER, bar_a * clamp(10.0 * k - edge + 0.5, 0.0, 1.0));
+        color = over(color, bar_color, bar_a * clamp(10.0 * k - edge + 0.5, 0.0, 1.0));
         color = over(color, vec3<f32>(1.0), bar_number(x, y, k, sec) * 0.85);
     }
 

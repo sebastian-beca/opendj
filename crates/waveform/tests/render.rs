@@ -816,3 +816,65 @@ fn draws_half_overview_from_the_bottom() {
         assert!(!lit(&half_px, 3), "{style:?} half top");
     }
 }
+
+/// Show vocals tints the sung half of a track green, and only while on.
+#[test]
+fn tints_the_sung_parts() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let renderer = WaveformRenderer::new(&device, &queue);
+    // 10 s of the same level; vocals in the second half only.
+    let base = (0..10_000)
+        .map(|_| [200, 120, 60, 200, 160, 100, 50, 160])
+        .collect();
+    let vocals: Vec<u8> = (0..100).map(|i| if i < 50 { 0 } else { 255 }).collect();
+    let track = Arc::new(GpuTrack::with_vocals(
+        &device,
+        &queue,
+        &renderer,
+        1,
+        &levels(base),
+        1000.0,
+        &vocals,
+        10.0,
+    ));
+    let (w, h) = (256u32, 60u32);
+    let green = |px: &[u8], x: u32| {
+        let i = ((h / 2 * w + x) * 4) as usize;
+        px[i + 1] as i32 - px[i] as i32
+    };
+    for (show, style) in [
+        (false, Style::Rgb),
+        (true, Style::Rgb),
+        (true, Style::Bands),
+    ] {
+        let mut view = WaveformView::new(&device, Mode::Overview, w, h);
+        view.set_style(style);
+        view.set_show_vocals(show);
+        view.set_track(&device, &renderer, Some(&track));
+        let frame = Frame {
+            play_seconds: 0.0,
+            visible_seconds: 8.0,
+            duration: 10.0,
+            first_bar_beat: 0.0,
+            grid: steady_grid(0.0, 0.0),
+            cue: None,
+            loop_range: None,
+            loop_marking: None,
+            hotcues: [None; 8],
+            slip: None,
+            gain: 1.0,
+            phrases: Vec::new(),
+        };
+        view.render(&device, &queue, &renderer, Some(&frame), 1.0);
+        let px = read_back(&device, &queue, &view);
+        let (sung, not) = (green(&px, w * 3 / 4), green(&px, w / 4));
+        if show {
+            assert!(sung > not + 40, "{style:?}: sung {sung}, not {not}");
+        } else {
+            assert!((sung - not).abs() < 5, "off: sung {sung}, not {not}");
+        }
+    }
+}

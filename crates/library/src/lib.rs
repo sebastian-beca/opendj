@@ -512,8 +512,13 @@ impl Library {
         Self::setup(Connection::open_in_memory()?)
     }
 
-    fn setup(db: Connection) -> Result<Self, Error> {
+    fn setup(mut db: Connection) -> Result<Self, Error> {
         db.busy_timeout(std::time::Duration::from_secs(5))?;
+        // The app and the startup sync each have a connection. A deferred
+        // transaction that reads and then writes fails at once with "database
+        // is locked" when the other one wrote in between; an immediate one
+        // takes the write lock first and waits its turn.
+        db.set_transaction_behavior(rusqlite::TransactionBehavior::Immediate);
         // In-memory databases stay in "memory" journal mode; that is fine.
         let _: String = db.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
         db.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;")?;
@@ -3362,6 +3367,35 @@ mod tests {
         .unwrap();
         tx.commit().unwrap();
         assert_eq!(found(&lib), [Some(false), Some(false)]);
+    }
+
+    #[test]
+    fn a_write_after_a_read_waits_for_another_connection() {
+        let path = std::env::temp_dir().join(format!("opendj-locked-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let mut a = Library::open(&path).unwrap();
+        a.sync(&[file_track("/m/a.mp3", "A")]).unwrap();
+        // The startup sync reads first, then writes, while the app writes too.
+        let tx = a.db.transaction().unwrap();
+        let n: i64 = tx
+            .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+            .unwrap();
+        let other = {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let mut b = Library::open(&path).unwrap();
+                b.sync(&[file_track("/m/b.mp3", "B")]).map(|_| ())
+            })
+        };
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        tx.execute("UPDATE tracks SET rating = ?1", [n]).unwrap();
+        tx.commit().unwrap();
+        other.join().unwrap().unwrap();
+        assert_eq!(a.tracks(|_| true).unwrap().len(), 2);
+        drop(a);
+        for end in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{end}", path.display()));
+        }
     }
 
     #[test]

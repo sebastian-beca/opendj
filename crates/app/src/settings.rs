@@ -64,6 +64,24 @@ pub fn set_key_notation(n: Notation) {
     save(|v| v["key_notation"] = json!(n.id()));
 }
 
+/// The side panel's tabs in the DJ's order, by name, with whether each
+/// shows; `None` until a choice is saved.
+pub fn side_tabs() -> Option<Vec<(String, bool)>> {
+    load()["side_tabs"].as_array().map(|a| {
+        a.iter()
+            .filter_map(|t| Some((t["tab"].as_str()?.to_string(), t["on"].as_bool()?)))
+            .collect()
+    })
+}
+
+pub fn set_side_tabs(tabs: &[(&str, bool)]) {
+    let tabs: Vec<Value> = tabs
+        .iter()
+        .map(|(name, on)| json!({ "tab": name, "on": on }))
+        .collect();
+    save(|v| v["side_tabs"] = json!(tabs));
+}
+
 /// The Automix mix length and style picked last time, as indices into
 /// [`crate::automix::LENGTHS`] and [`crate::automix::STYLES`]. The length
 /// is saved under a new name since 0 s went in first; an older

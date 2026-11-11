@@ -19,11 +19,15 @@ Settings › Decks › Overview SHALL draw each deck's overview Full (mirrored a
 - **THEN** each deck's overview grows from its bottom edge, its cue and hot cue flags at the top
 
 ### Requirement: Show vocals
-Analysis SHALL give each track a vocal level along the waveform, from a vocal-detection pass or, when the track has stems, its vocal stem. Settings › Decks › Show vocals SHALL tint the parts of the waveform where the level is high green on the RGB, 3-Band and Blue looks.
+Settings › Decks › Show vocals, on at first, SHALL tint the parts of the waveforms where a track is sung green on the RGB, 3-Band and Blue looks. The vocal level along the track SHALL come from a vocal-detection pass (Spleeter's vocal network on its own) run in the background the first time a file is loaded on a deck, and kept beside its analysis so it runs once per file. The waveforms SHALL draw without the tint until it is found.
 
 #### Scenario: Chorus
 - **WHEN** Show vocals is on and a deck's track has a sung chorus at 1:00
 - **THEN** that stretch of its waveforms is tinted green
+
+#### Scenario: First load
+- **WHEN** a track that was never checked for vocals is loaded
+- **THEN** its waveforms draw at once and the green appears a few seconds later, and at once on every later load
 
 ### Requirement: Size follows gain
 Settings › Decks › Size follows gain, off at first, SHALL scale the height of a deck's waveforms with its gain knob, between a quarter and twice the height.
