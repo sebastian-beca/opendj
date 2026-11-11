@@ -115,7 +115,8 @@ later in **Settings › Sources**: click **Plex**, **Jellyfin** or
   Plex Web, pick **Get Info › View XML**, and copy the `X-Plex-Token` at
   the end of the address that opens.
 
-Then pick the source in the rail and start a **New search**: **Auto** finds
+Then pick the source in the rail, type in the search bar at the top and
+press Return. The cog next to it sets what to search for: **Auto** finds
 albums and songs, **Track**, **Album** and **Artist** narrow it down (Artist
 lists that artist's albums), and **Playlist** lists your server's playlists
 whose name has the text in it (leave it as `*` for all of them). Open an

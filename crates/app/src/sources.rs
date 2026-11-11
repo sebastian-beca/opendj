@@ -625,9 +625,6 @@ pub struct Sources {
     /// unless the source's settings name a folder.
     music: Option<PathBuf>,
     list: Rc<VecModel<FoundRow>>,
-    /// A copy of each source for the UI thread, to describe queries
-    /// while the DJ types without waiting on the source's own thread.
-    describers: Vec<Box<dyn Plugin>>,
     /// What the DJ typed in the shown source's set-up form, by setting.
     setup_values: HashMap<String, String>,
     /// What the last Connect on the set-up form said.
@@ -733,7 +730,6 @@ impl Sources {
             rows: Vec::new(),
             music: opendj_engine::scan::default_music_dir(),
             list: list.clone(),
-            describers: source_plugins().into_iter().map(|(p, _)| p).collect(),
             setup_values: HashMap::new(),
             setup_status: String::new(),
             loads: Vec::new(),
@@ -786,11 +782,6 @@ impl Sources {
                 f(&mut s.borrow_mut());
             }
         };
-        let w = with.clone();
-        ui.on_describe(move |text, kind, prefer| {
-            let query = query(&text, kind, prefer);
-            w(Box::new(move |s| s.describe(&query)))
-        });
         let w = with.clone();
         ui.on_search(move |text, kind, prefer, auto| {
             let query = query(&text, kind, prefer);
@@ -901,9 +892,6 @@ impl Sources {
         let config = crate::settings::plugin_config(id);
         for source in self.sources.iter().filter(|s| s.id == id) {
             let _ = source.requests.send(Request::Configure(config.clone()));
-        }
-        for p in self.describers.iter_mut().filter(|p| p.manifest().id == id) {
-            p.configure(&config);
         }
     }
 
@@ -1238,20 +1226,6 @@ impl Sources {
         let at = self.start_listed(s, query, added, false);
         let search = &mut self.sources[s].searches[at];
         (search.items, search.note, search.title, search.done) = (items, note, title, true);
-    }
-
-    fn describe(&mut self, query: &SourceQuery) {
-        let Some(s) = self.shown else { return };
-        let lines = self
-            .describers
-            .get_mut(s)
-            .and_then(|p| p.source().map(|src| src.describe(query)))
-            .unwrap_or_default();
-        if let Some(app) = self.app.upgrade() {
-            let lines: Vec<SharedString> = lines.into_iter().map(Into::into).collect();
-            app.global::<SourceUi>()
-                .set_preview(ModelRc::new(VecModel::from(lines)));
-        }
     }
 
     fn add_search(&mut self, query: SourceQuery, auto: bool) {
@@ -2321,6 +2295,8 @@ fn is_active(p: &Progress) -> bool {
     matches!(p, Progress::Queued | Progress::Running(_))
 }
 
+/// A search typed into the search bar, with the kind and copy picked under
+/// its cog.
 fn query(text: &str, kind: i32, prefer: i32) -> SourceQuery {
     SourceQuery {
         text: text.trim().to_string(),
@@ -2809,7 +2785,7 @@ mod tests {
     }
 
     #[test]
-    fn queries_from_the_dialog() {
+    fn queries_from_the_search_bar() {
         let q = query("  Bonobo - Kerala ", 2, 1);
         assert_eq!(q.text, "Bonobo - Kerala");
         assert_eq!(q.kind, QueryKind::Album);
