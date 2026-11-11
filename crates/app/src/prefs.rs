@@ -445,6 +445,11 @@ impl WizardState {
 
     fn set_database(&mut self, importer: &dyn LibraryImport, database: Option<PathBuf>) {
         self.preview = match &database {
+            None if !importer.missing_hint().is_empty() => format!(
+                "No {} library was found where it is usually kept. {}",
+                importer.title(),
+                importer.missing_hint()
+            ),
             None => format!(
                 "No {} library was found where it is usually kept. Choose its database file.",
                 importer.title()
