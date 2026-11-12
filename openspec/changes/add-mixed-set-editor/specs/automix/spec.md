@@ -1,12 +1,16 @@
 ## ADDED Requirements
 
-### Requirement: Automix points from a recorded set
-openDJ SHALL find the transitions in a recording made by openDJ and offer to save each as Automix points: a mix-out point on the outgoing track, a mix-in point on the incoming track and a pair mix for that ordered pair of tracks. Points already on a track SHALL be kept unless the DJ chooses to replace them.
+### Requirement: Pair mixes from a recorded set
+openDJ SHALL find the transitions in a recording made by openDJ and offer to save each as a pair mix for that ordered pair of tracks: out point, in point, length and style. Saving a pair mix SHALL NOT change either track's own Automix points. Automix SHALL use a pair mix for the two tracks it is mixing first, then the tracks' own points, then phrases.
 
-#### Scenario: Learned points
-- **WHEN** the DJ mixed track A into track B over 16 bars starting 5:12 into A, and saves the points from that recording
-- **THEN** A has a mix-out point at 5:12, B has a mix-in point where it was when it became audible, and the pair A into B is stored with 16 bars
+#### Scenario: Learned pair
+- **WHEN** the DJ mixed track A into track B over 16 bars starting 5:12 into A, and saves it from that recording
+- **THEN** the pair A into B is stored with its out point at 5:12, B's in point and 16 bars, and A's own mix-out point is unchanged
 
-#### Scenario: Pair mix first
-- **WHEN** Automix mixes A into B and a pair mix for A into B exists
-- **THEN** it uses the pair mix's points and length, ahead of the tracks' own points and phrases
+#### Scenario: Different next track
+- **WHEN** Automix mixes A into C and only a pair mix for A into B exists
+- **THEN** it uses A's own points, or phrases when A has none
+
+#### Scenario: Same point every time
+- **WHEN** A was mixed out at the same point into three different tracks across saved sets
+- **THEN** the learn screen offers to make that A's own mix-out point, unticked

@@ -15,8 +15,9 @@
 ## 3. Automix points from a set
 
 - [ ] 3.1 `pair_mixes` table and Automix plan lookup: pair mix, then track points, then phrases
-- [ ] 3.2 Learn Automix points: out and in points per transition, existing points beside them, save ticks
-- [ ] 3.3 Play it again as Automix
+- [ ] 3.2 Learn Automix points: save transitions as pair mixes only; existing pair mixes beside them, save ticks
+- [ ] 3.3 "Make this the track's default" (unticked) when a track was mixed out at the same point into three or more tracks
+- [ ] 3.4 Play it again as Automix
 
 ## 4. Docs
 
