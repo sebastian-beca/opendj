@@ -106,6 +106,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-mixer-deck](changes/add-mixer-deck/proposal.md) (a Mixer deck with up to eight thin input strips in place of Aux 1 to 3, the mic as a strip, an FX switch per strip, and each interface opened once; a user request after the aux latency fix, issue #606, 2026-11-10)
 - [add-light-mode](changes/add-light-mode/proposal.md) (Dark, Light or Match system: light panels and library with the waveforms kept on dark wells as rekordbox does, a calm light Player, deeper lilac for text; a user request after a Serato, rekordbox, VirtualDJ and TIDAL comparison, issue #646, 2026-11-12)
 - [add-mixed-set-editor](changes/add-mixed-set-editor/proposal.md) (a recording opens as a read-only timeline: deck rows, transitions with length and style, loops, scratches, playback and a transitions list; a user request after a DJ.Studio comparison, 2026-11-12)
+- [add-mixed-set-editor](changes/add-mixed-set-editor/proposal.md) (a recording opens as a read-only timeline: deck rows, transitions with length and style, loops, scratches, playback and a transitions list; pair mixes learned from its transitions; a user request after a DJ.Studio comparison, 2026-11-12)
 
 ## v0.8 · From the booth to the studio
 
