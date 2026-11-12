@@ -2,7 +2,7 @@
 
 Planned for: **v0.8 · From the booth to the studio** (2026-11-12, a user request to put all store and purchase work in one change)
 
-Replaces four changes that were never started (`enable-stores-and-purchase-inbox`, `add-bandcamp-collection-sync`, `add-find-and-buy`, `add-artist-direct-stores`) and takes over the steps of `add-buy-from-wanted` that were not built (live lookup checks, Odesli, Match to Wanted…, other store-app folders, Beatport). Issue #358 tracked the built part.
+Replaces four changes that were never started (`enable-stores-and-purchase-inbox`, `add-bandcamp-collection-sync`, `add-find-and-buy`, `add-artist-direct-stores`) and `add-addon-repositories` (moved in on a user request the same day), and takes over the steps of `add-buy-from-wanted` that were not built (live lookup checks, Odesli, Match to Wanted…, other store-app folders, Beatport). Issue #358 tracked the built part.
 
 ## Why
 
@@ -12,12 +12,14 @@ Buying music should be the easy way to get a track into openDJ, with as much of 
 - Buy… on Wanted works (PR #359, #422, #476): every store is checked, ranked by who has the track, artist-direct, speed to the library and lossless, and arrivals are matched back to Wanted. It only works from Wanted, and an unmatched arrival can't be tied to its Wanted row by hand.
 - Bandcamp purchases must still be downloaded by hand, one zip at a time.
 - Artist-direct stores other than Bandcamp (Mirlo, Ampwall, Faircamp) are only search links.
+- Add-ons run from the add-ons folder (PR #36) but installing one means copying files by hand, so store add-ons can't be offered to most DJs.
 - Beatport's cart needs partner access, which has been asked for and not answered.
 
 One change, in one release, makes these a single path: find a track anywhere, buy it on the store's own checkout, and find it analysed in Inbox.
 
 ## What Changes
 
+0. **Add-on repositories.** Settings › Add-ons with Installed, Available and Repositories. A repository is one `opendj-addons.json` at a URL listing each add-on with a download and checksum per platform; the official one is built in, others are marked unsupported. Private GitHub repositories with a read-only token kept in the keychain. Update checks at start and at most daily, never installing while a deck plays. Crashed add-ons restart with a growing delay. Store add-ons (step 6) and download add-ons install from here.
 1. **Stores switched on.** The Bandcamp source searches in the app and lists results with price and format where the store shows them; Buy opens the page in the browser. A Shopping row offers the other stores' own search pages. Each store can be switched on and off in Settings › Sources; the purchase inbox stays off until the DJ turns it on.
 2. **Buy… everywhere a track has no file** (was Find and buy): Spotify, TIDAL, Apple Music and SoundCloud rows not in the collection, list placeholders from imports, Wanted rows and Up Next, using the same Buy sheet and ranking as Buy from Wanted. Tracks bought from outside Wanted are put on Wanted as being bought, so their arrival is matched the same way.
 3. **Better track links.** Odesli (song.link) as a second cross-link source after MusicBrainz, with a short cache; prices shown where the store's lookup gives one.
@@ -34,6 +36,7 @@ One change, in one release, makes these a single path: find a track anywhere, bu
 
 ### Modified Capabilities
 
+- `add-ons`: Settings › Add-ons with repositories, install, update and remove
 - `library-sources`: stores on, Buy… on any track without a file, Odesli links, Match to Wanted…, store-app folders, Just bought, more artist-direct stores, Beatport cart
 
 ## Out of Scope
@@ -42,8 +45,9 @@ One change, in one release, makes these a single path: find a track anywhere, bu
 - Affiliate, referral or tracking tags on any store link.
 - DRM-protected downloads, stream ripping or any DRM workaround.
 - Streaming playback.
+- Sandboxing add-ons (they run with the user's rights; the trust story is shown, not enforced) and third-party audio plugins.
 - The Add to Wanted… paste dialog (filling Wanted from text, CSV and links) is planned on its own; Buy… works on what it adds.
 
 ## Impact
 
-`crates/app` (browser.rs `STORES_ENABLED` split per store, stores.rs, inbox.rs, browser/buy.rs and the Buy sheet on more lists, Settings › Sources and the inbox folders), `crates/plugins` (links.rs, buy.rs ranking, a new odesli.rs, inbox.rs folders and Just bought, bandcamp.rs sign-in and collection), new store add-ons, library schema (purchase source on Inbox rows), user guide pages in `website/book/src/guide`.
+`crates/plugins` remote.rs and new repository/index code, the Settings › Add-ons page, keychain access; `crates/app` (browser.rs `STORES_ENABLED` split per store, stores.rs, inbox.rs, browser/buy.rs and the Buy sheet on more lists, Settings › Sources and the inbox folders), `crates/plugins` (links.rs, buy.rs ranking, a new odesli.rs, inbox.rs folders and Just bought, bandcamp.rs sign-in and collection), new store add-ons, library schema (purchase source on Inbox rows), user guide pages in `website/book/src/guide`.

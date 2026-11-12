@@ -15,13 +15,27 @@ Each step is its own PR and useful alone.
 
 | Step | Depends on | Why this order |
 |---|---|---|
+| 0 Add-on repositories | nothing | Store add-ons in step 6 need a way to install |
 | 1 Stores on | nothing | Built code goes live first; checks the unofficial Bandcamp search on a real network |
 | 2 Buy… everywhere | 1 | Reuses the Buy sheet; biggest reach for the least code |
 | 3 Track links (Odesli, prices) | 2 | Better matches for tracks found from streaming ids |
 | 4 Arrival (Match to Wanted…, folders, Just bought) | 1 | Closes the loop for purchases from any store |
 | 5 Bandcamp sync | 4 | Lands in Just bought; the fastest path to the library for the main artist-direct store |
-| 6 More artist-direct stores | 2 | Each one an add-on checked against its terms |
+| 6 More artist-direct stores | 0, 2 | Each one an add-on checked against its terms |
 | 7 Beatport | partner access | Built only if Beatport grants it |
+
+## Add-on repositories
+
+From `add-addon-repositories` (full note `notes/addon-repositories.md` in project files). Phase 1 (PR #36) loads executables from `<config>/addons/` and speaks JSON lines over stdio.
+
+- **Index format:** one `opendj-addons.json` per repository, hosted anywhere; on GitHub a release asset at `/releases/latest/download/opendj-addons.json`. Chosen over a registry service so anyone can publish.
+- **Trust:** checksums always; an ed25519 key pinned on first add (trust on first use). Add-ons are not sandboxed; openDJ shows publisher, declared hosts and "unsupported".
+- **Secrets:** tokens in the macOS Keychain / Linux Secret Service, never in settings.json.
+- **Versions:** `initialize` carries the protocol version; an index entry names the openDJ versions it needs, and too-new add-ons show but can't install.
+
+### Risks
+- Malicious add-on from an unsupported repository → warning before install, publisher and hosts shown, remove in one click.
+- GitHub rate limits on index fetches → cache the index, check at most daily.
 
 ## Store sources
 

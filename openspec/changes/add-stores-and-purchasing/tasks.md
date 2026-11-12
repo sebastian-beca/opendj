@@ -1,5 +1,13 @@
 # Tasks
 
+## 0. Add-on repositories
+
+- [ ] 0.1 Parse and verify `opendj-addons.json` with signed and unsigned fixtures
+- [ ] 0.2 Install, update and remove into `<config>/addons/` with tests
+- [ ] 0.3 Settings › Add-ons with Installed, Available and Repositories and the token field with keychain storage; screenshot
+- [ ] 0.4 Restart crashed add-ons with backoff and show the reason; test with a crashing stub
+- [ ] 0.5 New add-ons page in website/book/src/guide
+
 ## 1. Stores on
 
 - [ ] 1.1 Split `STORES_ENABLED` into per-store switches in Settings › Sources (Bandcamp, Beatport, Shopping), hidden on a fresh install; test the inbox default is off
