@@ -72,7 +72,7 @@ pub fn install(app: &AppWindow, engine: Rc<AudioEngine>) {
             if p.watching {
                 engine.watch_input(Some(&p.device));
             }
-            show(&app, &p, &setup);
+            show(&app, &p, &setup, &engine.status());
         });
     }
     {
@@ -92,7 +92,7 @@ pub fn install(app: &AppWindow, engine: Rc<AudioEngine>) {
                 let now = peaks.get(c).copied().map_or(0.0, meter);
                 *m = now.max(*m - fall);
             }
-            show(&app, &p, &settings::audio_setup());
+            show(&app, &p, &settings::audio_setup(), &engine.status());
         });
     }
     {
@@ -115,7 +115,7 @@ pub fn install(app: &AppWindow, engine: Rc<AudioEngine>) {
             settings::set_audio_setup(&setup);
             engine.set_inputs(&setup);
             if let Some(app) = weak.upgrade() {
-                instruments::show_routes(&app, &engine.input_status());
+                instruments::show_routes(&app, &engine.input_status(), &engine.status());
             }
         });
     }
@@ -127,7 +127,7 @@ pub fn install(app: &AppWindow, engine: Rc<AudioEngine>) {
             };
             settings::set_mixer_name(n - 1, &name);
             if let Some(app) = weak.upgrade() {
-                instruments::show_routes(&app, &engine.input_status());
+                instruments::show_routes(&app, &engine.input_status(), &engine.status());
             }
         });
     }
@@ -148,8 +148,10 @@ pub fn install(app: &AppWindow, engine: Rc<AudioEngine>) {
 }
 
 /// The picker's rows: the interface's pairs then single channels, each
-/// with its meters, the strip's own choice marked.
-fn show(app: &AppWindow, p: &Picker, setup: &AudioSetup) {
+/// with its meters, the strip's own choice marked. The header names the
+/// interface, and says when it runs on its own clock: not the main
+/// output's (`clock`, the engine's status).
+fn show(app: &AppWindow, p: &Picker, setup: &AudioSetup, clock: &str) {
     let role = InputRole::AUXILIARIES[p.strip - 1];
     let saved = setup
         .inputs
@@ -176,10 +178,19 @@ fn show(app: &AppWindow, p: &Picker, setup: &AudioSetup) {
         "No input device".into()
     } else if p.device.is_empty() {
         "System default".into()
+    } else if own_clock(&p.device, clock) {
+        format!("{} · own clock, may drift", p.device).into()
     } else {
         p.device.as_str().into()
     });
     ui.set_picker_rows(ModelRc::new(VecModel::from(rows)));
+}
+
+/// `device` is another interface than the main output's, as the engine's
+/// status names it.
+fn own_clock(device: &str, clock: &str) -> bool {
+    let main = instruments::clock_device(clock);
+    !device.is_empty() && !main.is_empty() && device != main
 }
 
 /// "1/2" for a pair from channel 1, "3" for channel 3 alone, as the
@@ -275,6 +286,15 @@ mod tests {
         // Its own, even when not connected.
         setup.inputs.push(aux(2, "Old interface"));
         assert_eq!(device_for(&setup, 2, &devices), "Old interface");
+    }
+
+    #[test]
+    fn another_interface_runs_on_its_own_clock() {
+        let clock = "M4 · 48 kHz · 256 samples (5.3 ms)";
+        assert!(!own_clock("M4", clock));
+        assert!(own_clock("iPhone", clock));
+        assert!(!own_clock("", clock));
+        assert!(!own_clock("iPhone", "No audio output"));
     }
 
     #[test]

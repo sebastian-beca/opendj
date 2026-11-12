@@ -4772,6 +4772,21 @@ component InputPicker inherits PopupWindow {
     }
 }
 
+// A small clock beside a Mixer channel's name: it comes from another
+// interface than the main output's, on that interface's own clock, so it
+// can drift (its input picker says so).
+component ClockMark inherits Path {
+    width: 10px;
+    height: 10px;
+    viewbox-width: 30;
+    viewbox-height: 30;
+    stroke: Theme.text-dim;
+    stroke-width: 1.2px;
+    stroke-line-cap: round;
+    fill: transparent;
+    commands: "M 15 3 A 12 12 0 1 1 14.99 3 Z M 15 8 L 15 15 L 20 18";
+}
+
 // Each Mixer channel's own color, by its number.
 global StripColors {
     pure public function of(number: int) -> color {
@@ -4913,6 +4928,7 @@ component MixerStrip inherits Rectangle {
                         }
                     }
                 }
+                if info.own-clock: VerticalLayout { alignment: center; ClockMark { } }
                 Rectangle {
                     width: 20px;
                     horizontal-stretch: 0;
@@ -5287,6 +5303,7 @@ component SlimMixerStrip inherits Rectangle {
                     overflow: elide;
                     horizontal-stretch: 1;
                 }
+                if info.own-clock: VerticalLayout { alignment: center; ClockMark { width: 8px; height: 8px; } }
                 Text {
                     text: "▼";
                     color: name.has-hover ? Theme.text : Theme.text-dim;
