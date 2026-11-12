@@ -35,6 +35,9 @@ export struct MixerStripInfo {
     stereo: bool,
     // What is wrong with it (the device is missing), or "".
     problem: string,
+    // It comes from another interface than the main output's, so it runs
+    // on that interface's own clock and can drift.
+    own-clock: bool,
 }
 
 export struct LiveItem {

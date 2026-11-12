@@ -80,9 +80,12 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 
 - [add-addon-repositories](changes/add-addon-repositories/proposal.md) (moved from v0.6 at the 0.6.0 release)
 - [add-dvs](changes/add-dvs/proposal.md) (timecode vinyl and CDs; moved from after 1.0, issue #317; moved from v0.6 at the 0.6.0 release)
+- [enable-stores-and-purchase-inbox](changes/enable-stores-and-purchase-inbox/proposal.md) (moved from v0.6 at the 0.6.0 release)
+- [add-bandcamp-collection-sync](changes/add-bandcamp-collection-sync/proposal.md) (moved from v0.6 at the 0.6.0 release)
+- [add-find-and-buy](changes/add-find-and-buy/proposal.md) (moved from v0.6 at the 0.6.0 release)
+- [add-artist-direct-stores](changes/add-artist-direct-stores/proposal.md) (moved from v0.6 at the 0.6.0 release)
 - [add-settings-table](changes/add-settings-table/proposal.md) (first step of add-settings-layers: one option table, Show modified, reset on each row, search words, help in ⓘ; issue #364, split 2026-11-05; moved from v0.6 at the 0.6.0 release)
 - [add-prepare-list](changes/add-prepare-list/proposal.md)
-- [add-pipewire-audio](changes/add-pipewire-audio/proposal.md) (native PipeWire outputs by name, shared devices, one clock for every device; parked from v0.6 2026-11-06, issue #402)
 - [add-synced-lyrics](changes/add-synced-lyrics/proposal.md) (lyrics from .lrc files and tags in a Lyrics tab and Player mode, LRCLIB lookup off at first, fixing and syncing; moved from v1.x 2026-11-06 after the lyrics and karaoke research)
 - [add-karaoke-screen](changes/add-karaoke-screen/proposal.md) (the words of the track playing on a second display with the word being sung filling, a count-in and a guide vocal slider, then a /karaoke page on the local web server; split from the lyrics and karaoke research 2026-11-06)
 - [add-waveform-lyrics](changes/add-waveform-lyrics/proposal.md) (timed lyrics along the bottom of each deck's big waveform, sung part lilac; user request 2026-11-09)
@@ -107,6 +110,8 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-mixed-set-editor](changes/add-mixed-set-editor/proposal.md) (a recording opens in a simple view with Check my mix, quick fixes (trim, track level, cut, loudness) and chapter export, and a timeline: deck rows, transitions with length and style, loops, scratches, playback and a transitions list; pair mixes learned from its transitions; a user request after a DJ.Studio comparison, 2026-11-12; moved to v0.8 2026-11-12 to ship v0.7 sooner)
 - [add-stores-and-purchasing](changes/add-stores-and-purchasing/proposal.md) (stores and purchasing in one change: Bandcamp and Shopping sources switched on, Buy… on any track without a file, Odesli links, Match to Wanted…, more inbox folders, Just bought, Bandcamp collection sync, more artist-direct stores, the Beatport cart if partner access is granted; replaces enable-stores-and-purchase-inbox, add-bandcamp-collection-sync, add-find-and-buy and add-artist-direct-stores and takes the unbuilt steps of add-buy-from-wanted; a user request, 2026-11-12)
 - [add-set-view](changes/add-set-view/proposal.md) (editing in the Mixed Set Editor: move and stretch transitions, edit curves and loops, Keep or Bypass for scratches, frame-accurate capture, render a new mix through the engine)
+- [add-dvs](changes/add-dvs/proposal.md) (timecode vinyl and CDs; moved from after 1.0, issue #317; moved from v0.6 at the 0.6.0 release; moved to v0.8 2026-11-12)
+- [add-pipewire-audio](changes/add-pipewire-audio/proposal.md) (native PipeWire outputs by name, shared devices, one clock for every device; parked from v0.6 2026-11-06, issue #402; moved to v0.8 2026-11-12)
 
 ## v1.0 · Ready for any DJ switching over
 

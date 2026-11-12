@@ -245,7 +245,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
     set("[Master]", "deck_tap", settings::number("deck_tap", 1.0));
     // An Auxiliary input taken away since falls back to the mix.
     let source = settings::number("record_source", 0.0) as u8;
-    let source = if record_sources(&settings::audio_setup())
+    let source = if record_sources(&settings::audio_setup(), &settings::mixer_names())
         .iter()
         .any(|(v, _)| *v == source)
     {
@@ -3131,7 +3131,7 @@ impl Prefs {
                 }
             }
             "record_source" => {
-                let list = record_sources(&settings::audio_setup());
+                let list = record_sources(&settings::audio_setup(), &settings::mixer_names());
                 let value = list.get(index).map_or(0, |(v, _)| *v);
                 settings::set("record_source", json!(value));
                 self.set("[Master]", "record_source", value as f64);
@@ -3729,11 +3729,12 @@ fn remove_aux(setup: &mut AudioSetup, role: InputRole) {
 }
 
 /// What recording and going on air take: the master mix, or one of the
-/// Auxiliary inputs set up (a hardware mixer's record out). Each choice
-/// with its `[Master],record_source` value.
-fn record_sources(setup: &AudioSetup) -> Vec<(u8, String)> {
+/// Mixer's channels as it comes in (with an external mixer, its record
+/// out), by the channel's name as the Mixer shows it (`names`, "Ch N"
+/// until renamed). Each choice with its `[Master],record_source` value.
+fn record_sources(setup: &AudioSetup, names: &[String]) -> Vec<(u8, String)> {
     let first = if setup.external_mixer {
-        "Auxiliary inputs, as mixed"
+        "All channels, as mixed"
     } else {
         "Master mix"
     };
@@ -3745,12 +3746,15 @@ fn record_sources(setup: &AudioSetup) -> Vec<(u8, String)> {
             } else {
                 &r.device
             };
-            let name = if n == 1 {
-                "Auxiliary".to_string()
-            } else {
-                format!("Auxiliary {n}")
-            };
-            list.push((n, format!("{name} · {device}")));
+            let name = names
+                .get(usize::from(n) - 1)
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map_or_else(|| format!("Ch {n}"), String::from);
+            let channels = channel_names(r.channel, r.channels())
+                .trim_start_matches("In ")
+                .replace(" & ", "/");
+            list.push((n, format!("{name} · {device} {channels}")));
         }
     }
     list
@@ -3758,7 +3762,7 @@ fn record_sources(setup: &AudioSetup) -> Vec<(u8, String)> {
 
 fn record_source_item() -> PrefItem {
     let setup = settings::audio_setup();
-    let list = record_sources(&setup);
+    let list = record_sources(&setup, &settings::mixer_names());
     let chosen = settings::number("record_source", 0.0) as u8;
     let names: Vec<String> = list.iter().map(|(_, n)| n.clone()).collect();
     PrefItem {
@@ -3768,8 +3772,8 @@ fn record_source_item() -> PrefItem {
             "record_source",
             MENU,
             "Recording input",
-            "What recordings and broadcasts take. With an external mixer, pick the input \
-             its record out comes in on.",
+            "What recordings and broadcasts take: the master mix, or one Mixer channel as it \
+             comes in. With an external mixer, pick the channel its record out comes in on.",
         )
     }
 }
@@ -4284,8 +4288,45 @@ mod tests {
             .map(|r| (r.role.aux_number().unwrap(), r.channel))
             .collect();
         assert_eq!(left, [(1, 0), (4, 4), (7, 6)]);
-        let recording: Vec<u8> = record_sources(&setup).iter().map(|(v, _)| *v).collect();
+        let recording: Vec<u8> = record_sources(&setup, &[])
+            .iter()
+            .map(|(v, _)| *v)
+            .collect();
         assert_eq!(recording, [0, 1, 4, 7]);
+    }
+
+    #[test]
+    fn recording_offers_the_mixer_channels_by_name() {
+        let mut setup = AudioSetup {
+            inputs: vec![
+                InputRoute {
+                    role: InputRole::AUXILIARIES[0],
+                    device: "M4".into(),
+                    channel: 0,
+                    mono: false,
+                },
+                InputRoute {
+                    role: InputRole::AUXILIARIES[2],
+                    device: "iPhone".into(),
+                    channel: 2,
+                    mono: true,
+                },
+            ],
+            ..AudioSetup::default()
+        };
+        let names = ["".to_string(), "".into(), "Vocals".into()];
+        let labels = |setup: &AudioSetup| -> Vec<String> {
+            record_sources(setup, &names)
+                .into_iter()
+                .map(|(_, l)| l)
+                .collect()
+        };
+        assert_eq!(
+            labels(&setup),
+            ["Master mix", "Ch 1 · M4 1/2", "Vocals · iPhone 3"]
+        );
+        setup.external_mixer = true;
+        assert_eq!(labels(&setup)[0], "All channels, as mixed");
     }
 
     #[test]
