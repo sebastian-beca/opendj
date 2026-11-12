@@ -27,7 +27,7 @@ export struct PickerRow {
 export struct MixerStripInfo {
     // The aux input, from 1: `[AuxiliaryN]`.
     number: int,
-    // The interface it comes from ("M4"), or "Aux N" without one.
+    // Its name: "Ch N" until renamed.
     name: string,
     // Its channels on the interface: "3" (mono) or "1/2" (stereo).
     channels: string,
@@ -191,6 +191,8 @@ export global InstrumentsUi {
     in property <[PickerRow]> picker-rows;
     // Opens it for strip `number` (from 1), or for a new strip with 0.
     callback open-picker(number: int);
+    // Names a Mixer channel; "" goes back to "Ch N".
+    callback rename-strip(number: int, name: string);
     // Its popup is open: fresh meters, please.
     callback picker-tick();
     // Choice `index` of picker-rows picked.

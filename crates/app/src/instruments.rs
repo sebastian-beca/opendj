@@ -14,7 +14,9 @@ use opendj_engine::inputs;
 
 use crate::audio_plugins::Found;
 use crate::presets::{self, Preset, GROOVE};
-use crate::{AppWindow, InstrumentNode, InstrumentsUi, LiveItem, MixerStripInfo, Preferences};
+use crate::{
+    settings, AppWindow, InstrumentNode, InstrumentsUi, LiveItem, MixerStripInfo, Preferences,
+};
 
 /// What dragging an item carries: `opendj-live:<kind>:<index>`.
 const LIVE_PAYLOAD: &str = "opendj-live:";
@@ -631,14 +633,18 @@ pub fn show_routes(app: &AppWindow, status: &[String]) {
     let shown: Vec<SharedString> = routes.iter().map(|r| r.as_str().into()).collect();
     let ui = app.global::<InstrumentsUi>();
     ui.set_routes(ModelRc::new(VecModel::from(shown)));
-    ui.set_strips(ModelRc::new(VecModel::from(strips(status))));
+    ui.set_strips(ModelRc::new(VecModel::from(strips(
+        status,
+        &settings::mixer_names(),
+    ))));
     STATE.with_borrow_mut(|s| s.routes = routes);
     refresh(app);
 }
 
-/// The Mixer's strips from the engine's input states: each aux input
-/// that has a device, working or not.
-fn strips(status: &[String]) -> Vec<MixerStripInfo> {
+/// The Mixer's channels from the engine's input states: each aux input
+/// that has a device, working or not, under the name given it ("Ch N"
+/// until renamed).
+fn strips(status: &[String], names: &[String]) -> Vec<MixerStripInfo> {
     inputs::AUXILIARIES
         .iter()
         .enumerate()
@@ -646,12 +652,15 @@ fn strips(status: &[String]) -> Vec<MixerStripInfo> {
             let status = status.get(i).filter(|s| !s.is_empty())?;
             let route = route(status);
             let mut parts = route.split(" · ");
-            let device = parts.next().filter(|d| !d.is_empty());
+            parts.next();
             let channels = parts.next().map(channels).unwrap_or_default();
             Some(MixerStripInfo {
                 number: n as i32 + 1,
-                name: device
-                    .map_or_else(|| format!("Aux {}", n + 1), String::from)
+                name: names
+                    .get(n)
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map_or_else(|| format!("Ch {}", n + 1), String::from)
                     .into(),
                 channels: channels.as_str().into(),
                 stereo: channels.contains('/'),
@@ -818,18 +827,20 @@ mod tests {
         status[inputs::AUXILIARY] = "M4 · In 1 & 2 · 48 kHz".into();
         status[inputs::AUXILIARIES[4]] = "M4 · In 3 · 48 kHz".into();
         status[inputs::AUXILIARIES[7]] = "iPhone is not connected".into();
-        let shown: Vec<(i32, String, String, String)> = strips(&status)
+        let mut names = vec![String::new(); 8];
+        names[4] = "Vocals".into();
+        let shown: Vec<(i32, String, String, String)> = strips(&status, &names)
             .into_iter()
             .map(|s| (s.number, s.name.into(), s.channels.into(), s.problem.into()))
             .collect();
         assert_eq!(
             shown,
             [
-                (1, "M4".into(), "1/2".into(), "".into()),
-                (5, "M4".into(), "3".into(), "".into()),
+                (1, "Ch 1".into(), "1/2".into(), "".into()),
+                (5, "Vocals".into(), "3".into(), "".into()),
                 (
                     8,
-                    "Aux 8".into(),
+                    "Ch 8".into(),
                     "".into(),
                     "iPhone is not connected".into()
                 ),
