@@ -9,7 +9,7 @@
   {"name": "Numark Mixtrack Pro FX", "file": "Numark Mixtrack Pro FX.midi.xml", "status": "beta", "note": ""},
   {"name": "Numark V7", "file": "Numark V7.midi.xml", "status": "beta", "note": "Mixxx's mapping from 2012. The V7 runs its own platter motor; the picture is a sketch, not measured."},
   {"name": "Hercules DJControl Inpulse 500", "file": "Hercules_DJControl_Inpulse_500.midi.xml", "status": "beta", "note": ""},
-  {"name": "Allen & Heath Xone:K2", "file": "Allen and Heath Xone K2 - 2 Decks.opendj-mapping", "status": "beta", "note": "openDJ's own two-deck mapping. Set the K2 to its factory settings: Latching Layers off, MIDI channel 15. Mixxx's mapping (Allen&Heath Xone K1/K2/K3) is still there to pick."},
+  {"name": "Allen & Heath Xone:K2", "file": "Allen and Heath Xone K2 - 2 Decks.opendj-mapping", "status": "beta", "note": "openDJ's own two-deck mapping. Set the K2 to its factory settings: Latching Layers off, MIDI channel 15. openDJ's Mixer mapping (Allen & Heath Xone:K2 - Mixer) puts Mixer channels 1 to 4 on its columns, and Mixxx's mapping (Allen&Heath Xone K1/K2/K3) is still there to pick."},
   {"name": "DJ TechTools Midi Fighter Twister", "file": "DJ TechTools MIDI Fighter Twister.midi.xml", "status": "beta", "note": "Tried on the hardware; the mapping is still settling."},
   {"name": "Pioneer DDJ-SX", "file": "Pioneer DDJ-SX.midi.xml", "status": "beta", "note": "Mixxx's mapping. Four decks; the pads have Hot Cue, Roll, Slicer and Sampler modes."},
   {"name": "Pioneer DDJ-SX2", "file": "Pioneer DDJ-SX2.midi.xml", "status": "beta", "note": "Mixxx's DDJ-SX mapping: the SX2 sends the same MIDI. CAPTURE and the sequencer buttons do nothing yet."},
