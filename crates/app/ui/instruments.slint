@@ -433,7 +433,7 @@ export component LiveIcon inherits Rectangle {
         fill: transparent;
         commands: "M 11.5 8 A 3.5 3.5 0 0 1 18.5 8 L 18.5 15 A 3.5 3.5 0 0 1 11.5 15 Z M 8 14 A 7 7 0 0 0 22 14 M 15 21 L 15 25 M 11 25 L 19 25";
     }
-    // The Mixer: three faders.
+    // The Mixer: three lines, like a mixer's channels.
     if kind == 7: Path {
         width: parent.width;
         height: parent.height;
@@ -444,14 +444,6 @@ export component LiveIcon inherits Rectangle {
         stroke-line-cap: round;
         fill: transparent;
         commands: "M 8 5 L 8 25 M 15 5 L 15 25 M 22 5 L 22 25";
-    }
-    if kind == 7: Path {
-        width: parent.width;
-        height: parent.height;
-        viewbox-width: 30;
-        viewbox-height: 30;
-        fill: tint;
-        commands: "M 5.5 16 L 10.5 16 L 10.5 19.5 L 5.5 19.5 Z M 12.5 9 L 17.5 9 L 17.5 12.5 L 12.5 12.5 Z M 19.5 13 L 24.5 13 L 24.5 16.5 L 19.5 16.5 Z";
     }
     // The aux input: a cable's jack.
     if kind == 4: Path {
