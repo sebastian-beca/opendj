@@ -13,7 +13,6 @@
 - [ ] 2.2 Transition editor: both tracks on one beatgrid, editable curves, as-played ghost, A/B
 - [ ] 2.3 Loops: drag to change length or repeat count, or remove
 - [ ] 2.4 Hard moves: Keep from recording (copied audio, the default) or Bypass
-- [ ] 2.5 Things to check: FX left on past a phrase change, jumps mid-phrase, limiter gain reduction over 3 dB
 
 ## 3. Render
 
