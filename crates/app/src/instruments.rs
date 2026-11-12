@@ -670,6 +670,10 @@ fn strips(status: &[String], names: &[String], clock: &str) -> Vec<MixerStripInf
                 channels: channels.as_str().into(),
                 stereo: channels.contains('/'),
                 own_clock: !route.is_empty() && !clock.is_empty() && device != clock,
+                group: format!("[Auxiliary{}]", n + 1).into(),
+                badge: (n + 1).to_string().into(),
+                on_key: "main_mix".into(),
+                aux: true,
                 problem: if route.is_empty() {
                     status.as_str()
                 } else {

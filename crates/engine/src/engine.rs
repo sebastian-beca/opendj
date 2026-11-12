@@ -7491,6 +7491,25 @@ mod tests {
     }
 
     #[test]
+    fn the_instrument_joins_the_mixer_when_asked() {
+        use crate::inputs::{INSTRUMENT, MIXER};
+        let (reg, mut engine, _input) = setup();
+        let inst = |k: &str| reg.get("[Instrument1]", k).unwrap();
+        // A strip's controls, as the aux inputs have.
+        for k in ["pan", "solo", "fx", "peak_db"] {
+            assert!(reg.get("[Instrument1]", k).is_some(), "{k}");
+        }
+        reg.get("[Channel1]", "live_input")
+            .unwrap()
+            .set(MIXER as f64);
+        run(&mut engine, 0.05);
+        assert!(!engine.inputs[INSTRUMENT].in_mixer);
+        inst("mixer").set_bool(true);
+        run(&mut engine, 0.05);
+        assert!(engine.inputs[INSTRUMENT].in_mixer);
+    }
+
+    #[test]
     fn a_deck_plays_a_live_input_through_its_channel() {
         let (reg, mut engine, mut input) = setup();
         let aux = |k: &str| reg.get("[Auxiliary1]", k).unwrap();

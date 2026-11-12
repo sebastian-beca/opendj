@@ -38,6 +38,16 @@ export struct MixerStripInfo {
     // It comes from another interface than the main output's, so it runs
     // on that interface's own clock and can drift.
     own-clock: bool,
+    // Its controls' group: `[AuxiliaryN]`, `[Microphone]` or
+    // `[Instrument1]`; what its number square reads ("3", "MIC",
+    // "INST"); and the control that switches it on (`main_mix`, or the
+    // mic's `talkover`).
+    group: string,
+    badge: string,
+    on-key: string,
+    // An aux input: its input can be picked and it can be renamed. The
+    // mic and the instrument are removed from the Mixer instead.
+    aux: bool,
 }
 
 export struct LiveItem {
@@ -194,6 +204,9 @@ export global InstrumentsUi {
     in property <[PickerRow]> picker-rows;
     // Opens it for strip `number` (from 1), or for a new strip with 0.
     callback open-picker(number: int);
+    // It is open for a new strip (+): it also offers the mic and the
+    // instrument plugin. Set by the app.
+    in property <bool> picker-adding;
     // Names a Mixer channel; "" goes back to "Ch N".
     callback rename-strip(number: int, name: string);
     // Its popup is open: fresh meters, please.
@@ -217,8 +230,9 @@ export global InstrumentsUi {
     // anything else loads like a track. `instrument` is the plugin picked.
     callback drop-art(deck: int, live: int, instrument: int);
     callback choose-art(live: int, instrument: int);
-    // Solos aux input `number` (from 1) alone in the Mixer: Cmd/Ctrl-click
-    // on its S. 0 clears every solo (CLEAR SOLO).
+    // Solos strip `number` alone in the Mixer: aux input 1 to 8, 9 the
+    // instrument, 10 the mic (Cmd/Ctrl-click on its S). 0 clears every
+    // solo (CLEAR SOLO).
     public function solo-alone(number: int) {
         Controls.set-value(Controls.resolve("[Auxiliary1]", "solo"), number == 1 ? 1 : 0);
         Controls.set-value(Controls.resolve("[Auxiliary2]", "solo"), number == 2 ? 1 : 0);
@@ -228,6 +242,26 @@ export global InstrumentsUi {
         Controls.set-value(Controls.resolve("[Auxiliary6]", "solo"), number == 6 ? 1 : 0);
         Controls.set-value(Controls.resolve("[Auxiliary7]", "solo"), number == 7 ? 1 : 0);
         Controls.set-value(Controls.resolve("[Auxiliary8]", "solo"), number == 8 ? 1 : 0);
+        Controls.set-value(Controls.resolve("[Instrument1]", "solo"), number == 9 ? 1 : 0);
+        Controls.set-value(Controls.resolve("[Microphone]", "solo"), number == 10 ? 1 : 0);
+    }
+    // The Mixer's strips besides the aux inputs: the instrument plugin
+    // (number 9) and the mic (10), while their `mixer` is on.
+    public pure function instrument-strip(tick: int) -> MixerStripInfo {
+        {
+            number: 9, name: "Instrument", channels: "", stereo: true, own-clock: false,
+            group: "[Instrument1]", badge: "INST", on-key: "main_mix", aux: false,
+            problem: Controls.value(Controls.resolve("[Instrument1]", "input_configured"), tick) > 0 ? "" : "No plugin",
+        }
+    }
+    public pure function mic-strip() -> MixerStripInfo {
+        {
+            number: 10, name: "Mic", channels: "", stereo: false, own-clock: false,
+            group: "[Microphone]", badge: "MIC", on-key: "talkover", aux: false, problem: "",
+        }
+    }
+    public pure function in-mixer(group: string, tick: int) -> bool {
+        Controls.value(Controls.resolve(group, "mixer"), tick) > 0
     }
     callback remove-art(live: int, instrument: int);
 

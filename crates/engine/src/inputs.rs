@@ -218,7 +218,7 @@ struct InputControls {
     solo: Option<ControlHandle>,
     /// An auxiliary input's `fx` in the Mixer: through the deck's effects.
     fx: Option<ControlHandle>,
-    /// The microphone's `mixer`: a strip of the Mixer.
+    /// The microphone's and the instrument's `mixer`: a strip of the Mixer.
     mixer: Option<ControlHandle>,
     /// A strip's `peak_db`: its highest peak lately, in dBFS, read past
     /// full scale, for the readout over its meter.
@@ -312,16 +312,17 @@ impl InputControls {
             reg.create(g, "arp_hold", 0.0, 0.0, 1.0, Behavior::Free);
         }
         // The Mixer deck's strip controls, for the auxiliary inputs (fed by
-        // an interface's channels today; later the Groove Box or a plugin)
-        // and the microphone: `solo` within the Mixer, and `fx` for the
-        // strip through the deck's effects.
-        let strip = AUXILIARIES.contains(&input) || input == MICROPHONE;
+        // an interface's channels), the microphone and the instrument
+        // plugin: `solo` within the Mixer, and `fx` for the strip through
+        // the deck's effects.
+        let strip = AUXILIARIES.contains(&input) || input == MICROPHONE || input == INSTRUMENT;
         let pan = strip.then(|| reg.create(g, "pan", 0.0, -1.0, 1.0, Behavior::Linear));
         let solo = strip.then(|| reg.toggle(g, "solo"));
         let fx = strip.then(|| reg.toggle(g, "fx"));
-        // The microphone as a strip of the Mixer too, while a deck plays
-        // it: off by default, so it stays on its own channel.
-        let mixer = (input == MICROPHONE).then(|| reg.toggle(g, "mixer"));
+        // The microphone and the instrument as strips of the Mixer too,
+        // while a deck plays it: off by default, so each stays on its own
+        // channel (or deck).
+        let mixer = (input == MICROPHONE || input == INSTRUMENT).then(|| reg.toggle(g, "mixer"));
         let peak_db = strip.then(|| {
             let top = f64::from(PEAK_DB_TOP);
             let floor = f64::from(PEAK_DB_FLOOR);
@@ -478,7 +479,7 @@ impl Input {
     }
 
     /// A strip of the Mixer while a deck plays it: every auxiliary input,
-    /// and the microphone when its `mixer` is on.
+    /// and the microphone or the instrument when its `mixer` is on.
     pub(crate) fn mixer_strip(&self) -> bool {
         AUXILIARIES.contains(&self.index) || self.c.mixer.as_ref().is_some_and(|m| m.get_bool())
     }
