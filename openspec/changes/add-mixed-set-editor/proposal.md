@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.8 · From the booth to the studio** (moved from v0.7 on 2026-11-12)
+Planned for: **v0.8 · From the booth to the studio**
 
 ## Why
 
