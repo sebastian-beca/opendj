@@ -144,28 +144,33 @@ export component WaveHeightGrip inherits Rectangle {
     // Only the grip itself takes the pointer: the rest of this layer is
     // just where the ticks and the size's name draw.
     width: strip-width;
-    // The ticks while dragging, one per size that fits.
+    // The ticks while dragging, one per size that fits: a short line where
+    // the waveforms would end, just right of the grip, with the size's
+    // letter on a dark tag so it reads over waveforms and decks alike.
     for h[i] in heights: Rectangle {
         visible: dragging && i < fits;
-        x: root.width - 34px;
+        x: root.width / 2 + 26px;
         y: strip-top + h - 0.5px;
-        width: 34px;
+        width: 50px;
         height: 1px;
         Rectangle {
-            x: parent.width - 8px;
-            width: 8px;
-            height: 1px;
-            background: i + 1 == shown ? Theme.accent : Theme.text-dim;
+            width: 18px;
+            height: i + 1 == shown ? 2px : 1px;
+            background: i + 1 == shown ? Theme.accent : Theme.text;
         }
-        Text {
-            x: 0;
-            y: -12px;
-            width: 22px;
-            horizontal-alignment: right;
-            text: WaveHeight.short(i + 1);
-            color: i + 1 == shown ? Theme.accent : Theme.text-dim;
-            font-size: 10px;
-            font-weight: 700;
+        Rectangle {
+            x: 22px;
+            y: -8px;
+            width: 24px;
+            height: 16px;
+            border-radius: 4px;
+            background: i + 1 == shown ? Theme.accent : #000000c0;
+            Text {
+                text: WaveHeight.short(i + 1);
+                color: i + 1 == shown ? #000000 : Theme.text;
+                font-size: 10px;
+                font-weight: 700;
+            }
         }
     }
     // The size's name, in the middle of the waveforms.
