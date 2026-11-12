@@ -13,9 +13,11 @@ Loops (loop on to loop off, with the bounds and the number of times round) and h
 
 ## Automix points from a set
 
-For each transition: out point = where the incoming track became audible, given in the outgoing track's time, snapped to the nearest beat; in point = where the incoming track was when it became audible. Saved as `markers` rows of kind `automix`, names `fadeStart` / `realStart`, source `set`. Existing points from imports are shown beside them and kept unless the DJ ticks to replace.
+For each transition: out point = where the incoming track became audible, given in the outgoing track's time, snapped to the nearest beat; in point = where the incoming track was when it became audible. Saved only as a pair mix (below): the right point depends on the next track, so a set does not write the track's own points (`markers` of kind `automix`, `fadeStart` / `realStart`), which stay the default for any other pairing.
 
-A pair mix row: `pair_mixes(out_track, in_track, out_seconds, in_seconds, bars, style, source, created)`, unique on (out_track, in_track). Automix's plan (`app/src/automix_phrases.rs`) looks it up first; then the track points; then phrases, as today.
+When the pair mixes saved for one outgoing track (from this set and earlier ones) have an out point within one beat of each other into three or more different tracks, the screen offers "Make this the track's default" (unticked); ticked, it writes `fadeStart` with source `set`, replacing a point from an import only if the DJ confirms.
+
+A pair mix row: `pair_mixes(out_track, in_track, out_seconds, in_seconds, bars, style, source, created)`, unique on (out_track, in_track). Saving a newer mix of the same pair replaces the row. Automix's plan (`app/src/automix_phrases.rs`) looks it up first; then the track points; then phrases, as today.
 
 ## Recordings without a usable log
 
