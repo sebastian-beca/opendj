@@ -138,7 +138,7 @@ export component LyricsLane inherits Rectangle {
     property <float> scale: 1px / 1phx;
     height: 16px;
     clip: true;
-    background: #000000a8;
+    background: Theme.s-000000a8;
     for line in lines: Rectangle {
         property <float> left: origin + round(line.start * per-second);
         x: left * 1px;
@@ -147,7 +147,7 @@ export component LyricsLane inherits Rectangle {
         height: parent.height - 4px;
         visible: self.x < parent.width && self.x + self.width > 0;
         border-radius: 3px;
-        background: now >= line.start && now < line.end ? Theme.accent.with-alpha(0.10) : #ffffff08;
+        background: now >= line.start && now < line.end ? Theme.accent.with-alpha(0.10) : Theme.n-ffffff08;
         for word in line.words: chip := Rectangle {
             property <bool> sung: now >= word.end;
             property <bool> singing: now >= word.start && now < word.end;
@@ -155,7 +155,7 @@ export component LyricsLane inherits Rectangle {
             width: max(3, round(word.end * per-second) - round(word.start * per-second) - 1) * 1px;
             border-radius: 2px;
             clip: true;
-            background: singing ? Theme.accent.with-alpha(0.38) : sung ? Theme.accent.with-alpha(0.14) : #ffffff1e;
+            background: singing ? Theme.accent.with-alpha(0.38) : sung ? Theme.accent.with-alpha(0.14) : Theme.n-ffffff1e;
             label := Text {
                 x: 3px;
                 text: word.text;
@@ -189,7 +189,7 @@ component SmallButton inherits Rectangle {
     height: 24px;
     width: label.preferred-width + 18px;
     border-radius: Theme.radius;
-    background: primary ? (ta.has-hover ? Theme.accent.brighter(0.1) : Theme.accent) : ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2a2e : Theme.control;
+    background: primary ? (ta.has-hover ? Theme.accent.brighter(0.1) : Theme.accent) : ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-2a2a2e : Theme.control;
     border-width: primary ? 0px : 1px;
     border-color: Theme.border;
     label := Text { text: root.text; color: primary ? Theme.on-selection : Theme.text; font-size: 12px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
@@ -203,16 +203,16 @@ component VocalSlider inherits Rectangle {
     property <length> travel: self.width - thumb;
     height: 20px;
     min-width: 60px;
-    Rectangle { x: thumb / 2; width: travel; height: 4px; border-radius: 2px; background: #3a3a3e; }
+    Rectangle { x: thumb / 2; width: travel; height: 4px; border-radius: 2px; background: Theme.n-3a3a3e; }
     Rectangle { x: thumb / 2; width: LyricsUi.vocals * travel; height: 4px; border-radius: 2px; background: Theme.accent; }
     Rectangle {
         x: LyricsUi.vocals * travel;
         width: thumb;
         height: 14px;
         border-radius: 7px;
-        background: ta.pressed ? #d4d4d8 : #f2f2f4;
+        background: ta.pressed ? Theme.n-d4d4d8 : Theme.n-f2f2f4;
         drop-shadow-blur: 3px;
-        drop-shadow-color: #00000080;
+        drop-shadow-color: Theme.s-00000080;
     }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -254,7 +254,7 @@ component FindList inherits VerticalLayout {
         for m[i] in LyricsUi.found: Rectangle {
             height: 46px;
             border-radius: Theme.radius;
-            background: mta.has-hover ? #ffffff0a : transparent;
+            background: mta.has-hover ? Theme.n-ffffff0a : transparent;
             mta := TouchArea { }
             HorizontalLayout {
                 padding-left: 6px;
@@ -277,7 +277,7 @@ component FindList inherits VerticalLayout {
                         height: 18px;
                         width: kind-text.preferred-width + 12px;
                         border-radius: 9px;
-                        background: m.kind == 0 ? Theme.accent.with-alpha(0.18) : #ffffff10;
+                        background: m.kind == 0 ? Theme.accent.with-alpha(0.18) : Theme.n-ffffff10;
                         kind-text := Text {
                             text: ["Synced", "Plain", "Instrumental"][m.kind];
                             color: m.kind == 0 ? Theme.accent : Theme.text-dim;
@@ -322,7 +322,7 @@ export component LyricsPanel inherits Rectangle {
             Rectangle {
                 width: subject-text.preferred-width + 26px;
                 border-radius: 4px;
-                background: subject-ta.has-hover ? #ffffff10 : transparent;
+                background: subject-ta.has-hover ? Theme.n-ffffff10 : transparent;
                 subject-text := Text {
                     x: 6px;
                     text: ["Playing", "Selected", "Deck A", "Deck B"][LyricsUi.subject] + "  ▾";
@@ -340,14 +340,14 @@ export component LyricsPanel inherits Rectangle {
                         border-width: 1px;
                         border-color: Theme.border;
                         drop-shadow-blur: 12px;
-                        drop-shadow-color: #000000a0;
+                        drop-shadow-color: Theme.s-000000a0;
                     }
                     VerticalLayout {
                         padding: 6px;
                         for s[i] in ["Playing track", "Selected track", "Deck A", "Deck B"]: Rectangle {
                             height: 26px;
                             border-radius: 4px;
-                            background: sta.has-hover ? #3a3a3d : transparent;
+                            background: sta.has-hover ? Theme.n-3a3a3d : transparent;
                             Text {
                                 x: 10px;
                                 text: s;
@@ -480,7 +480,7 @@ export component LyricsPanel inherits Rectangle {
                 property <bool> sung: LyricsUi.current >= 0 && i < LyricsUi.current;
                 property <bool> seekable: LyricsUi.can-seek && line.time != "";
                 border-radius: Theme.radius;
-                background: now ? Theme.accent.with-alpha(0.14) : ta.has-hover && seekable ? #ffffff08 : transparent;
+                background: now ? Theme.accent.with-alpha(0.14) : ta.has-hover && seekable ? Theme.n-ffffff08 : transparent;
                 ta := TouchArea {
                     mouse-cursor: seekable ? pointer : default;
                     clicked => {
@@ -601,7 +601,7 @@ export component PlayerLyrics inherits Rectangle {
     }
     // Find, from the button above, when the side panel isn't showing it.
     if LyricsUi.finding: Rectangle {
-        background: #000000a0;
+        background: Theme.s-000000a0;
         TouchArea { }
         Rectangle {
             width: min(560px, parent.width - 32px);

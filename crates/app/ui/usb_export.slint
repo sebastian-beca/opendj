@@ -35,7 +35,7 @@ component ExportButton inherits Rectangle {
     width: max(80px, bl.preferred-width);
     border-radius: Theme.radius;
     opacity: enabled ? 1 : 0.4;
-    background: primary ? (ta.pressed ? Theme.accent.darker(0.3) : Theme.accent) : ta.has-hover ? #3a3a3e : #2c2c30;
+    background: primary ? (ta.pressed ? Theme.accent.darker(0.3) : Theme.accent) : ta.has-hover ? Theme.n-3a3a3e : Theme.n-2c2c30;
     bl := HorizontalLayout {
         padding-left: 14px;
         padding-right: 14px;
@@ -65,7 +65,7 @@ component Choice inherits Rectangle {
     callback clicked();
     height: cl.preferred-height;
     border-radius: 6px;
-    background: ta.has-hover && enabled ? #2c2c30 : transparent;
+    background: ta.has-hover && enabled ? Theme.n-2c2c30 : transparent;
     opacity: enabled ? 1 : 0.5;
     cl := HorizontalLayout {
         padding: 6px;
@@ -106,7 +106,7 @@ component Heading inherits Text {
 }
 
 export component UsbExportDialog inherits Rectangle {
-    background: #000000a0;
+    background: Theme.s-000000a0;
     TouchArea { }
     Rectangle {
         width: 440px;
@@ -116,7 +116,7 @@ export component UsbExportDialog inherits Rectangle {
         border-width: 1px;
         border-color: Theme.border;
         drop-shadow-blur: 30px;
-        drop-shadow-color: #000000c0;
+        drop-shadow-color: Theme.s-000000c0;
         // Wrapped text is as wide as the layout, so it is measured right.
         property <length> inner: self.width - 40px;
         dl := VerticalLayout {

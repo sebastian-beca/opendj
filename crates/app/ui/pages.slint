@@ -99,7 +99,7 @@ component CoverArt inherits Rectangle {
     in property <bool> bar;
     in property <string> name;
     clip: true;
-    background: @linear-gradient(135deg, tint 0%, tint.darker(0.6) 60%, #101012 100%);
+    background: @linear-gradient(135deg, tint 0%, tint.darker(0.6) 60%, Theme.n-101012 100%);
     if covers.length >= 4: Rectangle {
         for c[i] in [0, 1, 2, 3]: Image {
             x: mod(i, 2) * root.width / 2;
@@ -119,7 +119,7 @@ component CoverArt inherits Rectangle {
     if !has-cover: Text {
         width: root.width - 20px;
         text: root.label;
-        color: #ffffffe0;
+        color: Theme.n-ffffffe0;
         font-size: root.label-size;
         font-weight: root.label-weight;
         wrap: word-wrap;
@@ -131,7 +131,7 @@ component CoverArt inherits Rectangle {
         y: root.height - self.height - root.height * 0.08;
         width: root.width * 0.9;
         height: max(20px, root.height * 0.15);
-        background: root.tint.mix(#ffffff, 0.3);
+        background: root.tint.mix(Theme.n-ffffff, 0.3);
         Rectangle {
             x: 0;
             width: max(3px, root.width * 0.025);
@@ -141,7 +141,7 @@ component CoverArt inherits Rectangle {
             x: max(3px, root.width * 0.025) + parent.height * 0.3;
             width: parent.width - self.x - 6px;
             text: root.name;
-            color: #111114;
+            color: Theme.n-111114;
             font-size: max(11px, parent.height * 0.5);
             font-weight: 700;
             vertical-alignment: center;
@@ -157,7 +157,7 @@ component PageButton inherits Rectangle {
     width: t.preferred-width + 36px;
     height: 38px;
     border-radius: 19px;
-    background: primary ? (ta.has-hover ? Theme.accent.brighter(0.15) : Theme.accent) : ta.has-hover ? #ffffff24 : #ffffff14;
+    background: primary ? (ta.has-hover ? Theme.accent.brighter(0.15) : Theme.accent) : ta.has-hover ? Theme.n-ffffff24 : Theme.n-ffffff14;
     t := Text {
         text: root.text;
         color: primary ? #151329 : Theme.text;
@@ -226,7 +226,7 @@ export component PageView inherits Rectangle {
                         width: tile-width;
                         height: tile-width + 56px;
                         border-radius: 6px;
-                        background: hta.has-hover ? #ffffff10 : transparent;
+                        background: hta.has-hover ? Theme.n-ffffff10 : transparent;
                         Rectangle {
                             x: 0;
                             y: 0;
@@ -282,7 +282,7 @@ export component PageView inherits Rectangle {
                     border-radius: PageUi.kind == 1 ? 90px : 8px;
                     clip: true;
                     drop-shadow-blur: 24px;
-                    drop-shadow-color: #00000090;
+                    drop-shadow-color: Theme.s-00000090;
                     CoverArt {
                         single: PageUi.cover;
                         has-cover: PageUi.has-cover;
@@ -353,7 +353,7 @@ export component PageView inherits Rectangle {
                 for t[i] in PageUi.tracks: Rectangle {
                     height: 52px;
                     border-radius: 6px;
-                    background: tta.has-hover ? #ffffff10 : transparent;
+                    background: tta.has-hover ? Theme.n-ffffff10 : transparent;
                     HorizontalLayout {
                         padding-left: 10px;
                         padding-right: 12px;
@@ -372,7 +372,7 @@ export component PageView inherits Rectangle {
                             y: 6px;
                             border-radius: 3px;
                             clip: true;
-                            background: #2a2a2e;
+                            background: Theme.n-2a2a2e;
                             if t.has-cover: Image { width: parent.width; height: parent.height; source: t.cover; image-fit: cover; }
                             if !t.has-cover: Text { text: "♪"; color: Theme.text-dim; font-size: 16px; }
                         }
@@ -411,7 +411,7 @@ export component PageView inherits Rectangle {
                     width: tile-width;
                     height: tile-width + 56px;
                     border-radius: 6px;
-                    background: ala.has-hover ? #ffffff10 : transparent;
+                    background: ala.has-hover ? Theme.n-ffffff10 : transparent;
                     Rectangle {
                         x: 0;
                         y: 0;
@@ -419,9 +419,9 @@ export component PageView inherits Rectangle {
                         height: parent.width;
                         border-radius: 6px;
                         clip: true;
-                        background: #2a2a2d;
+                        background: Theme.n-2a2a2d;
                         if a.has-cover: Image { width: 100%; height: 100%; source: a.cover; image-fit: cover; }
-                        if !a.has-cover: Text { text: "♪"; color: #4a4a4d; font-size: parent.width * 0.4; }
+                        if !a.has-cover: Text { text: "♪"; color: Theme.n-4a4a4d; font-size: parent.width * 0.4; }
                     }
                     Text {
                         x: 2px;
@@ -458,7 +458,7 @@ export component PageView inherits Rectangle {
         width: 34px;
         height: 34px;
         border-radius: 17px;
-        background: bta.has-hover ? #ffffff1a : #00000040;
+        background: bta.has-hover ? Theme.n-ffffff1a : Theme.s-00000040;
         Path {
             width: 16px;
             height: 16px;
@@ -483,7 +483,7 @@ export component HomeButton inherits Rectangle {
         width: 34px;
         height: 34px;
         border-radius: 17px;
-        background: hta.has-hover ? #ffffff24 : #ffffff12;
+        background: hta.has-hover ? Theme.n-ffffff24 : Theme.n-ffffff12;
         Path {
             width: 18px;
             height: 18px;

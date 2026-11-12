@@ -306,7 +306,7 @@ component Waveform inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 8px;
-            drop-shadow-color: #00000080;
+            drop-shadow-color: Theme.s-00000080;
         }
         VerticalLayout {
             padding: 4px;
@@ -410,7 +410,7 @@ component Waveform inherits Rectangle {
         width: 24px;
         height: 22px;
         border-radius: 5px;
-        background: pta.pressed ? Theme.control-pressed : pta.has-hover ? #000000c0 : transparent;
+        background: pta.pressed ? Theme.control-pressed : pta.has-hover ? Theme.s-000000c0 : transparent;
         // A pencil, point down to the left.
         Path {
             width: 14px;
@@ -450,7 +450,7 @@ component Waveform inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 14px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
         }
         VerticalLayout {
             padding: 12px;
@@ -521,7 +521,7 @@ component Waveform inherits Rectangle {
         width: 24px;
         height: 18px;
         border-radius: 4px;
-        background: kta.pressed ? Theme.control-pressed : kta.has-hover ? #2a2b2e : #000000a0;
+        background: kta.pressed ? Theme.control-pressed : kta.has-hover ? Theme.n-2a2b2e : Theme.s-000000a0;
         border-width: 1px;
         border-color: macros ? Theme.accent : transparent;
         // Three sliders: knobs as lines.
@@ -559,7 +559,7 @@ component FooterButton inherits Rectangle {
     width: 34px;
     height: 26px;
     border-radius: 5px;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2a2e : transparent;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-2a2a2e : transparent;
     if !lit: Path { width: 18px; height: 18px; viewbox-width: 20; viewbox-height: 20; stroke: ink; stroke-width: 1.5px; fill: transparent; commands: icon; }
     if lit: Path { width: 18px; height: 18px; viewbox-width: 20; viewbox-height: 20; stroke: ink; stroke-width: 1.5px; fill: transparent; commands: lit-icon; }
     ta := TouchArea {
@@ -605,7 +605,7 @@ component MicButton inherits Rectangle {
     clip: true;
     HorizontalLayout {
         Rectangle {
-            background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #ffffff10 : transparent;
+            background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-ffffff10 : transparent;
             HorizontalLayout {
                 padding-left: 12px;
                 padding-right: 10px;
@@ -633,10 +633,10 @@ component MicButton inherits Rectangle {
                 clicked => { Controls.toggle(on-index); }
             }
         }
-        Rectangle { width: 1px; background: on ? tint.with-alpha(0.5) : #ffffff18; }
+        Rectangle { width: 1px; background: on ? tint.with-alpha(0.5) : Theme.n-ffffff18; }
         Rectangle {
             width: 26px;
-            background: arrow.pressed ? Theme.control-pressed : arrow.has-hover ? #ffffff10 : transparent;
+            background: arrow.pressed ? Theme.control-pressed : arrow.has-hover ? Theme.n-ffffff10 : transparent;
             Path {
                 width: 8px;
                 height: 5px;
@@ -665,7 +665,7 @@ component MapBarButton inherits Rectangle {
     y: 7px;
     width: tl.preferred-width;
     border-radius: 6px;
-    background: primary ? (ta.has-hover ? Theme.lilac.brighter(0.1) : Theme.lilac) : ta.has-hover ? #ffffff20 : #ffffff12;
+    background: primary ? (ta.has-hover ? Theme.lilac.brighter(0.1) : Theme.lilac) : ta.has-hover ? Theme.n-ffffff20 : Theme.n-ffffff12;
     tl := HorizontalLayout {
         padding-left: 12px;
         padding-right: 12px;
@@ -689,7 +689,7 @@ component MapBar inherits Rectangle {
     border-width: 1px;
     border-color: Theme.lilac;
     drop-shadow-blur: 16px;
-    drop-shadow-color: #000000a0;
+    drop-shadow-color: Theme.s-000000a0;
     bl := HorizontalLayout {
         padding-left: 16px;
         padding-right: 8px;
@@ -724,7 +724,7 @@ component RecordButton inherits Rectangle {
     property <int> hours: floor(seconds / 3600);
     property <int> minutes: mod(floor(seconds / 60), 60);
     property <int> secs: mod(floor(seconds), 60);
-    background: ta.pressed ? Theme.control-pressed : on ? #e5484d.with-alpha(0.16) : ta.has-hover ? #2e2e32 : Theme.panel-raised;
+    background: ta.pressed ? Theme.control-pressed : on ? #e5484d.with-alpha(0.16) : ta.has-hover ? Theme.n-2e2e32 : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
     border-color: on ? #e5484d : transparent;
@@ -768,8 +768,8 @@ component OnAirButton inherits Rectangle {
     // 0 off, 1 connecting, 2 every station on air, 3 failed, 4 some.
     property <int> status: Controls.value(Controls.resolve("[Shoutcast]", "status"), Controls.tick);
     property <float> seconds: Controls.value(Controls.resolve("[Broadcast]", "on_air_seconds"), Controls.tick);
-    property <color> light: status == 2 ? #e5484d : status == 3 ? #7a7a80 : #f5a524;
-    background: ta.pressed ? Theme.control-pressed : on ? #e5484d.with-alpha(0.16) : ta.has-hover ? #2e2e32 : Theme.panel-raised;
+    property <color> light: status == 2 ? #e5484d : status == 3 ? Theme.n-7a7a80 : #f5a524;
+    background: ta.pressed ? Theme.control-pressed : on ? #e5484d.with-alpha(0.16) : ta.has-hover ? Theme.n-2e2e32 : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
     border-color: on ? light : transparent;
@@ -932,7 +932,7 @@ component LayoutItem inherits Rectangle {
 component LayoutPill inherits Rectangle {
     in-out property <int> layout;
     callback changed-to(layout: int);
-    background: ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    background: ta.has-hover ? Theme.n-3a3a3d : Theme.panel-raised;
     border-radius: 10px;
     height: 36px;
     y: 8px;
@@ -957,7 +957,7 @@ component LayoutPill inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #00000080;
+            drop-shadow-color: Theme.s-00000080;
         }
         VerticalLayout {
             padding: 6px;
@@ -1022,7 +1022,7 @@ component WaveformsButton inherits Rectangle {
     clip: true;
     HorizontalLayout {
         Rectangle {
-            background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #ffffff10 : transparent;
+            background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-ffffff10 : transparent;
             HorizontalLayout {
                 padding-left: 12px;
                 padding-right: 10px;
@@ -1046,10 +1046,10 @@ component WaveformsButton inherits Rectangle {
                 }
             }
         }
-        Rectangle { width: 1px; background: on ? Theme.accent.with-alpha(0.5) : #ffffff18; }
+        Rectangle { width: 1px; background: on ? Theme.accent.with-alpha(0.5) : Theme.n-ffffff18; }
         Rectangle {
             width: 24px;
-            background: arrow.pressed ? Theme.control-pressed : arrow.has-hover ? #ffffff10 : transparent;
+            background: arrow.pressed ? Theme.control-pressed : arrow.has-hover ? Theme.n-ffffff10 : transparent;
             Path {
                 width: 8px;
                 height: 5px;
@@ -1075,7 +1075,7 @@ component WaveformsButton inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 16px;
-            drop-shadow-color: #000000b0;
+            drop-shadow-color: Theme.s-000000b0;
         }
         WaveHeightList {
             fits: root.fits;
@@ -1095,7 +1095,7 @@ component WaveformsButton inherits Rectangle {
 component FxButton inherits Rectangle {
     in-out property <bool> on;
     callback changed-to(on: bool);
-    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? Theme.n-3a3a3d : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
     border-color: on ? Theme.accent : transparent;
@@ -1123,7 +1123,7 @@ component FxButton inherits Rectangle {
 component PadsButton inherits Rectangle {
     in-out property <bool> on;
     callback changed-to(on: bool);
-    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? Theme.n-3a3a3d : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
     border-color: on ? Theme.accent : transparent;
@@ -1162,7 +1162,7 @@ component PadsButton inherits Rectangle {
 component JogsButton inherits Rectangle {
     in-out property <bool> on;
     callback changed-to(on: bool);
-    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? Theme.n-3a3a3d : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
     border-color: on ? Theme.accent : transparent;
@@ -1206,7 +1206,7 @@ component MasterPill inherits Rectangle {
     in property <string> clock;
     property <bool> link: Controls.value(Controls.resolve("[Link]", "enabled"), Controls.tick) > 0;
     property <bool> midi-clock: Controls.value(Controls.resolve("[MidiClock]", "enabled"), Controls.tick) > 0;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2e2e32 : Theme.panel-raised;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-2e2e32 : Theme.panel-raised;
     border-radius: 10px;
     height: 36px;
     y: 8px;
@@ -1255,7 +1255,7 @@ export component AppWindow inherits Window {
     preferred-height: 1050px;
     min-width: 1280px;
     min-height: 800px;
-    background: #000000;
+    background: Theme.n-000000;
     default-font-family: Theme.font-family;
 
     in property <[DeckInfo]> decks: [{}, {}, {}, {}];
@@ -2160,7 +2160,7 @@ export component AppWindow inherits Window {
             border-width: 1px;
             border-color: Theme.lilac;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
             update-row := HorizontalLayout {
                 padding-left: 14px;
                 padding-right: update-status == "" ? 6px : 14px;
@@ -2211,7 +2211,7 @@ export component AppWindow inherits Window {
             border-width: 1px;
             border-color: Theme.lilac;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
             alert-text := Text {
                 x: 14px;
                 width: parent.width - 28px;

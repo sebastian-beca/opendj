@@ -189,7 +189,7 @@ component BarButton inherits Rectangle {
     width: 36px;
     height: 36px;
     border-radius: 18px;
-    background: enabled && ta.has-hover ? #ffffff14 : transparent;
+    background: enabled && ta.has-hover ? Theme.n-ffffff14 : transparent;
     out property <color> ink: !enabled ? Theme.text-dim.with-alpha(0.5) : lit ? Theme.accent : ta.has-hover ? Theme.text : Theme.text.with-alpha(0.85);
     @children
     if tip != "" && ta.has-hover: Rectangle {
@@ -477,7 +477,7 @@ export component PlayerBar inherits Rectangle {
                         y: (parent.height - self.height) / 2;
                         height: line-hot ? 5px : 4px;
                         border-radius: self.height / 2;
-                        background: #ffffff2e;
+                        background: Theme.n-ffffff2e;
                         clip: true;
                         if info.loaded && info.automix-to > info.automix-from: Rectangle {
                             x: parent.width * info.automix-from;
@@ -488,7 +488,7 @@ export component PlayerBar inherits Rectangle {
                             x: 0;
                             width: parent.width * shown-progress;
                             border-radius: parent.border-radius;
-                            background: line-hot ? Theme.accent : #ffffff;
+                            background: line-hot ? Theme.accent : Theme.n-ffffff;
                         }
                     }
                     if line-hot: Rectangle {
@@ -497,7 +497,7 @@ export component PlayerBar inherits Rectangle {
                         width: 12px;
                         height: 12px;
                         border-radius: 6px;
-                        background: #ffffff;
+                        background: Theme.n-ffffff;
                     }
                     if line-ta.has-hover && info.loaded: Rectangle {
                         x: clamp(line-ta.mouse-x, 0, parent.width) - self.width / 2;
@@ -600,7 +600,7 @@ export component PlayerBar inherits Rectangle {
                                 border-width: 1px;
                                 border-color: Theme.border;
                                 drop-shadow-blur: 10px;
-                                drop-shadow-color: #00000090;
+                                drop-shadow-color: Theme.s-00000090;
                             }
                             VerticalLayout {
                                 padding: 5px;
@@ -650,7 +650,7 @@ export component PlayerBar inherits Rectangle {
                         height: 36px;
                         border-radius: 9px;
                         property <bool> lit: NowPlayingUi.open && NowPlayingUi.tab == 0;
-                        background: lit ? Theme.accent.with-alpha(0.18) : lyta.has-hover ? #3a3a3d : transparent;
+                        background: lit ? Theme.accent.with-alpha(0.18) : lyta.has-hover ? Theme.n-3a3a3d : transparent;
                         border-width: lit ? 1px : 0px;
                         border-color: Theme.accent;
                         // A speech bubble with lines of words.
@@ -682,7 +682,7 @@ export component PlayerBar inherits Rectangle {
                         width: 40px;
                         height: 36px;
                         border-radius: 9px;
-                        background: queue-shown ? Theme.accent.with-alpha(0.18) : qta.has-hover ? #3a3a3d : transparent;
+                        background: queue-shown ? Theme.accent.with-alpha(0.18) : qta.has-hover ? Theme.n-3a3a3d : transparent;
                         border-width: queue-shown ? 1px : 0px;
                         border-color: Theme.accent;
                         Path {
@@ -717,7 +717,7 @@ export component PlayerBar inherits Rectangle {
                     height: 20px;
                     width: q-text.preferred-width + 14px;
                     border-radius: 4px;
-                    background: info.lossless ? Theme.accent.with-alpha(0.16) : #ffffff12;
+                    background: info.lossless ? Theme.accent.with-alpha(0.16) : Theme.n-ffffff12;
                     q-text := Text {
                         text: info.quality;
                         color: info.lossless ? Theme.accent : Theme.text-dim;
@@ -885,7 +885,7 @@ component RowAction inherits Rectangle {
     height: 24px;
     width: label.preferred-width + 16px;
     border-radius: 6px;
-    background: primary ? (ta.has-hover ? Theme.accent.brighter(0.1) : Theme.accent) : ta.has-hover ? #ffffff26 : #ffffff14;
+    background: primary ? (ta.has-hover ? Theme.accent.brighter(0.1) : Theme.accent) : ta.has-hover ? Theme.n-ffffff26 : Theme.n-ffffff14;
     label := Text {
         text: root.text;
         color: primary ? Theme.on-selection : Theme.text;
@@ -911,7 +911,7 @@ export component QuickResults inherits Rectangle {
     border-width: 1px;
     border-color: Theme.border;
     drop-shadow-blur: 24px;
-    drop-shadow-color: #000000c0;
+    drop-shadow-color: Theme.s-000000c0;
     // Swallows clicks between the rows, so they don't reach the list below.
     TouchArea { }
     list := VerticalLayout {
@@ -934,7 +934,7 @@ export component QuickResults inherits Rectangle {
                 height: 46px;
                 border-radius: 8px;
                 property <bool> lit: i == QuickSearch.current;
-                background: lit ? #ffffff12 : transparent;
+                background: lit ? Theme.n-ffffff12 : transparent;
                 rta := TouchArea {
                     mouse-cursor: pointer;
                     moved => { QuickSearch.current = i; }
@@ -959,8 +959,8 @@ export component QuickResults inherits Rectangle {
                             // Artists round, as other players show them.
                             border-radius: r.kind == 1 ? 17px : 5px;
                             clip: true;
-                            background: @linear-gradient(135deg, Theme.accent 0%, Theme.accent.darker(0.6) 60%, #101012 100%);
-                            if !r.has-cover: Text { text: r.initials; color: #ffffffe0; font-size: 12px; font-weight: 700; }
+                            background: @linear-gradient(135deg, Theme.accent 0%, Theme.accent.darker(0.6) 60%, Theme.n-101012 100%);
+                            if !r.has-cover: Text { text: r.initials; color: Theme.n-ffffffe0; font-size: 12px; font-weight: 700; }
                             if r.has-cover: Image { width: parent.width; height: parent.height; source: r.cover; image-fit: cover; }
                         }
                     }

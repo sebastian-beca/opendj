@@ -204,7 +204,7 @@ export component Switch inherits Rectangle {
     width: 38px;
     height: 22px;
     border-radius: 11px;
-    background: on ? Theme.accent : #3a3a3e;
+    background: on ? Theme.accent : Theme.n-3a3a3e;
     animate background { duration: 120ms; }
     Rectangle {
         x: on ? parent.width - self.width - 2px : 2px;
@@ -212,9 +212,9 @@ export component Switch inherits Rectangle {
         width: 18px;
         height: 18px;
         border-radius: 9px;
-        background: #f2f2f7;
+        background: Theme.n-f2f2f7;
         drop-shadow-blur: 2px;
-        drop-shadow-color: #00000060;
+        drop-shadow-color: Theme.s-00000060;
         animate x { duration: 120ms; easing: ease-out; }
     }
     TouchArea {
@@ -232,7 +232,7 @@ export component Button inherits Rectangle {
     min-width: 72px;
     border-radius: Theme.radius;
     background: primary ? (ta.pressed ? Theme.accent.darker(0.3) : Theme.accent)
-        : ta.pressed ? Theme.control-pressed : ta.has-hover ? #2e2e32 : Theme.panel-raised;
+        : ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-2e2e32 : Theme.panel-raised;
     border-width: 1px;
     border-color: primary ? Theme.accent : Theme.border;
     HorizontalLayout {
@@ -261,7 +261,7 @@ component Segmented inherits Rectangle {
         spacing: 2px;
         for c[i] in choices: Rectangle {
             border-radius: Theme.radius - 2px;
-            background: i == chosen ? #3a3a3d : sta.has-hover ? #222225 : transparent;
+            background: i == chosen ? Theme.n-3a3a3d : sta.has-hover ? Theme.n-222225 : transparent;
             HorizontalLayout {
                 padding-left: 10px;
                 padding-right: 10px;
@@ -328,7 +328,7 @@ component KeyButton inherits Rectangle {
     width: 130px;
     height: 28px;
     border-radius: Theme.radius;
-    background: listening ? #2a2440 : ta.has-hover ? #222225 : Theme.well;
+    background: listening ? #2a2440 : ta.has-hover ? Theme.n-222225 : Theme.well;
     border-width: 1px;
     border-color: listening ? Theme.accent : Theme.separator;
     Text {
@@ -369,7 +369,7 @@ component ScriptField inherits Rectangle {
     if input.text == "": Text {
         x: 8px;
         text: "Type an action…";
-        color: #5a5a60;
+        color: Theme.n-5a5a60;
         font-size: 13px;
         vertical-alignment: center;
         height: parent.height;
@@ -394,7 +394,7 @@ component FilterChipButton inherits Rectangle {
     height: 26px;
     width: label.preferred-width + 24px;
     border-radius: 13px;
-    background: on ? Theme.accent : cta.has-hover ? #2c2c2f : Theme.control;
+    background: on ? Theme.accent : cta.has-hover ? Theme.n-2c2c2f : Theme.control;
     border-width: 1px;
     border-color: on ? Theme.accent : Theme.border;
     label := Text {
@@ -477,7 +477,7 @@ component InfoButton inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 10px;
-            drop-shadow-color: #00000090;
+            drop-shadow-color: Theme.s-00000090;
         }
         VerticalLayout {
             padding: 10px;
@@ -553,7 +553,7 @@ component ListButton inherits Rectangle {
     callback clicked();
     width: 26px;
     height: 22px;
-    background: lta.pressed && enabled ? Theme.control-pressed : lta.has-hover && enabled ? #2a2a2e : Theme.control;
+    background: lta.pressed && enabled ? Theme.control-pressed : lta.has-hover && enabled ? Theme.n-2a2a2e : Theme.control;
     border-width: 1px;
     border-color: Theme.border;
     Path {
@@ -561,7 +561,7 @@ component ListButton inherits Rectangle {
         height: 10px;
         viewbox-width: 10;
         viewbox-height: 10;
-        stroke: enabled ? Theme.text : #55555a;
+        stroke: enabled ? Theme.text : Theme.n-55555a;
         stroke-width: 1.4px;
         commands: minus ? "M 0 5 L 10 5" : "M 0 5 L 10 5 M 5 0 L 5 10";
     }
@@ -623,7 +623,7 @@ component FolderList inherits VerticalLayout {
                 }
                 height: 26px;
                 border-radius: 4px;
-                background: i == root.selected ? Theme.selection-idle : rta.has-hover ? #232326 : transparent;
+                background: i == root.selected ? Theme.selection-idle : rta.has-hover ? Theme.n-232326 : transparent;
                 rta := TouchArea {
                     clicked => { root.selected = i; }
                     double-clicked => { Preferences.pressed(item.id + "#reveal:" + item.paths[i]); }
@@ -698,7 +698,7 @@ component StorageButton inherits Rectangle {
     border-radius: Theme.radius;
     border-width: 1px;
     border-color: warn ? #ff9f0a : Theme.border;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2a2e : Theme.control;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-2a2a2e : Theme.control;
     label := Text { text: root.text; color: warn ? #ff9f0a : Theme.text; font-size: 12px; }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
@@ -720,7 +720,7 @@ component StorageView inherits VerticalLayout {
             border-radius: Theme.radius;
             border-width: 1px;
             border-color: Theme.border;
-            background: mta.has-hover ? #2a2a2e : Theme.control;
+            background: mta.has-hover ? Theme.n-2a2a2e : Theme.control;
             HorizontalLayout {
                 padding-left: 10px;
                 padding-right: 8px;
@@ -749,14 +749,14 @@ component StorageView inherits VerticalLayout {
                     border-width: 1px;
                     border-color: Theme.border;
                     drop-shadow-blur: 12px;
-                    drop-shadow-color: #000000a0;
+                    drop-shadow-color: Theme.s-000000a0;
                 }
                 VerticalLayout {
                     padding: 6px;
                     for a[i] in StorageUi.actions: Rectangle {
                         height: 26px;
                         border-radius: 4px;
-                        background: ata.has-hover ? #3a3a3d : transparent;
+                        background: ata.has-hover ? Theme.n-3a3a3d : transparent;
                         Text { x: 8px; text: a; color: Theme.text; font-size: 12px; vertical-alignment: center; height: parent.height; }
                         ata := TouchArea { mouse-cursor: pointer; clicked => { Preferences.picked(item.id, i); menu.close(); } }
                     }
@@ -1061,7 +1061,7 @@ export component PrefRow inherits Rectangle {
                     width: 8px;
                     height: 8px;
                     border-radius: 4px;
-                    background: item.chosen == 1 ? #30c158 : item.chosen == 2 ? #ff9f0a : #4a4a4f;
+                    background: item.chosen == 1 ? #30c158 : item.chosen == 2 ? #ff9f0a : Theme.n-4a4a4f;
                 }
             }
             Text {
@@ -1132,8 +1132,8 @@ export component PrefRow inherits Rectangle {
                 if searching: Text { text: item.page-name; color: Theme.accent; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
                 if item.title != "": Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; overflow: elide; }
                 // Add-on pages (notes and text fields) wrap: their help is longer.
-                if item.detail != "" && item.kind != 6 && item.kind != 9: Text { text: item.detail; color: bright ? #c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; overflow: elide; }
-                if item.detail != "" && (item.kind == 6 || item.kind == 9): Text { text: item.detail; color: bright ? #c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; wrap: word-wrap; }
+                if item.detail != "" && item.kind != 6 && item.kind != 9: Text { text: item.detail; color: bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; overflow: elide; }
+                if item.detail != "" && (item.kind == 6 || item.kind == 9): Text { text: item.detail; color: bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; wrap: word-wrap; }
             }
             if item.kind == 0: VerticalLayout {
                 alignment: center;
@@ -1207,7 +1207,7 @@ export component PrefRow inherits Rectangle {
                         width: 26px;
                         height: 26px;
                         border-radius: Theme.radius;
-                        background: cta.has-hover && item.action != "" ? #2a2a2e : transparent;
+                        background: cta.has-hover && item.action != "" ? Theme.n-2a2a2e : transparent;
                         opacity: item.action != "" ? 1 : 0.3;
                         CogIcon { color: cta.has-hover ? Theme.text : Theme.text-dim; }
                         cta := TouchArea {
@@ -1233,7 +1233,7 @@ export component PrefRow inherits Rectangle {
                         height: 22px;
                         border-radius: Theme.radius;
                         opacity: item.action == "first" ? 0.3 : 1;
-                        background: up-ta.has-hover && item.action != "first" ? #2a2a2e : transparent;
+                        background: up-ta.has-hover && item.action != "first" ? Theme.n-2a2a2e : transparent;
                         Text { text: "↑"; color: Theme.text-dim; font-size: 13px; }
                         up-ta := TouchArea {
                             enabled: item.action != "first";
@@ -1299,7 +1299,7 @@ export component PrefRow inherits Rectangle {
                     width: 26px;
                     height: 22px;
                     border-radius: Theme.radius;
-                    background: pta.has-hover ? #2a2a2e : Theme.control;
+                    background: pta.has-hover ? Theme.n-2a2a2e : Theme.control;
                     border-width: 1px;
                     border-color: Theme.border;
                     Text { text: "+"; color: Theme.text; font-size: 15px; }
@@ -1360,7 +1360,7 @@ export component CloseButton inherits Rectangle {
     width: 26px;
     height: 26px;
     border-radius: 13px;
-    background: ta.has-hover ? #3a3a3d : transparent;
+    background: ta.has-hover ? Theme.n-3a3a3d : transparent;
     Path {
         width: 10px;
         height: 10px;
@@ -1380,7 +1380,7 @@ export component CloseButton inherits Rectangle {
 // The import wizard: a dialog over Settings, with its steps' rows and
 // Back, Cancel and Next along the bottom.
 export component ImportWizardDialog inherits Rectangle {
-    background: #00000080;
+    background: Theme.s-00000080;
     // Clicks outside the dialog do nothing, as it waits on an answer.
     TouchArea { }
     Rectangle {
@@ -1391,7 +1391,7 @@ export component ImportWizardDialog inherits Rectangle {
         border-width: 1px;
         border-color: Theme.border;
         drop-shadow-blur: 40px;
-        drop-shadow-color: #000000c0;
+        drop-shadow-color: Theme.s-000000c0;
         clip: true;
         VerticalLayout {
             padding: 22px;
@@ -1450,7 +1450,7 @@ export component ImportWizardDialog inherits Rectangle {
 }
 
 export component PluginErrorsDialog inherits Rectangle {
-    background: #00000080;
+    background: Theme.s-00000080;
     TouchArea { clicked => { Preferences.pressed("audio_plugin_errors_close"); } }
     Rectangle {
         width: min(760px, root.width - 64px);
@@ -1460,7 +1460,7 @@ export component PluginErrorsDialog inherits Rectangle {
         border-width: 1px;
         border-color: Theme.border;
         drop-shadow-blur: 40px;
-        drop-shadow-color: #000000c0;
+        drop-shadow-color: Theme.s-000000c0;
         clip: true;
         TouchArea { }
         VerticalLayout {
@@ -1500,7 +1500,7 @@ export component PluginErrorsDialog inherits Rectangle {
                         read-only: true;
                         single-line: false;
                         wrap: word-wrap;
-                        color: #c8c8cd;
+                        color: Theme.n-c8c8cd;
                         font-family: "Menlo";
                         font-size: 11px;
                         selection-background-color: Theme.selection;
@@ -1524,7 +1524,7 @@ export component PreferencesOverlay inherits Rectangle {
     property <int> refocus: Preferences.refocus;
     changed refocus => { idle.focus(); }
     // The dimmed app behind; a click there closes settings.
-    background: #000000a0;
+    background: Theme.s-000000a0;
     TouchArea {
         clicked => { Preferences.open = false; }
     }
@@ -1536,7 +1536,7 @@ export component PreferencesOverlay inherits Rectangle {
         border-width: 1px;
         border-color: Theme.border;
         drop-shadow-blur: 40px;
-        drop-shadow-color: #000000c0;
+        drop-shadow-color: Theme.s-000000c0;
         clip: true;
         // Clicks inside the window stay there.
         TouchArea { }
@@ -1544,7 +1544,7 @@ export component PreferencesOverlay inherits Rectangle {
             // The page list, with the search box above.
             Rectangle {
                 width: 220px;
-                background: #141416;
+                background: Theme.n-141416;
                 VerticalLayout {
                     padding: 14px;
                     padding-top: 18px;
@@ -1560,7 +1560,7 @@ export component PreferencesOverlay inherits Rectangle {
                         property <bool> selected: !searching && i == Preferences.page;
                         height: 36px;
                         border-radius: 8px;
-                        background: selected ? #3a3a3d : pta.has-hover ? #222225 : transparent;
+                        background: selected ? Theme.n-3a3a3d : pta.has-hover ? Theme.n-222225 : transparent;
                         HorizontalLayout {
                             padding-left: 10px;
                             spacing: 12px;

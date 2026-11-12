@@ -48,7 +48,7 @@ export component LevelSlider inherits Rectangle {
         width: travel;
         height: 4px;
         border-radius: 2px;
-        background: #3a3a3e;
+        background: Theme.n-3a3a3e;
     }
     Rectangle {
         x: thumb / 2 + min(origin, pos) * travel;
@@ -78,9 +78,9 @@ export component LevelSlider inherits Rectangle {
         width: thumb;
         height: 14px;
         border-radius: 7px;
-        background: touch.pressed ? #d4d4d8 : #f2f2f4;
+        background: touch.pressed ? Theme.n-d4d4d8 : Theme.n-f2f2f4;
         drop-shadow-blur: 3px;
-        drop-shadow-color: #00000080;
+        drop-shadow-color: Theme.s-00000080;
     }
     touch := TouchArea {
         mouse-cursor: pointer;
@@ -138,7 +138,7 @@ component PanelBackground inherits Rectangle {
     border-width: 1px;
     border-color: Theme.border;
     drop-shadow-blur: 16px;
-    drop-shadow-color: #000000b0;
+    drop-shadow-color: Theme.s-000000b0;
 }
 
 // A small link-like button along the bottom of a panel.
@@ -182,7 +182,7 @@ component LeaderRow inherits VerticalLayout {
                 spacing: 2px;
                 for name[i] in ["Deck", "Link", "Clock"]: Rectangle {
                     border-radius: Theme.radius - 2px;
-                    background: i == source ? #3a3a3d : seg-ta.has-hover ? #222225 : transparent;
+                    background: i == source ? Theme.n-3a3a3d : seg-ta.has-hover ? Theme.n-222225 : transparent;
                     HorizontalLayout {
                         padding-left: 8px;
                         padding-right: 8px;
@@ -225,13 +225,13 @@ component PanelSwitch inherits VerticalLayout {
         width: 34px;
         height: 20px;
         border-radius: 10px;
-        background: on ? Theme.accent : #48484c;
+        background: on ? Theme.accent : Theme.n-48484c;
         Rectangle {
             x: on ? parent.width - self.width - 2px : 2px;
             width: 16px;
             height: 16px;
             border-radius: 8px;
-            background: #ffffff;
+            background: Theme.n-ffffff;
             animate x { duration: 120ms; }
         }
         TouchArea { mouse-cursor: pointer; clicked => { Controls.toggle(index); } }
@@ -595,7 +595,7 @@ export global BroadcastState {
 
     // On air: red. Connecting or some stations down: amber.
     public pure function light(state: int) -> color {
-        return state == 2 ? #e5484d : state == 1 ? #f5a524 : state == 3 ? #7a7a80 : Theme.text-dim;
+        return state == 2 ? #e5484d : state == 1 ? #f5a524 : state == 3 ? Theme.n-7a7a80 : Theme.text-dim;
     }
 }
 

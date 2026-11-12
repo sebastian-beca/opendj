@@ -40,7 +40,7 @@ export component Caption inherits Text {
     font-size: 9px;
     font-weight: 500;
     letter-spacing: 0.5px;
-    color: #6e6e73;
+    color: Theme.n-6e6e73;
     horizontal-alignment: center;
 }
 
@@ -109,7 +109,7 @@ export component PickupDot inherits Rectangle {
         width: d;
         height: d;
         border-radius: d / 2;
-        background: #050506;
+        background: Theme.n-050506;
         border-width: 1.5px;
         border-color: tint;
     }
@@ -153,7 +153,7 @@ export component ControlKnob inherits Rectangle {
         width: size;
         height: size;
         border-radius: self.width / 2;
-        background: #050506;
+        background: Theme.n-050506;
     }
     cap := Rectangle {
         x: 4px;
@@ -162,14 +162,14 @@ export component ControlKnob inherits Rectangle {
         height: size;
         border-radius: self.width / 2;
         background: look == 1
-            ? (touch.has-hover ? @linear-gradient(180deg, #ffffff 0%, #d4d4d8 100%) : @linear-gradient(180deg, #f2f2f4 0%, #c8c8cc 100%))
+            ? (touch.has-hover ? @linear-gradient(180deg, Theme.n-ffffff 0%, Theme.n-d4d4d8 100%) : @linear-gradient(180deg, Theme.n-f2f2f4 0%, Theme.n-c8c8cc 100%))
             : look == 2
-            ? (touch.has-hover ? #1c1c1e : #0e0e10)
+            ? (touch.has-hover ? Theme.n-1c1c1e : Theme.n-0e0e10)
             : touch.has-hover
-            ? @linear-gradient(180deg, #505055 0%, #303034 100%)
-            : @linear-gradient(180deg, #46464b 0%, #2a2a2e 100%);
+            ? @linear-gradient(180deg, Theme.n-505055 0%, Theme.n-303034 100%)
+            : @linear-gradient(180deg, Theme.n-46464b 0%, Theme.n-2a2a2e 100%);
         border-width: look == 2 ? max(2px, size / 12) : 1px;
-        border-color: look == 2 ? #e4e4e8 : #141416;
+        border-color: look == 2 ? Theme.n-e4e4e8 : Theme.n-141416;
     }
     // Hidden at the origin, where the arc would be a dot.
     if abs(param - origin) > 0.004: KnobArc {
@@ -190,7 +190,7 @@ export component ControlKnob inherits Rectangle {
         height: cap.height;
         viewbox-width: 100;
         viewbox-height: 100;
-        stroke: look == 1 ? #1c1c1e : root.tint == Theme.text ? #e4e4e8 : root.tint;
+        stroke: look == 1 ? Theme.n-1c1c1e : root.tint == Theme.text ? Theme.n-e4e4e8 : root.tint;
         stroke-width: max(1.5px, size / 14);
         stroke-line-cap: round;
         MoveTo { x: 50 + 8 * sin(value-angle); y: 50 - 8 * cos(value-angle); }
@@ -298,7 +298,7 @@ export component ControlButton inherits Rectangle {
     background: lit && fill-when-lit ? root.tint
         : touch.pressed ? Theme.control-pressed
         : lit && !outline-when-lit ? root.tint.with-alpha(0.14)
-        : touch.has-hover ? #1d1d20 : Theme.control;
+        : touch.has-hover ? Theme.n-1d1d20 : Theme.control;
     border-width: (lit && outline-when-lit) || outline ? 2px : 1px;
     border-color: lit || outline ? root.tint : Theme.border;
 
@@ -449,7 +449,7 @@ export component ControlFader inherits Rectangle {
         y: vertical ? along : 0px;
         width: vertical ? root.width : 1px;
         height: vertical ? 1px : root.height;
-        background: major ? #55555a : Theme.tick;
+        background: major ? Theme.n-55555a : Theme.tick;
     }
     // Slot
     Rectangle {
@@ -458,9 +458,9 @@ export component ControlFader inherits Rectangle {
         width: vertical ? 4px : travel;
         height: vertical ? travel : 4px;
         border-radius: 2px;
-        background: glowing && !locked ? glow : #050506;
+        background: glowing && !locked ? glow : Theme.n-050506;
         border-width: 1px;
-        border-color: locked ? Theme.automix.with-alpha(0.6) : glowing ? glow : #2a2a2d;
+        border-color: locked ? Theme.automix.with-alpha(0.6) : glowing ? glow : Theme.n-2a2a2d;
     }
     // Locked: the slot lights green from the centre (or the bottom) to the
     // handle.
@@ -492,16 +492,16 @@ export component ControlFader inherits Rectangle {
         height: vertical ? handle : parent.height - 4px;
         border-radius: 4px;
         background: vertical
-            ? @linear-gradient(180deg, #b0b0b5 0%, #8a8a8f 45%, #5f5f64 100%)
-            : @linear-gradient(90deg, #b0b0b5 0%, #8a8a8f 45%, #5f5f64 100%);
+            ? @linear-gradient(180deg, Theme.n-b0b0b5 0%, Theme.n-8a8a8f 45%, Theme.n-5f5f64 100%)
+            : @linear-gradient(90deg, Theme.n-b0b0b5 0%, Theme.n-8a8a8f 45%, Theme.n-5f5f64 100%);
         border-width: 1px;
-        border-color: locked ? Theme.automix : touch.pressed ? root.tint : #2a2a2d;
+        border-color: locked ? Theme.automix : touch.pressed ? root.tint : Theme.n-2a2a2d;
         drop-shadow-blur: 4px;
-        drop-shadow-color: #000000a0;
+        drop-shadow-color: Theme.s-000000a0;
         Rectangle {
             width: vertical ? parent.width - 8px : 1px;
             height: vertical ? 1px : parent.height - 8px;
-            background: #2a2a2d;
+            background: Theme.n-2a2a2d;
         }
     }
     touch := TouchArea {
@@ -592,7 +592,7 @@ export component Crossfader inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 8px;
-            drop-shadow-color: #00000080;
+            drop-shadow-color: Theme.s-00000080;
         }
         VerticalLayout {
             padding: 4px;
@@ -690,7 +690,7 @@ export component VuMeter inherits Rectangle {
         width: vertical ? root.width : seg;
         height: vertical ? seg : root.height;
         border-radius: 1px;
-        background: level < at ? #2c2c2f : (at > 0.9 ? #ff453a : (at > 0.72 ? #ffd60a : #30d158));
+        background: level < at ? Theme.n-2c2c2f : (at > 0.9 ? #ff453a : (at > 0.72 ? #ffd60a : #30d158));
     }
 }
 
@@ -721,12 +721,12 @@ export component HoverTipView inherits Rectangle {
         y: HoverTip.y - root.absolute-position.y;
         width: tip.preferred-width;
         height: tip.preferred-height;
-        background: #0b0b0c;
+        background: Theme.n-0b0b0c;
         border-radius: 4px;
         border-width: 1px;
-        border-color: #6a6a70;
+        border-color: Theme.n-6a6a70;
         drop-shadow-blur: 8px;
-        drop-shadow-color: #000000a0;
+        drop-shadow-color: Theme.s-000000a0;
         tip := VerticalLayout {
             padding: 8px;
             spacing: 2px;
@@ -839,7 +839,7 @@ export component SyncButton inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
         }
         VerticalLayout {
             padding: 8px;
@@ -850,14 +850,14 @@ export component SyncButton inherits Rectangle {
                     width: 32px;
                     height: 18px;
                     border-radius: 9px;
-                    background: lit ? Theme.accent : #48484c;
+                    background: lit ? Theme.accent : Theme.n-48484c;
                     Rectangle {
                         x: lit ? parent.width - self.width - 2px : 2px;
                         y: 2px;
                         width: 14px;
                         height: 14px;
                         border-radius: 7px;
-                        background: #ffffff;
+                        background: Theme.n-ffffff;
                     }
                     TouchArea { mouse-cursor: pointer; clicked => { Controls.toggle(index); } }
                 }
@@ -880,7 +880,7 @@ export component SyncButton inherits Rectangle {
                         property <bool> on: abs(beats - size.beats) < 0.001;
                         horizontal-stretch: 1;
                         border-radius: 3px;
-                        background: on ? Theme.accent : sta.has-hover ? #3a3a3d : transparent;
+                        background: on ? Theme.accent : sta.has-hover ? Theme.n-3a3a3d : transparent;
                         Text { text: size.label; color: on ? #000000 : Theme.text; font-size: 12px; font-weight: on ? 700 : 400; }
                         sta := TouchArea {
                             mouse-cursor: pointer;
@@ -913,7 +913,7 @@ export component MasterBadge inherits Rectangle {
     preferred-width: label.preferred-width + (root.font-size >= 10px ? 12px : 10px);
     border-radius: self.height / 2;
     border-width: 1px;
-    border-color: leading ? Theme.accent : touch.has-hover ? #48484c : Theme.border;
+    border-color: leading ? Theme.accent : touch.has-hover ? Theme.n-48484c : Theme.border;
     background: pinned ? Theme.accent : leading ? Theme.accent.with-alpha(0.14) : transparent;
     label := Text {
         text: "MASTER";

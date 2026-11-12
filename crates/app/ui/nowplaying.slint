@@ -118,8 +118,8 @@ export component NowPlayingView inherits Rectangle {
                 border-radius: 10px;
                 clip: true;
                 drop-shadow-blur: 30px;
-                drop-shadow-color: #000000a0;
-                background: NowPlayingUi.loaded ? @linear-gradient(135deg, NowPlayingUi.tint 0%, NowPlayingUi.tint.darker(0.6) 55%, #101012 100%) : Theme.control;
+                drop-shadow-color: Theme.s-000000a0;
+                background: NowPlayingUi.loaded ? @linear-gradient(135deg, NowPlayingUi.tint 0%, NowPlayingUi.tint.darker(0.6) 55%, Theme.n-101012 100%) : Theme.control;
                 if NowPlayingUi.has-cover: Image {
                     width: parent.width;
                     height: parent.height;
@@ -128,7 +128,7 @@ export component NowPlayingView inherits Rectangle {
                 }
                 if !NowPlayingUi.has-cover: Text {
                     text: NowPlayingUi.loaded ? NowPlayingUi.initials : "♪";
-                    color: #ffffffd8;
+                    color: Theme.n-ffffffd8;
                     font-size: art / 3;
                     font-weight: 700;
                 }
@@ -164,7 +164,7 @@ export component NowPlayingView inherits Rectangle {
                     width: q.preferred-width + 12px;
                     height: 20px;
                     border-radius: 4px;
-                    background: NowPlayingUi.lossless ? Theme.accent.with-alpha(0.16) : #ffffff12;
+                    background: NowPlayingUi.lossless ? Theme.accent.with-alpha(0.16) : Theme.n-ffffff12;
                     q := Text {
                         text: NowPlayingUi.quality;
                         color: NowPlayingUi.lossless ? Theme.accent : Theme.text-dim;
@@ -245,7 +245,7 @@ export component NowPlayingView inherits Rectangle {
         width: 34px;
         height: 34px;
         border-radius: 17px;
-        background: cta.has-hover ? #ffffff1a : transparent;
+        background: cta.has-hover ? Theme.n-ffffff1a : transparent;
         Path {
             width: 16px;
             height: 16px;

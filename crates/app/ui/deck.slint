@@ -116,7 +116,7 @@ component GridMenuItem inherits Rectangle {
     in property <string> text;
     height: 26px;
     border-radius: 4px;
-    background: ta.has-hover ? #3a3a3d : transparent;
+    background: ta.has-hover ? Theme.n-3a3a3d : transparent;
     Text { x: 10px; text: root.text; color: Theme.text; font-size: 13px; vertical-alignment: center; }
     ta := TouchArea {
         clicked => {
@@ -157,7 +157,7 @@ export component GridMenu inherits PopupWindow {
         border-width: 1px;
         border-color: Theme.border;
         drop-shadow-blur: 12px;
-        drop-shadow-color: #000000a0;
+        drop-shadow-color: Theme.s-000000a0;
     }
     property <bool> locked: Controls.value(Controls.resolve(group, "bpmlock"), Controls.tick) > 0;
     property <bool> clicking: Controls.value(Controls.resolve(group, "metronome"), Controls.tick) > 0;
@@ -282,11 +282,11 @@ export component Jog inherits Rectangle {
     }
     Rectangle {
         border-radius: self.width / 2;
-        background: #0a0a0b;
+        background: Theme.n-0a0a0b;
         border-width: 1px;
-        border-color: #000000;
+        border-color: Theme.edge;
     }
-    Arc { width: parent.width; height: parent.height; from: 0deg; to: 359.9deg; stroke: #232326; stroke-width: 3px; }
+    Arc { width: parent.width; height: parent.height; from: 0deg; to: 359.9deg; stroke: Theme.n-232326; stroke-width: 3px; }
     if info.progress > 0.002 || info.end-flash-ring: Arc {
         width: parent.width;
         height: parent.height;
@@ -311,14 +311,14 @@ export component Jog inherits Rectangle {
         width: centre;
         height: centre;
         border-radius: self.width / 2;
-        background: #2a2a2d;
+        background: Theme.n-2a2a2d;
         border-width: 1px;
-        border-color: #00000000;
+        border-color: Theme.s-00000000;
     }
     // The small jogs carry the openDJ mark in light grey instead of text.
     if plain: Image {
         source: @image-url("icons/opendj-mark.svg");
-        colorize: #a1a1a6;
+        colorize: Theme.n-a1a1a6;
         width: centre * 0.62;
         height: self.width / 1.6;
     }
@@ -331,7 +331,7 @@ export component Jog inherits Rectangle {
         height: 9px * scale;
         width: parent.width;
         text: info.rate;
-        color: #9e9ea3;
+        color: Theme.n-9e9ea3;
         font-size: 7.5px * scale;
         font-weight: 500;
         horizontal-alignment: center;
@@ -372,7 +372,7 @@ export component Jog inherits Rectangle {
         y: parent.height / 2 + 3px * scale;
         width: 44px * scale;
         height: 1px;
-        background: #48484c;
+        background: Theme.n-48484c;
     }
     // Elapsed over remaining, right-aligned to each other so the digits
     // line up, and centred in the jog as one block.
@@ -383,7 +383,7 @@ export component Jog inherits Rectangle {
         Text {
             height: 10px * scale;
             text: info.loaded ? info.elapsed : "00:00.0";
-            color: #9e9ea3;
+            color: Theme.n-9e9ea3;
             font-size: 8.5px * scale;
             font-weight: 500;
             horizontal-alignment: right;
@@ -411,7 +411,7 @@ component GrooveMenuItem inherits Rectangle {
     callback clicked();
     height: detail == "" ? 24px : 36px;
     border-radius: 5px;
-    background: gmta.has-hover ? #3a3a3d : transparent;
+    background: gmta.has-hover ? Theme.n-3a3a3d : transparent;
     VerticalLayout {
         x: 22px;
         width: parent.width - 28px;
@@ -429,7 +429,7 @@ component GrooveMenuBackground inherits Rectangle {
     border-width: 1px;
     border-color: Theme.border;
     drop-shadow-blur: 16px;
-    drop-shadow-color: #000000b0;
+    drop-shadow-color: Theme.s-000000b0;
 }
 
 // Album art, large; without any, the deck color with the
@@ -452,11 +452,11 @@ export component Cover inherits Rectangle {
     height: size;
     border-radius: radius;
     clip: true;
-    background: info.loaded || live > 0 ? @linear-gradient(135deg, tint 0%, tint.darker(0.6) 55%, #101012 100%) : Theme.control;
+    background: info.loaded || live > 0 ? @linear-gradient(135deg, tint 0%, tint.darker(0.6) 55%, Theme.n-101012 100%) : Theme.control;
     border-width: info.loaded || live > 0 ? 0px : 1px;
     border-color: Theme.border;
-    if !info.has-cover && live == 0: Text { text: info.loaded ? info.initials : "♪"; color: info.loaded ? #ffffffe0 : Theme.text-dim; font-size: size / 3; font-weight: 700; }
-    if live > 0 && !live-art: LiveIcon { kind: InstrumentsUi.live-icon(live); tint: #ffffffe0; size: size * 0.5; }
+    if !info.has-cover && live == 0: Text { text: info.loaded ? info.initials : "♪"; color: info.loaded ? Theme.n-ffffffe0 : Theme.text-dim; font-size: size / 3; font-weight: 700; }
+    if live > 0 && !live-art: LiveIcon { kind: InstrumentsUi.live-icon(live); tint: Theme.n-ffffffe0; size: size * 0.5; }
     if live-art: Image {
         width: parent.width;
         height: parent.height;
@@ -597,7 +597,7 @@ component KeyBox inherits VerticalLayout {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
         }
         VerticalLayout {
             padding: 6px;
@@ -605,7 +605,7 @@ component KeyBox inherits VerticalLayout {
             for item in more ? info.key-menu-all : info.key-menu: Rectangle {
                 height: 26px;
                 border-radius: 4px;
-                background: ita.has-hover ? #3a3a3d : transparent;
+                background: ita.has-hover ? Theme.n-3a3a3d : transparent;
                 HorizontalLayout {
                     padding-left: 6px;
                     padding-right: 6px;
@@ -624,7 +624,7 @@ component KeyBox inherits VerticalLayout {
             if !more: Rectangle {
                 height: 26px;
                 border-radius: 4px;
-                background: mta.has-hover ? #3a3a3d : transparent;
+                background: mta.has-hover ? Theme.n-3a3a3d : transparent;
                 Text { x: 26px; text: "More…"; color: Theme.text; font-size: 13px; }
                 mta := TouchArea { clicked => { more = true; } }
             }
@@ -632,7 +632,7 @@ component KeyBox inherits VerticalLayout {
             Rectangle {
                 height: 26px;
                 border-radius: 4px;
-                background: sta.has-hover ? #3a3a3d : transparent;
+                background: sta.has-hover ? Theme.n-3a3a3d : transparent;
                 Text { x: 26px; text: "Match key to the other deck"; color: Theme.text; font-size: 13px; }
                 sta := TouchArea {
                     clicked => {
@@ -689,7 +689,7 @@ component BeatBox inherits HorizontalLayout {
                 width: cell;
                 height: cell;
                 border-radius: 2px;
-                background: i != count.beat ? #2c2c2f
+                background: i != count.beat ? Theme.n-2c2c2f
                     : (i == 0 ? Theme.text : tint).with-alpha(count.playing ? 1 : 0.5);
             }
         }
@@ -699,7 +699,7 @@ component BeatBox inherits HorizontalLayout {
                 width: cell;
                 height: 3px;
                 border-radius: 1px;
-                background: count.last-bar ? Theme.accent : i <= count.bar ? tint.with-alpha(0.75) : #2c2c2f;
+                background: count.last-bar ? Theme.accent : i <= count.bar ? tint.with-alpha(0.75) : Theme.n-2c2c2f;
             }
         }
     }
@@ -726,7 +726,7 @@ component TimeKey inherits HorizontalLayout {
         Text { text: info.loaded ? "-" + info.remaining-seconds : "-0:00"; color: info.end-flash-time ? Theme.danger : Theme.text; font-size: 23px; font-weight: 500; horizontal-alignment: right; }
         Text { text: info.loaded ? info.total : ""; color: Theme.text-dim; font-size: 11px; horizontal-alignment: right; }
     }
-    if show-time: EdgeVLine { top: 6px; bottom: 6px; line-color: #2c2c2f; }
+    if show-time: EdgeVLine { top: 6px; bottom: 6px; line-color: Theme.n-2c2c2f; }
     KeyBox { group: group; info: info; tint: tint; compact: !show-time; }
 }
 
@@ -831,7 +831,7 @@ component PresetStep inherits Rectangle {
     callback clicked;
     width: 24px;
     border-radius: 4px;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2b2e : Theme.control;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-2a2b2e : Theme.control;
     Text { text: root.text; color: Theme.text; font-size: 16px; }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
@@ -869,7 +869,7 @@ component PresetBar inherits Rectangle {
             border-radius: 4px;
             border-width: 1px;
             border-color: tint;
-            background: sta.pressed ? Theme.control-pressed : sta.has-hover ? #2a2b2e : Theme.control;
+            background: sta.pressed ? Theme.control-pressed : sta.has-hover ? Theme.n-2a2b2e : Theme.control;
             Text { text: "SAVE"; color: Theme.text; font-size: 11px; font-weight: 600; }
             sta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
         }
@@ -988,7 +988,7 @@ component MidiChannel inherits Rectangle {
     property <bool> picked: InstrumentsUi.midi-channel == channel;
     height: 22px;
     border-radius: 4px;
-    background: picked ? Theme.accent.with-alpha(0.25) : mcta.has-hover ? #3a3a3d : Theme.control;
+    background: picked ? Theme.accent.with-alpha(0.25) : mcta.has-hover ? Theme.n-3a3a3d : Theme.control;
     border-width: 1px;
     border-color: picked ? Theme.accent : transparent;
     Text { text: channel == 0 ? "Any channel" : channel; color: Theme.text; font-size: 11px; }
@@ -1011,7 +1011,7 @@ component MidiFromButton inherits Rectangle {
     border-radius: Theme.radius;
     border-width: 1px;
     border-color: picked ? tint : Theme.border;
-    background: mfta.pressed ? Theme.control-pressed : mfta.has-hover ? #2a2b2e : Theme.control;
+    background: mfta.pressed ? Theme.control-pressed : mfta.has-hover ? Theme.n-2a2b2e : Theme.control;
     HorizontalLayout {
         padding-left: 3px;
         padding-right: 4px;
@@ -1303,7 +1303,7 @@ export component Header inherits Rectangle {
                 if !groove && !looper && live == 0: TimeKey { group: group; info: info; tint: tint; show-time: !compact; }
             }
             // Out to the header's edge on the side away from the cover.
-            EdgeLine { left: mirrored ? 6px : 0px; right: mirrored ? 0px : 6px; line-color: #2c2c2f; }
+            EdgeLine { left: mirrored ? 6px : 0px; right: mirrored ? 0px : 6px; line-color: Theme.n-2c2c2f; }
             // Overview waveform, rendered on the GPU. Click to jump; drag to
             // move through the track, the deck gliding after the pointer and
             // playing what it passes.
@@ -1424,7 +1424,7 @@ export component Header inherits Rectangle {
                         border-width: 1px;
                         border-color: Theme.border;
                         drop-shadow-blur: 8px;
-                        drop-shadow-color: #00000080;
+                        drop-shadow-color: Theme.s-00000080;
                     }
                     VerticalLayout {
                         padding: 4px;
@@ -1549,7 +1549,7 @@ export component EffectMenu inherits VerticalLayout {
         for t[i] in ["openDJ FX", "Plugins"]: Rectangle {
             horizontal-stretch: 1;
             border-radius: 4px;
-            background: tab == i ? Theme.control-pressed : tta.has-hover ? #2a2b2e : transparent;
+            background: tab == i ? Theme.control-pressed : tta.has-hover ? Theme.n-2a2b2e : transparent;
             Text {
                 text: t;
                 color: tab == i ? Theme.text : Theme.text-dim;
@@ -1570,7 +1570,7 @@ export component EffectMenu inherits VerticalLayout {
                 property <bool> current: !heading && loaded == row.index + 1;
                 height: heading ? 22px : 26px;
                 border-radius: 4px;
-                background: current ? tint.with-alpha(0.35) : !heading && eta.has-hover ? #3a3a3d : transparent;
+                background: current ? tint.with-alpha(0.35) : !heading && eta.has-hover ? Theme.n-3a3a3d : transparent;
                 HorizontalLayout {
                     padding-left: 8px;
                     padding-right: 8px;
@@ -1621,7 +1621,7 @@ export component FxSlot inherits HorizontalLayout {
         horizontal-stretch: 1;
         min-width: 0px;
         preferred-width: 0px;
-        background: on ? tint : nta.pressed || ata.pressed ? Theme.control-pressed : nta.has-hover || ata.has-hover ? #1d1d20 : Theme.control;
+        background: on ? tint : nta.pressed || ata.pressed ? Theme.control-pressed : nta.has-hover || ata.has-hover ? Theme.n-1d1d20 : Theme.control;
         border-radius: Theme.radius;
         border-width: 1px;
         border-color: on ? tint : Theme.border;
@@ -1732,7 +1732,7 @@ export component FxSlot inherits HorizontalLayout {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
         }
         EffectMenu {
             loaded: loaded;
@@ -1783,7 +1783,7 @@ component PadFxButton inherits Rectangle {
     property <string> unit: "[EffectRack1_EffectUnit" + (deck + 6) + "]";
     property <string> slot: "[EffectRack1_EffectUnit" + (deck + 6) + "_Effect1]";
     property <bool> held: touch.pressed;
-    background: held ? tint.with-alpha(0.25) : touch.has-hover ? #1d1d20 : Theme.control;
+    background: held ? tint.with-alpha(0.25) : touch.has-hover ? Theme.n-1d1d20 : Theme.control;
     Text { text: fx.text; color: held ? tint : Theme.text; font-size: 12px; font-weight: 700; }
     touch := TouchArea {
         pointer-event(e) => {
@@ -1923,7 +1923,7 @@ component StemPad inherits Rectangle {
         echo(m3, f3, on3, !rest);
         echo(m5, f5, on5 && count >= 5, !rest);
     }
-    background: !available ? Theme.control : ta.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.2) : ta.has-hover ? #1d1d20 : Theme.control;
+    background: !available ? Theme.control : ta.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.2) : ta.has-hover ? Theme.n-1d1d20 : Theme.control;
     Text {
         y: (parent.height - self.height) / 2 - 3px;
         width: parent.width - 6px;
@@ -2008,7 +2008,7 @@ component StemPad inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 8px;
-            drop-shadow-color: #00000080;
+            drop-shadow-color: Theme.s-00000080;
         }
         VerticalLayout {
             padding: 4px;
@@ -2056,7 +2056,7 @@ component PadCell inherits Rectangle {
     in property <color> tint;
     property <int> index: Controls.resolve(group, key);
     property <bool> lit: Controls.value(Controls.resolve(group, light-key), Controls.tick) > 0;
-    background: touch.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.18) : touch.has-hover ? #1d1d20 : Theme.control;
+    background: touch.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.18) : touch.has-hover ? Theme.n-1d1d20 : Theme.control;
     Text { text: root.text; color: lit ? tint : Theme.text; font-size: 12px; font-weight: 700; overflow: elide; }
     touch := TouchArea {
         pointer-event(e) => {
@@ -2090,7 +2090,7 @@ component KeyPad inherits Rectangle {
     property <bool> instrument: keyboard && Controls.value(Controls.resolve("[Instrument1]", "keyboard_pads"), Controls.tick) > 0;
     property <int> octave: Controls.value(Controls.resolve("[Instrument1]", "octave"), Controls.tick);
     property <bool> lit: !instrument && abs(Controls.value(pitch-index, Controls.tick) - semitones) < 0.01;
-    background: touch.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.18) : touch.has-hover ? #1d1d20 : Theme.control;
+    background: touch.pressed ? Theme.control-pressed : lit ? tint.with-alpha(0.18) : touch.has-hover ? Theme.n-1d1d20 : Theme.control;
     Text {
         text: instrument ? ["C", "D", "E", "F", "G", "A", "B", "C"][number - 1] + (4 + octave + (number == 8 ? 1 : 0))
             : semitones == 0 ? "±0" : semitones > 0 ? "+" + semitones : "−" + abs(semitones);
@@ -2139,7 +2139,7 @@ component HotcueCell inherits Rectangle {
     property <int> secs: floor(mod(seconds, 60));
     property <string> time: (minutes < 10 ? "0" : "") + minutes + ":" + (secs < 10 ? "0" : "") + secs;
     background: touch.pressed ? (set ? tint.with-alpha(0.3) : Theme.control-pressed)
-        : touch.has-hover ? #1d1d20 : Theme.control;
+        : touch.has-hover ? Theme.n-1d1d20 : Theme.control;
     if set: HorizontalLayout {
         alignment: center;
         spacing: 5px;
@@ -2215,7 +2215,7 @@ component PadTabs inherits Rectangle {
     // Square tabs on top of the pad grid, split by the same black lines:
     // the open one is lit like the pads, the others sit back darker.
     height: 23px;
-    background: #000000;
+    background: Theme.n-000000;
     HorizontalLayout {
         padding: 1px;
         padding-bottom: 0px;
@@ -2257,7 +2257,7 @@ component PadTabs inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 8px;
-            drop-shadow-color: #00000080;
+            drop-shadow-color: Theme.s-00000080;
         }
         VerticalLayout {
             padding: 4px;
@@ -2281,7 +2281,7 @@ component PadPager inherits Rectangle {
     in property <int> current;
     callback pick(page: int);
     width: 18px;
-    background: #000000;
+    background: Theme.n-000000;
     VerticalLayout {
         padding: 1px;
         spacing: 1px;
@@ -2290,7 +2290,7 @@ component PadPager inherits Rectangle {
             property <bool> on: numbers && current == p;
             property <bool> can: numbers || (p == 0 ? current > 0 : current < count - 1);
             vertical-stretch: 1;
-            background: on ? Theme.accent.with-alpha(0.22) : ta.has-hover && can ? #1d1d20 : Theme.control;
+            background: on ? Theme.accent.with-alpha(0.22) : ta.has-hover && can ? Theme.n-1d1d20 : Theme.control;
             Text {
                 text: numbers ? p + 1 : p == 0 ? "‹" : "›";
                 color: on ? Theme.accent : can ? Theme.text : Theme.text-dim.with-alpha(0.4);
@@ -2362,11 +2362,11 @@ export component Pads inherits HorizontalLayout {
         { stem: 4, text: "Vocal", tint: #09AD18 },
         { stem: 3, text: "Instru", tint: #A26018 },
         { stem: 2, text: "Bass", tint: #A21418 },
-        { stem: 0, text: "Acapella", tint: #A9AAAB },
+        { stem: 0, text: "Acapella", tint: Theme.n-a9aaab },
         { stem: 1, text: "Kick", tint: #2E4E75 },
         { stem: 5, text: "HiHat", tint: #0960B1 },
-        { stem: -2, text: "Stems FX", tint: #5D5D5E },
-        { stem: -1, text: "Instrumental", tint: #A9AAAB },
+        { stem: -2, text: "Stems FX", tint: Theme.n-5d5d5e },
+        { stem: -1, text: "Instrumental", tint: Theme.n-a9aaab },
     ];
     property <[PadEffect]> pad-fx: [
         { effect: 1, meta: 0.6, text: "ECHO" },
@@ -2486,9 +2486,9 @@ export component Pads inherits HorizontalLayout {
         // The black background shows through the 1px gaps as the grid lines.
         if page != 3: Rectangle {
             vertical-stretch: 1;
-            background: #000000;
+            background: Theme.n-000000;
             border-width: 1px;
-            border-color: #000000;
+            border-color: Theme.edge;
             VerticalLayout {
                 padding: 1px;
                 spacing: 1px;
@@ -2598,7 +2598,7 @@ component StepperPart inherits Rectangle {
     in property <string> text;
     in property <length> font-size;
     in property <color> label-color: Theme.text;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #1d1d20 : transparent;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-1d1d20 : transparent;
     Text { text: root.text; color: root.label-color; font-size: root.font-size; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -2660,7 +2660,7 @@ export component LoopSection inherits VerticalLayout {
         height: 28px;
         // A loop of any length: IN on the nearest beat lights grey while the
         // waveform marks the loop out; OUT closes it, and it turns lilac.
-        ControlButton { group: group; key: "loop_in"; light-key: "loop_in_pending"; text: "IN"; momentary: true; tint: #d1d1d6; font-size: 11px; horizontal-stretch: 1; tour-id: group + ",loop_in"; }
+        ControlButton { group: group; key: "loop_in"; light-key: "loop_in_pending"; text: "IN"; momentary: true; tint: Theme.n-d1d1d6; font-size: 11px; horizontal-stretch: 1; tour-id: group + ",loop_in"; }
         ControlButton { group: group; key: "loop_out"; light-key: "loop_enabled"; text: "OUT"; momentary: true; tint: Theme.lilac; font-size: 11px; horizontal-stretch: 1; tour-id: group + ",loop_out"; }
     }
 }
@@ -2912,7 +2912,7 @@ export component SlipToggle inherits Rectangle {
     Text {
         text: "SLIP";
         color: on ? (slipping && !Controls.blink ? Theme.text-dim : Theme.lilac)
-            : ta.has-hover ? Theme.text : #a1a1a6;
+            : ta.has-hover ? Theme.text : Theme.n-a1a1a6;
         font-size: 9px;
         font-weight: 700;
         letter-spacing: 0.3px;
@@ -3060,7 +3060,7 @@ component GrooveToggle inherits Rectangle {
     property <int> index: Controls.resolve(group, key);
     property <bool> on: Controls.value(index, Controls.tick) > 0;
     border-radius: 3px;
-    background: on ? tint : gtta.has-hover ? #ffffff1c : #00000040;
+    background: on ? tint : gtta.has-hover ? Theme.n-ffffff1c : Theme.s-00000040;
     Text { text: root.text; color: on ? #000000 : Theme.text-dim; font-size: 9px; font-weight: 700; }
     gtta := TouchArea { mouse-cursor: pointer; clicked => { Controls.toggle(index); } }
 }
@@ -3250,7 +3250,7 @@ component GrooveTrack inherits HorizontalLayout {
         background: on ? (here ? lit.brighter(0.7) : lit)
             : tint.with-alpha((empty ? 0.07 : 0.15) + (here ? 0.12 : 0) + (mod(s, 4) == 0 ? 0.04 : 0) + (cta.has-hover ? 0.12 : 0));
         border-width: on && (is-accent || is-maybe) ? 1px : 0px;
-        border-color: is-maybe ? tint : #ffffffa0;
+        border-color: is-maybe ? tint : Theme.n-ffffffa0;
         // A step that plays half the time.
         if on && is-maybe: Text { text: "50%"; color: Theme.text; font-size: 8px; font-weight: 700; }
         cta := TouchArea {
@@ -3306,7 +3306,7 @@ component GrooveKickKey inherits Rectangle {
     border-radius: 4px;
     border-width: 1px;
     border-color: choice > 0 ? tint : Theme.border;
-    background: kkta.has-hover ? #ffffff1c : #00000040;
+    background: kkta.has-hover ? Theme.n-ffffff1c : Theme.s-00000040;
     Text {
         text: "KEY " + (choice == 1 ? "ROOT" : choice == 2 ? "5TH" : "OFF") + (choice > 0 && note > 0 ? " · " + names[note - 1] : "");
         color: choice > 0 ? tint : Theme.text-dim;
@@ -3495,7 +3495,7 @@ component GrooveStrip inherits VerticalLayout {
         Rectangle {
             width: 5px;
             border-radius: 2px;
-            background: #050506;
+            background: Theme.n-050506;
             Rectangle {
                 y: parent.height * (1 - min(1, meter));
                 height: parent.height * min(1, meter);
@@ -3521,7 +3521,7 @@ component GrooveTab inherits Rectangle {
     callback clicked();
     height: 24px;
     border-radius: 4px;
-    background: on ? tint.with-alpha(0.22) : gtba.has-hover ? #ffffff10 : transparent;
+    background: on ? tint.with-alpha(0.22) : gtba.has-hover ? Theme.n-ffffff10 : transparent;
     Text { text: root.text; color: on ? Theme.text : Theme.text-dim; font-size: 9px; font-weight: 700; letter-spacing: 0.4px; }
     gtba := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
@@ -3596,8 +3596,8 @@ component GroovePads inherits HorizontalLayout {
                 background: on ? (here ? tint.brighter(0.7) : is-accent ? tint.brighter(0.45) : is-soft ? tint.with-alpha(0.5) : is-maybe ? tint.with-alpha(0.35) : tint)
                     : tint.with-alpha(0.1 + (here ? 0.2 : 0) + (mod(s, 4) == 0 ? 0.05 : 0) + (sta.has-hover ? 0.1 : 0));
                 border-width: here ? 2px : on && (is-accent || is-maybe) ? 1px : 0px;
-                border-color: here ? Theme.text : is-maybe ? tint : #ffffffa0;
-                Text { x: 6px; y: 4px; text: s + 1; color: on ? #000000a0 : Theme.text-dim; font-size: 9px; font-weight: 700; }
+                border-color: here ? Theme.text : is-maybe ? tint : Theme.n-ffffffa0;
+                Text { x: 6px; y: 4px; text: s + 1; color: on ? Theme.s-000000a0 : Theme.text-dim; font-size: 9px; font-weight: 700; }
                 if on && is-maybe: Text { text: "50%"; color: Theme.text; font-size: 10px; font-weight: 700; }
                 sta := TouchArea {
                     mouse-cursor: pointer;
@@ -3693,13 +3693,13 @@ component GrooveFillBar inherits HorizontalLayout {
         border-radius: Theme.radius;
         border-width: 1px;
         border-color: level > 0 ? tint : Theme.border;
-        background: #00000040;
+        background: Theme.s-00000040;
         HorizontalLayout {
             padding: 3px;
             spacing: 2px;
             for i in 16: Rectangle {
                 border-radius: 2px;
-                background: i < level ? tint.with-alpha(0.35 + 0.6 * (i + 1) / 16) : #ffffff10;
+                background: i < level ? tint.with-alpha(0.35 + 0.6 * (i + 1) / 16) : Theme.n-ffffff10;
             }
         }
         Text {
@@ -3963,7 +3963,7 @@ component OctaveStep inherits Rectangle {
     width: 20px;
     height: 18px;
     border-radius: 3px;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2b2e : Theme.control;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-2a2b2e : Theme.control;
     Text { text: root.text; color: Theme.text; font-size: 12px; }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
@@ -4070,7 +4070,7 @@ component InstrumentKnobs inherits HorizontalLayout {
             width: 22px;
             height: 16px;
             border-radius: 3px;
-            background: p == shown ? root.tint.with-alpha(0.25) : pta.has-hover ? #2a2b2e : Theme.control;
+            background: p == shown ? root.tint.with-alpha(0.25) : pta.has-hover ? Theme.n-2a2b2e : Theme.control;
             border-width: 1px;
             border-color: p == shown ? root.tint : transparent;
             Text { text: p + 1; color: p == shown ? Theme.text : Theme.text-dim; font-size: 10px; }
@@ -4084,8 +4084,8 @@ component InstrumentKnobs inherits HorizontalLayout {
 component InstrumentScope inherits Rectangle {
     in property <color> tint;
     border-radius: 4px;
-    background: #0c0c0e;
-    Rectangle { y: parent.height / 2; height: 1px; background: #26262a; }
+    background: Theme.n-0c0c0e;
+    Rectangle { y: parent.height / 2; height: 1px; background: Theme.n-26262a; }
     Path {
         // The same shape as the scope (160 by 40), so it fills it: a path
         // keeps its viewbox's proportions.
@@ -4118,7 +4118,7 @@ component InstrumentKeyboard inherits Rectangle {
         width: root.key-width - 1px;
         height: root.height;
         border-radius: 2px;
-        background: InstrumentsUi.held[note] ? root.tint : mask == 0 || in-scale ? #d8d8dc : #6a6a70;
+        background: InstrumentsUi.held[note] ? root.tint : mask == 0 || in-scale ? Theme.n-d8d8dc : Theme.n-6a6a70;
         if mask != 0 && in-scale && !InstrumentsUi.held[note]: Rectangle {
             x: 2px;
             y: parent.height - 4px;
@@ -4138,7 +4138,7 @@ component InstrumentKeyboard inherits Rectangle {
         width: root.key-width * 0.6;
         height: root.height * 0.62;
         border-radius: 2px;
-        background: InstrumentsUi.held[note] ? root.tint : mask == 0 || in-scale ? #1a1a1c : #3c3c40;
+        background: InstrumentsUi.held[note] ? root.tint : mask == 0 || in-scale ? Theme.n-1a1a1c : Theme.n-3c3c40;
         if mask != 0 && in-scale && !InstrumentsUi.held[note]: Rectangle {
             x: 2px;
             y: parent.height - 4px;
@@ -4186,7 +4186,7 @@ component ScaleButton inherits GrooveButton {
                     property <int> r: row * 6 + k;
                     property <bool> on: mode == 2 && picked-root == r;
                     border-radius: 4px;
-                    background: on ? Theme.accent.with-alpha(0.25) : rta.has-hover ? #3a3a3d : Theme.control;
+                    background: on ? Theme.accent.with-alpha(0.25) : rta.has-hover ? Theme.n-3a3a3d : Theme.control;
                     border-width: 1px;
                     border-color: on ? Theme.accent : transparent;
                     Text { text: notes[r]; color: Theme.text; font-size: 11px; }
@@ -4266,7 +4266,7 @@ component ChoiceChip inherits Rectangle {
     callback clicked();
     height: 22px;
     border-radius: 4px;
-    background: picked ? Theme.accent.with-alpha(0.25) : ccta.has-hover ? #3a3a3d : Theme.control;
+    background: picked ? Theme.accent.with-alpha(0.25) : ccta.has-hover ? Theme.n-3a3a3d : Theme.control;
     border-width: 1px;
     border-color: picked ? Theme.accent : transparent;
     Text { text: root.text; color: Theme.text; font-size: 11px; }
@@ -4420,7 +4420,7 @@ component LooperLayer inherits Rectangle {
     height: 36px;
     horizontal-stretch: 1;
     border-radius: Theme.radius;
-    background: #0000002a;
+    background: Theme.s-0000002a;
     HorizontalLayout {
         padding: 3px;
         spacing: 5px;
@@ -4467,7 +4467,7 @@ component LooperLayer inherits Rectangle {
                 width: 22px;
                 height: 22px;
                 border-radius: 3px;
-                background: cta.has-hover ? #ffffff1c : #00000040;
+                background: cta.has-hover ? Theme.n-ffffff1c : Theme.s-00000040;
                 CloseIcon { size: 9px; color: Theme.text-dim; }
                 cta := TouchArea {
                     mouse-cursor: pointer;
@@ -4528,7 +4528,7 @@ component LooperPanel inherits Rectangle {
                         width: 10px;
                         height: 10px;
                         border-radius: 5px;
-                        background: playing && floor(bar-beat) == beat ? (beat == 0 ? tint : Theme.text) : #ffffff1a;
+                        background: playing && floor(bar-beat) == beat ? (beat == 0 ? tint : Theme.text) : Theme.n-ffffff1a;
                     }
                 }
                 Text {
@@ -4680,7 +4680,7 @@ component InputPicker inherits PopupWindow {
         border-width: 1px;
         border-color: Theme.border;
         drop-shadow-blur: 12px;
-        drop-shadow-color: #000000a0;
+        drop-shadow-color: Theme.s-000000a0;
     }
     // Fresh meters while it is open.
     Timer {
@@ -4722,14 +4722,14 @@ component InputPicker inherits PopupWindow {
                     Text {
                         width: 14px;
                         text: row.current ? "✓" : "";
-                        color: ta.has-hover ? #ffffff : Theme.accent;
+                        color: ta.has-hover ? Theme.n-ffffff : Theme.accent;
                         font-size: 11px;
                         vertical-alignment: center;
                     }
                     Text {
                         width: 40px;
                         text: row.label;
-                        color: ta.has-hover ? #ffffff : Theme.text;
+                        color: ta.has-hover ? Theme.n-ffffff : Theme.text;
                         font-size: 12px;
                         vertical-alignment: center;
                     }
@@ -4741,7 +4741,7 @@ component InputPicker inherits PopupWindow {
                         for level in row.r < 0 ? [row.l] : [row.l, row.r]: Rectangle {
                             height: 3px;
                             border-radius: 1px;
-                            background: #2c2c2f;
+                            background: Theme.n-2c2c2f;
                             Rectangle {
                                 x: 0;
                                 width: parent.width * clamp(level, 0, 1);
@@ -4763,7 +4763,7 @@ component InputPicker inherits PopupWindow {
             Text {
                 x: 8px;
                 text: "Settings › Audio…";
-                color: more.has-hover ? #ffffff : Theme.text;
+                color: more.has-hover ? Theme.n-ffffff : Theme.text;
                 font-size: 12px;
                 vertical-alignment: center;
             }
@@ -4890,7 +4890,7 @@ component MixerStrip inherits Rectangle {
                     border-color: Theme.border;
                     Text {
                         text: peak-db <= -59.9 ? "-inf" : (peak-db > 0 ? "+" : "") + (round(peak-db * 10) / 10);
-                        color: peak-db > 0 ? #101112 : Theme.text;
+                        color: peak-db > 0 ? Theme.n-101112 : Theme.text;
                         font-size: 9px;
                         font-weight: peak-db > 0 ? 700 : 400;
                         horizontal-alignment: center;
@@ -4905,7 +4905,7 @@ component MixerStrip inherits Rectangle {
                 Rectangle {
                     height: 26px;
                     border-radius: 4px;
-                    background: on ? Theme.accent : #3a3a3e;
+                    background: on ? Theme.accent : Theme.n-3a3a3e;
                     Text {
                         text: info.number;
                         color: on ? Theme.on-selection : Theme.text-dim;
@@ -4928,7 +4928,7 @@ component MixerStrip inherits Rectangle {
                     border-color: solo ? #ffd60a : Theme.border;
                     Text {
                         text: "S";
-                        color: solo ? #1c1c1e : Theme.text;
+                        color: solo ? Theme.n-1c1c1e : Theme.text;
                         font-size: 10px;
                         font-weight: 700;
                         horizontal-alignment: center;
@@ -5183,7 +5183,7 @@ component LivePanel inherits Rectangle {
                     width: live == 3 ? 80px : 150px;
                     height: 6px;
                     border-radius: 3px;
-                    background: #2a2a2d;
+                    background: Theme.n-2a2a2d;
                     Rectangle {
                         x: 0;
                         width: parent.width * clamp(level, 0, 1);

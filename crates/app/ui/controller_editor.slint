@@ -237,7 +237,7 @@ component EditBox inherits Rectangle {
     border-radius: Theme.radius;
     border-width: 1px;
     border-color: wrong ? #ff9f0a : ti.has-focus ? Theme.lilac : Theme.border;
-    if root.text == "": Text { x: 8px; text: root.placeholder; color: #5f5f65; font-size: 12px; vertical-alignment: center; height: parent.height; }
+    if root.text == "": Text { x: 8px; text: root.placeholder; color: Theme.n-5f5f65; font-size: 12px; vertical-alignment: center; height: parent.height; }
     ti := TextInput {
         x: 8px;
         width: parent.width - 16px;
@@ -279,7 +279,7 @@ component KindIcon inherits Path {
 component Chip inherits Rectangle {
     in property <string> text;
     in property <color> ink: Theme.text-dim;
-    in property <color> fill: #2a2a2e;
+    in property <color> fill: Theme.n-2a2a2e;
     height: 18px;
     border-radius: 4px;
     background: fill;
@@ -296,7 +296,7 @@ component Tab inherits Rectangle {
     callback clicked();
     height: 28px;
     border-radius: 6px;
-    background: selected ? #3a3a3d : ta.has-hover ? #262629 : transparent;
+    background: selected ? Theme.n-3a3a3d : ta.has-hover ? Theme.n-262629 : transparent;
     HorizontalLayout {
         padding-left: 12px;
         padding-right: 12px;
@@ -347,13 +347,13 @@ component FunctionRow inherits Rectangle {
     in property <bool> alt;
     callback clicked();
     height: item.level == 0 ? 38px : item.level == 1 ? 30px : 44px;
-    background: item.level == 0 ? (ta.has-hover ? #232326 : #1c1c1f)
-        : item.level == 1 ? (ta.has-hover ? #1e1e21 : transparent)
+    background: item.level == 0 ? (ta.has-hover ? Theme.n-232326 : Theme.n-1c1c1f)
+        : item.level == 1 ? (ta.has-hover ? Theme.n-1e1e21 : transparent)
         : item.selected ? Theme.selection
-        : ta.has-hover ? #222225
+        : ta.has-hover ? Theme.n-222225
         : alt ? Theme.row-alt : Theme.row;
-    property <color> ink: item.selected ? Theme.on-row-selection : item.off ? #6a6a70 : Theme.text;
-    property <color> dim: item.selected ? Theme.on-row-selection-dim : item.off ? #55555a : Theme.text-dim;
+    property <color> ink: item.selected ? Theme.on-row-selection : item.off ? Theme.n-6a6a70 : Theme.text;
+    property <color> dim: item.selected ? Theme.on-row-selection-dim : item.off ? Theme.n-55555a : Theme.text-dim;
     // A change of the DJ's own: a lilac mark on the left edge.
     if item.edited: Rectangle { x: 0; width: 3px; background: Theme.lilac; }
     if item.header: HorizontalLayout {
@@ -397,7 +397,7 @@ component FunctionRow inherits Rectangle {
                     if item.layer != "": Chip {
                         text: item.layer;
                         ink: item.selected ? Theme.on-row-selection : item.layer == "SHIFT" ? Theme.cue : Theme.text-dim;
-                        fill: item.selected ? #ffffff30 : item.layer == "SHIFT" ? Theme.cue.with-alpha(0.15) : #2a2a2e;
+                        fill: item.selected ? Theme.n-ffffff30 : item.layer == "SHIFT" ? Theme.cue.with-alpha(0.15) : Theme.n-2a2a2e;
                     }
                 }
             }
@@ -410,10 +410,10 @@ component FunctionRow inherits Rectangle {
             HorizontalLayout {
                 spacing: 6px;
                 Text { text: item.function; color: ink; font-size: 13px; font-weight: 500; overflow: elide; vertical-alignment: center; horizontal-stretch: 0; }
-                if item.target != "": Chip { text: item.target; ink: item.selected ? Theme.on-row-selection : Theme.text; fill: item.selected ? #ffffff30 : #2a2a2e; }
-                if item.script != "": Chip { text: "script"; ink: item.selected ? Theme.on-row-selection : Theme.lilac; fill: item.selected ? #ffffff30 : Theme.lilac.with-alpha(0.15); }
-                if item.edited: Chip { text: "changed"; ink: item.selected ? Theme.on-row-selection : Theme.lilac; fill: item.selected ? #ffffff30 : Theme.lilac.with-alpha(0.15); }
-                if item.off: Chip { text: "not working"; ink: item.selected ? Theme.on-row-selection : Theme.text-dim; fill: item.selected ? #ffffff30 : #2a2a2e; }
+                if item.target != "": Chip { text: item.target; ink: item.selected ? Theme.on-row-selection : Theme.text; fill: item.selected ? Theme.n-ffffff30 : Theme.n-2a2a2e; }
+                if item.script != "": Chip { text: "script"; ink: item.selected ? Theme.on-row-selection : Theme.lilac; fill: item.selected ? Theme.n-ffffff30 : Theme.lilac.with-alpha(0.15); }
+                if item.edited: Chip { text: "changed"; ink: item.selected ? Theme.on-row-selection : Theme.lilac; fill: item.selected ? Theme.n-ffffff30 : Theme.lilac.with-alpha(0.15); }
+                if item.off: Chip { text: "not working"; ink: item.selected ? Theme.on-row-selection : Theme.text-dim; fill: item.selected ? Theme.n-ffffff30 : Theme.n-2a2a2e; }
                 Rectangle { horizontal-stretch: 1; }
             }
             if item.detail != "": Text { text: item.detail; color: dim; font-size: 11px; overflow: elide; }
@@ -447,21 +447,21 @@ component Picture inherits Rectangle {
         width: p.w * root.scale * 1px;
         height: p.h * root.scale * 1px;
         border-radius: p.r * root.scale * 1px;
-        background: #1e1e21;
+        background: Theme.n-1e1e21;
         border-width: 1px;
-        border-color: #38383c;
+        border-color: Theme.n-38383c;
     }
     for part in ControllerEditor.parts: Rectangle {
         property <bool> hover: pta.has-hover;
         property <bool> vertical: part.h >= part.w;
         property <color> edge: part.flash ? Theme.lilac
             : part.lit ? Theme.lilac
-            : hover ? #a0a0a8
-            : part.mapped ? #5a5a60 : #333337;
+            : hover ? Theme.n-a0a0a8
+            : part.mapped ? Theme.n-5a5a60 : Theme.n-333337;
         property <color> face: part.flash ? Theme.lilac
             : part.lit ? Theme.lilac.with-alpha(0.28)
-            : hover ? #3a3a3f
-            : part.mapped ? #2a2a2e : #1f1f22;
+            : hover ? Theme.n-3a3a3f
+            : part.mapped ? Theme.n-2a2a2e : Theme.n-1f1f22;
         x: root.ox + part.x * root.scale * 1px;
         y: root.oy + part.y * root.scale * 1px;
         width: part.w * root.scale * 1px;
@@ -473,7 +473,7 @@ component Picture inherits Rectangle {
             width: vertical ? max(3px, parent.width * 0.18) : parent.width;
             height: vertical ? parent.height : max(3px, parent.height * 0.18);
             border-radius: 2px;
-            background: #0b0b0c;
+            background: Theme.n-0b0b0c;
             border-width: 1px;
             border-color: edge;
         }
@@ -517,7 +517,7 @@ component Picture inherits Rectangle {
             width: parent.width - 4px;
             x: 2px;
             text: part.label;
-            color: part.flash ? Theme.on-selection : part.mapped ? Theme.text-dim : #55555a;
+            color: part.flash ? Theme.on-selection : part.mapped ? Theme.text-dim : Theme.n-55555a;
             font-size: label-size;
             horizontal-alignment: center;
             vertical-alignment: center;
@@ -542,7 +542,7 @@ component Picture inherits Rectangle {
         width: hl.preferred-width;
         height: 26px;
         border-radius: 6px;
-        background: #000000c0;
+        background: Theme.s-000000c0;
         hl := HorizontalLayout {
             padding-left: 10px;
             padding-right: 10px;
@@ -567,7 +567,7 @@ component DialogButton inherits Rectangle {
     height: 28px;
     width: max(80px, bl.preferred-width);
     border-radius: Theme.radius;
-    background: primary ? (ta.pressed ? Theme.accent.darker(0.3) : Theme.accent) : ta.has-hover ? #3a3a3e : #2c2c30;
+    background: primary ? (ta.pressed ? Theme.accent.darker(0.3) : Theme.accent) : ta.has-hover ? Theme.n-3a3a3e : Theme.n-2c2c30;
     bl := HorizontalLayout {
         padding-left: 14px;
         padding-right: 14px;
@@ -593,7 +593,7 @@ component EditField inherits VerticalLayout {
     }
     if root.hint != "": HorizontalLayout {
         padding-left: 102px;
-        Text { text: root.hint; color: root.wrong ? #ff9f0a : #77777d; font-size: 10px; wrap: word-wrap; }
+        Text { text: root.hint; color: root.wrong ? #ff9f0a : Theme.n-77777d; font-size: 10px; wrap: word-wrap; }
     }
 }
 
@@ -603,7 +603,7 @@ component SmallButton inherits Rectangle {
     height: 24px;
     width: sb.preferred-width;
     border-radius: Theme.radius;
-    background: ta.has-hover ? #3a3a3e : #2c2c30;
+    background: ta.has-hover ? Theme.n-3a3a3e : Theme.n-2c2c30;
     sb := HorizontalLayout {
         padding-left: 10px;
         padding-right: 10px;
@@ -618,7 +618,7 @@ component SmallButton inherits Rectangle {
 // The selected row, to change: what it does and on what, and folded under
 // Advanced when it acts and how its value is read.
 component RowEditor inherits Rectangle {
-    background: #19191c;
+    background: Theme.n-19191c;
     border-radius: 8px;
     border-width: 1px;
     border-color: Theme.border;
@@ -690,7 +690,7 @@ component RowEditor inherits Rectangle {
             Rectangle {
                 horizontal-stretch: 1;
                 height: 26px;
-                background: fta.has-hover ? #2a2a2e : Theme.control;
+                background: fta.has-hover ? Theme.n-2a2a2e : Theme.control;
                 border-radius: Theme.radius;
                 border-width: 1px;
                 border-color: Theme.border;
@@ -806,7 +806,7 @@ component RowEditor inherits Rectangle {
 
 // Choosing what a control does: every function by category, searchable.
 component FunctionPicker inherits Rectangle {
-    background: #00000060;
+    background: Theme.s-00000060;
     TouchArea {
         clicked => { ControllerEditor.picker-open = false; }
     }
@@ -818,7 +818,7 @@ component FunctionPicker inherits Rectangle {
         border-width: 1px;
         border-color: Theme.border;
         drop-shadow-blur: 30px;
-        drop-shadow-color: #000000c0;
+        drop-shadow-color: Theme.s-000000c0;
         clip: true;
         TouchArea { }
         VerticalLayout {
@@ -838,7 +838,7 @@ component FunctionPicker inherits Rectangle {
                 vertical-stretch: 1;
                 for r[i] in ControllerEditor.picker-rows: Rectangle {
                     height: r.header ? 28px : 30px;
-                    background: r.header ? transparent : r.selected ? Theme.selection : pta.has-hover ? #2a2a2e : transparent;
+                    background: r.header ? transparent : r.selected ? Theme.selection : pta.has-hover ? Theme.n-2a2a2e : transparent;
                     border-radius: 4px;
                     HorizontalLayout {
                         padding-left: r.header ? 4px : 14px;
@@ -869,7 +869,7 @@ component FunctionPicker inherits Rectangle {
 
 // Naming a mapping, asking before deleting one, or what an import brought.
 component EditorDialog inherits Rectangle {
-    background: #00000080;
+    background: Theme.s-00000080;
     TouchArea { }
     Rectangle {
         width: 400px;
@@ -879,7 +879,7 @@ component EditorDialog inherits Rectangle {
         border-width: 1px;
         border-color: Theme.border;
         drop-shadow-blur: 30px;
-        drop-shadow-color: #000000c0;
+        drop-shadow-color: Theme.s-000000c0;
         dl := VerticalLayout {
             padding: 20px;
             spacing: 12px;
@@ -918,7 +918,7 @@ component EditorDialog inherits Rectangle {
 }
 
 export component ControllerEditorOverlay inherits Rectangle {
-    background: #000000a0;
+    background: Theme.s-000000a0;
     // A click outside the editor closes it.
     TouchArea {
         clicked => { ControllerEditor.open = false; }
@@ -931,7 +931,7 @@ export component ControllerEditorOverlay inherits Rectangle {
         border-width: 1px;
         border-color: Theme.border;
         drop-shadow-blur: 40px;
-        drop-shadow-color: #000000c0;
+        drop-shadow-color: Theme.s-000000c0;
         clip: true;
         TouchArea { }
         VerticalLayout {
@@ -1005,7 +1005,7 @@ export component ControllerEditorOverlay inherits Rectangle {
                 // The picture, and how to find a control by pressing it.
                 Rectangle {
                     horizontal-stretch: 1;
-                    background: #141416;
+                    background: Theme.n-141416;
                     if ControllerEditor.has-picture: Picture {
                         x: 24px;
                         y: 24px;
@@ -1031,7 +1031,7 @@ export component ControllerEditorOverlay inherits Rectangle {
                                 width: 8px;
                                 height: 8px;
                                 border-radius: 4px;
-                                background: ControllerEditor.live ? Theme.deck3 : #4a4a4f;
+                                background: ControllerEditor.live ? Theme.deck3 : Theme.n-4a4a4f;
                             }
                         }
                         Text { text: ControllerEditor.find-hint; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }

@@ -26,7 +26,7 @@ component StepArrow inherits Rectangle {
         viewbox-width: 6;
         viewbox-height: 10;
         commands: next ? "M 1 1 L 5 5 L 1 9" : "M 5 1 L 1 5 L 5 9";
-        stroke: ta.pressed ? Theme.text-dim : ta.has-hover ? Theme.text : #b0b0b5;
+        stroke: ta.pressed ? Theme.text-dim : ta.has-hover ? Theme.text : Theme.n-b0b0b5;
         stroke-width: 1.6px;
         stroke-line-cap: round;
         fill: transparent;
@@ -53,7 +53,7 @@ component BeatArrow inherits Rectangle {
         viewbox-width: 9;
         viewbox-height: 12;
         commands: next ? "M 0 0 L 9 6 L 0 12 Z" : "M 9 0 L 0 6 L 9 12 Z";
-        fill: !enabled ? #3a3a3e : ta.pressed ? #6e6e73 : ta.has-hover ? #a8a8ad : #6e6e73;
+        fill: !enabled ? Theme.n-3a3a3e : ta.pressed ? Theme.n-6e6e73 : ta.has-hover ? Theme.n-a8a8ad : Theme.n-6e6e73;
     }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -77,7 +77,7 @@ component BeatChooser inherits HorizontalLayout {
         min-width: 22px;
         horizontal-stretch: 1;
         text: beats <= 0 ? "–" : beats < 1 ? "1/" + round(1 / beats) : round(beats);
-        color: #b0b0b5;
+        color: Theme.n-b0b0b5;
         font-size: 13px;
         font-weight: 500;
         horizontal-alignment: center;
@@ -108,14 +108,14 @@ component ParamSlider inherits Rectangle {
         x: thumb / 2;
         width: travel;
         height: 2px;
-        background: #3a3a3e;
+        background: Theme.n-3a3a3e;
     }
     for t in 5: Rectangle {
         x: thumb / 2 + t * travel / 4 - 0.5px;
         y: parent.height / 2 - 4px;
         width: 1px;
         height: 8px;
-        background: #3a3a3e;
+        background: Theme.n-3a3a3e;
     }
     if hardware >= 0: PickupGhost {
         x: hardware * travel;
@@ -129,9 +129,9 @@ component ParamSlider inherits Rectangle {
         width: thumb;
         height: thumb;
         border-radius: thumb / 2;
-        background: touch.pressed ? @linear-gradient(180deg, #8e8e93 0%, #6e6e73 100%) : touch.has-hover ? @linear-gradient(180deg, #a8a8ad 0%, #7c7c81 100%) : @linear-gradient(180deg, #98989d 0%, #6e6e73 100%);
+        background: touch.pressed ? @linear-gradient(180deg, Theme.n-8e8e93 0%, Theme.n-6e6e73 100%) : touch.has-hover ? @linear-gradient(180deg, Theme.n-a8a8ad 0%, Theme.n-7c7c81 100%) : @linear-gradient(180deg, Theme.n-98989d 0%, Theme.n-6e6e73 100%);
         drop-shadow-blur: 3px;
-        drop-shadow-color: #00000080;
+        drop-shadow-color: Theme.s-00000080;
     }
     touch := TouchArea {
         mouse-cursor: pointer;
@@ -172,14 +172,14 @@ component DwKnob inherits Rectangle {
     height: 20px;
     Rectangle {
         border-radius: self.width / 2;
-        background: ta.has-hover ? #2a2a2e : #121214;
+        background: ta.has-hover ? Theme.n-2a2a2e : Theme.n-121214;
         border-width: 1.5px;
-        border-color: #58585d;
+        border-color: Theme.n-58585d;
     }
     Path {
         viewbox-width: 100;
         viewbox-height: 100;
-        stroke: param > 0.004 ? tint : #e4e4e8;
+        stroke: param > 0.004 ? tint : Theme.n-e4e4e8;
         stroke-width: 2px;
         stroke-line-cap: round;
         MoveTo { x: 50 + 4 * sin(a); y: 50 - 4 * cos(a); }
@@ -225,7 +225,7 @@ component EffectPicker inherits Rectangle {
         Text {
             min-width: 0px;
             text: has-effect ? EffectList.names[loaded - 1] : "No effect";
-            color: !has-effect ? Theme.text-dim : ta.has-hover ? #ffffff : Theme.text;
+            color: !has-effect ? Theme.text-dim : ta.has-hover ? Theme.n-ffffff : Theme.text;
             font-size: root.font-size;
             font-weight: 500;
             vertical-alignment: center;
@@ -238,7 +238,7 @@ component EffectPicker inherits Rectangle {
             viewbox-width: 9;
             viewbox-height: 6;
             commands: "M 1 1 L 4.5 4.5 L 8 1";
-            stroke: ta.has-hover ? Theme.text : #b0b0b5;
+            stroke: ta.has-hover ? Theme.text : Theme.n-b0b0b5;
             stroke-width: 1.6px;
             stroke-line-cap: round;
             fill: transparent;
@@ -263,7 +263,7 @@ component EffectPicker inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
         }
         EffectMenu {
             loaded: loaded;
@@ -305,9 +305,9 @@ component FxControls inherits HorizontalLayout {
         height: 23px;
         y: (parent.height - self.height) / 2;
         border-radius: 6px;
-        background: on ? tint : ota.pressed ? Theme.control-pressed : ota.has-hover ? #222225 : #141416;
+        background: on ? tint : ota.pressed ? Theme.control-pressed : ota.has-hover ? Theme.n-222225 : Theme.n-141416;
         border-width: 1px;
-        border-color: on ? tint : #48484c;
+        border-color: on ? tint : Theme.n-48484c;
         Text { text: "ON"; color: on ? #ffffff : has-effect ? Theme.text : Theme.text-dim; font-size: 12px; font-weight: 500; }
         ota := TouchArea {
             mouse-cursor: pointer;
@@ -379,7 +379,7 @@ component FxCell inherits Rectangle {
             EffectPicker { fx: fx; tint: tint; }
             StepArrow { next: true; index: Controls.resolve(fx, "next_effect"); map-key: fx + ",next_effect"; }
         }
-        Rectangle { height: 1px; background: #000000; }
+        Rectangle { height: 1px; background: Theme.edge; }
         FxControls { height: 37px; fx: fx; tint: tint; }
     }
     // The name, for the step that picks another effect.
@@ -451,7 +451,7 @@ component BeatFxSection inherits Rectangle {
                 }
             }
         }
-        Rectangle { height: 1px; background: #000000; }
+        Rectangle { height: 1px; background: Theme.edge; }
         FxControls { height: 37px; fx: fx; tint: Theme.accent; }
     }
     TourMark { id: root.unit; }
@@ -461,7 +461,7 @@ export component FxBar inherits Rectangle {
     // 4-Deck: decks 3 and 1 left of the Beat FX, 2 and 4 right of it, each
     // deck's effects stacked.
     in property <bool> four;
-    background: #000000;
+    background: Theme.n-000000;
     height: four ? 96px : 68px;
     if !four: HorizontalLayout {
         spacing: 1px;

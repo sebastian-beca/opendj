@@ -504,7 +504,7 @@ component InstrumentTree inherits Rectangle {
                 for n[i] in InstrumentsUi.nodes: Rectangle {
                     height: 34px;
                     border-radius: Theme.radius;
-                    background: i == InstrumentsUi.current-node ? Theme.selection : ta.has-hover ? #232326 : transparent;
+                    background: i == InstrumentsUi.current-node ? Theme.selection : ta.has-hover ? Theme.n-232326 : transparent;
                     ta := TouchArea {
                         clicked => { InstrumentsUi.select-node(i); }
                         double-clicked => { InstrumentsUi.toggle-node(i); }
@@ -609,7 +609,7 @@ component InstrumentRow inherits Rectangle {
                 width: 24px;
                 height: 24px;
                 border-radius: 4px;
-                background: #000000;
+                background: Theme.n-000000;
                 if item.kind != 5: LiveIcon { kind: item.kind; size: 20px; tint: Theme.accent; }
                 if item.kind == 5: NodeIcon { kind: 7; tint: Theme.accent; }
             }
@@ -646,7 +646,7 @@ export component TagChip inherits Rectangle {
     height: 22px;
     min-width: label.preferred-width + 16px;
     border-radius: 11px;
-    background: on ? Theme.accent.with-alpha(0.25) : tcta.has-hover ? #3a3a3d : Theme.control;
+    background: on ? Theme.accent.with-alpha(0.25) : tcta.has-hover ? Theme.n-3a3a3d : Theme.control;
     border-width: 1px;
     border-color: on ? Theme.accent : Theme.border;
     label := Text { text: root.text; color: on ? Theme.text : Theme.text-dim; font-size: 11px; }

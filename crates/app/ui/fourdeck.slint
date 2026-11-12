@@ -56,7 +56,7 @@ component CrossfaderAssign inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
         }
         VerticalLayout {
             padding: 12px;
@@ -69,7 +69,7 @@ component CrossfaderAssign inherits Rectangle {
                 for name[i] in ["Left", "Thru", "Right"]: Rectangle {
                     horizontal-stretch: 1;
                     border-radius: 4px;
-                    background: i == side ? Theme.accent : ita.has-hover ? #3a3a3d : Theme.control;
+                    background: i == side ? Theme.accent : ita.has-hover ? Theme.n-3a3a3d : Theme.control;
                     Text { text: name; color: i == side ? Theme.on-selection : Theme.text; font-size: 12px; font-weight: 600; }
                     ita := TouchArea {
                         clicked => {
@@ -169,7 +169,7 @@ export component DeckStrip inherits Rectangle {
                         Rectangle {
                             height: 22px;
                             border-radius: 6px;
-                            background: #2a2a2d;
+                            background: Theme.n-2a2a2d;
                             ModeMenu { width: parent.width; height: parent.height; }
                         }
                         HorizontalLayout { alignment: center; CueHeadphones { group: group; tint: tint; width: 30px; } }
@@ -241,7 +241,7 @@ export component TempoMenu inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
         }
         VerticalLayout {
             padding: 8px;
@@ -251,7 +251,7 @@ export component TempoMenu inherits Rectangle {
             Rectangle {
                 height: 26px;
                 border-radius: Theme.radius;
-                background: rta.pressed ? Theme.control-pressed : rta.has-hover ? #1d1d20 : Theme.control;
+                background: rta.pressed ? Theme.control-pressed : rta.has-hover ? Theme.n-1d1d20 : Theme.control;
                 border-width: 1px;
                 border-color: Theme.border;
                 Text { text: "RESET TEMPO"; color: Theme.text; font-size: 11px; font-weight: 700; }
@@ -310,7 +310,7 @@ export component FourDeckBar inherits Rectangle {
     property <int> enabled-index: Controls.resolve("[Mixer]", "crossfader_enabled");
     property <bool> on: Controls.value(enabled-index, Controls.tick) > 0;
     property <bool> external: Controls.value(Controls.resolve("[Master]", "external_mixer"), Controls.tick) > 0;
-    background: #000000;
+    background: Theme.n-000000;
     height: 48px;
     HorizontalLayout {
         spacing: 1px;
@@ -330,7 +330,7 @@ export component FourDeckBar inherits Rectangle {
                     height: 22px;
                     y: (parent.height - self.height) / 2;
                     border-radius: 11px;
-                    background: xta.has-hover ? #48484c : #3a3a3d;
+                    background: xta.has-hover ? Theme.n-48484c : Theme.n-3a3a3d;
                     Path {
                         width: 8px;
                         height: 5px;
@@ -351,14 +351,14 @@ export component FourDeckBar inherits Rectangle {
                             border-width: 1px;
                             border-color: Theme.border;
                             drop-shadow-blur: 12px;
-                            drop-shadow-color: #000000a0;
+                            drop-shadow-color: Theme.s-000000a0;
                         }
                         VerticalLayout {
                             padding: 5px;
                             Rectangle {
                                 height: 26px;
                                 border-radius: 4px;
-                                background: ita.has-hover ? #3a3a3d : transparent;
+                                background: ita.has-hover ? Theme.n-3a3a3d : transparent;
                                 Text { x: 8px; text: on ? "Turn crossfader off" : "Turn crossfader on"; color: Theme.text; font-size: 12px; vertical-alignment: center; height: parent.height; }
                                 ita := TouchArea {
                                     clicked => {
