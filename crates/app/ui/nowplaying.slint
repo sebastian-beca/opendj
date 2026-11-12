@@ -119,7 +119,7 @@ export component NowPlayingView inherits Rectangle {
                 clip: true;
                 drop-shadow-blur: 30px;
                 drop-shadow-color: Theme.s-000000a0;
-                background: NowPlayingUi.loaded ? @linear-gradient(135deg, NowPlayingUi.tint 0%, NowPlayingUi.tint.darker(0.6) 55%, Theme.n-101012 100%) : Theme.control;
+                background: NowPlayingUi.loaded ? @linear-gradient(135deg, NowPlayingUi.tint 0%, NowPlayingUi.tint.darker(0.6) 55%, #101012 100%) : Theme.control;
                 if NowPlayingUi.has-cover: Image {
                     width: parent.width;
                     height: parent.height;
@@ -167,7 +167,7 @@ export component NowPlayingView inherits Rectangle {
                     background: NowPlayingUi.lossless ? Theme.accent.with-alpha(0.16) : Theme.n-ffffff12;
                     q := Text {
                         text: NowPlayingUi.quality;
-                        color: NowPlayingUi.lossless ? Theme.accent : Theme.text-dim;
+                        color: NowPlayingUi.lossless ? Theme.lilac-text : Theme.text-dim;
                         font-size: 10.5px;
                         font-weight: 700;
                     }

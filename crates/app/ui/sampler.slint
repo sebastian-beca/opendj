@@ -87,7 +87,7 @@ component MenuItem inherits Rectangle {
         font-size: 12px;
         vertical-alignment: center;
     }
-    if checked: Text { x: 7px; text: "✓"; color: Theme.accent; font-size: 12px; vertical-alignment: center; }
+    if checked: Text { x: 7px; text: "✓"; color: Theme.lilac-text; font-size: 12px; vertical-alignment: center; }
     ta := TouchArea {
         enabled: root.enabled;
         clicked => { root.clicked(); }
@@ -123,7 +123,7 @@ component PackAction inherits Rectangle {
     Text {
         x: 8px;
         text: root.text;
-        color: !enabled ? Theme.text-dim.with-alpha(0.5) : danger ? #ff6b6b : Theme.text;
+        color: !enabled ? Theme.text-dim.with-alpha(0.5) : danger ? Theme.c-ff6b6b : Theme.text;
         font-size: 12px;
         vertical-alignment: center;
     }

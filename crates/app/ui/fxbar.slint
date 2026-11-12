@@ -129,7 +129,7 @@ component ParamSlider inherits Rectangle {
         width: thumb;
         height: thumb;
         border-radius: thumb / 2;
-        background: touch.pressed ? @linear-gradient(180deg, Theme.n-8e8e93 0%, Theme.n-6e6e73 100%) : touch.has-hover ? @linear-gradient(180deg, Theme.n-a8a8ad 0%, Theme.n-7c7c81 100%) : @linear-gradient(180deg, Theme.n-98989d 0%, Theme.n-6e6e73 100%);
+        background: touch.pressed ? @linear-gradient(180deg, #8e8e93 0%, #6e6e73 100%) : touch.has-hover ? @linear-gradient(180deg, #a8a8ad 0%, #7c7c81 100%) : @linear-gradient(180deg, #98989d 0%, #6e6e73 100%);
         drop-shadow-blur: 3px;
         drop-shadow-color: Theme.s-00000080;
     }
@@ -409,7 +409,7 @@ component FxStack inherits Rectangle {
 component TextToggle inherits Text {
     in property <bool> lit;
     callback clicked();
-    color: lit ? Theme.accent : ta.has-hover ? Theme.text : Theme.text-dim;
+    color: lit ? Theme.lilac-text : ta.has-hover ? Theme.text : Theme.text-dim;
     font-size: 11px;
     font-weight: 600;
     vertical-alignment: center;

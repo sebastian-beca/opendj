@@ -162,12 +162,12 @@ export component ControlKnob inherits Rectangle {
         height: size;
         border-radius: self.width / 2;
         background: look == 1
-            ? (touch.has-hover ? @linear-gradient(180deg, Theme.n-ffffff 0%, Theme.n-d4d4d8 100%) : @linear-gradient(180deg, Theme.n-f2f2f4 0%, Theme.n-c8c8cc 100%))
+            ? (touch.has-hover ? @linear-gradient(180deg, #ffffff 0%, #d4d4d8 100%) : @linear-gradient(180deg, #f2f2f4 0%, #c8c8cc 100%))
             : look == 2
             ? (touch.has-hover ? Theme.n-1c1c1e : Theme.n-0e0e10)
             : touch.has-hover
-            ? @linear-gradient(180deg, Theme.n-505055 0%, Theme.n-303034 100%)
-            : @linear-gradient(180deg, Theme.n-46464b 0%, Theme.n-2a2a2e 100%);
+            ? @linear-gradient(180deg, #505055 0%, #303034 100%)
+            : @linear-gradient(180deg, #46464b 0%, #2a2a2e 100%);
         border-width: look == 2 ? max(2px, size / 12) : 1px;
         border-color: look == 2 ? Theme.n-e4e4e8 : Theme.n-141416;
     }
@@ -492,8 +492,8 @@ export component ControlFader inherits Rectangle {
         height: vertical ? handle : parent.height - 4px;
         border-radius: 4px;
         background: vertical
-            ? @linear-gradient(180deg, Theme.n-b0b0b5 0%, Theme.n-8a8a8f 45%, Theme.n-5f5f64 100%)
-            : @linear-gradient(90deg, Theme.n-b0b0b5 0%, Theme.n-8a8a8f 45%, Theme.n-5f5f64 100%);
+            ? @linear-gradient(180deg, #b0b0b5 0%, #8a8a8f 45%, #5f5f64 100%)
+            : @linear-gradient(90deg, #b0b0b5 0%, #8a8a8f 45%, #5f5f64 100%);
         border-width: 1px;
         border-color: locked ? Theme.automix : touch.pressed ? root.tint : Theme.n-2a2a2d;
         drop-shadow-blur: 4px;
@@ -917,7 +917,7 @@ export component MasterBadge inherits Rectangle {
     background: pinned ? Theme.accent : leading ? Theme.accent.with-alpha(0.14) : transparent;
     label := Text {
         text: "MASTER";
-        color: pinned ? #000000 : leading ? Theme.accent : touch.has-hover ? Theme.text : Theme.text-dim;
+        color: pinned ? #000000 : leading ? Theme.lilac-text : touch.has-hover ? Theme.text : Theme.text-dim;
         font-size: root.font-size;
         font-weight: 700;
         letter-spacing: 0.4px;

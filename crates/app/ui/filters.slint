@@ -226,7 +226,7 @@ component Chip inherits Rectangle {
         }
         Text {
             text: chip.value;
-            color: chip.active ? Theme.accent : Theme.text;
+            color: chip.active ? Theme.lilac-text : Theme.text;
             font-size: 13px;
             font-weight: 600;
             vertical-alignment: center;
@@ -243,7 +243,7 @@ component Chip inherits Rectangle {
                     height: 18px;
                     border-radius: 9px;
                     background: xta.has-hover ? Theme.n-ffffff26 : transparent;
-                    CloseIcon { size: 7px; color: Theme.accent; }
+                    CloseIcon { size: 7px; color: Theme.lilac-text; }
                 }
             }
             xta := TouchArea { mouse-cursor: pointer; clicked => { cleared(); } }
@@ -437,7 +437,7 @@ export component FilterBar inherits Rectangle {
                                         Text {
                                             x: 10px;
                                             text: (more-fields ? "▾ " : "▸ ") + "More fields";
-                                            color: Theme.accent;
+                                            color: Theme.lilac-text;
                                             font-size: 13px;
                                             font-weight: 600;
                                             vertical-alignment: center;
@@ -470,7 +470,7 @@ export component FilterBar inherits Rectangle {
             width: 50px;
             Text {
                 text: "Clear";
-                color: clta.has-hover ? Theme.text : Theme.accent;
+                color: clta.has-hover ? Theme.text : Theme.lilac-text;
                 font-size: 13px;
                 font-weight: 600;
             }
@@ -504,7 +504,7 @@ export component FilterBar inherits Rectangle {
                 Text { text: chip.label; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                 if chip.active: Text {
                     text: "Clear";
-                    color: ecta.has-hover ? Theme.text : Theme.accent;
+                    color: ecta.has-hover ? Theme.text : Theme.lilac-text;
                     font-size: 13px;
                     font-weight: 600;
                     vertical-alignment: center;
@@ -594,7 +594,7 @@ export component FilterBar inherits Rectangle {
                             }
                             Text {
                                 text: c.label;
-                                color: c.label == "(none)" ? Theme.text-dim : chip.kind == 1 ? Theme.accent : Theme.text;
+                                color: c.label == "(none)" ? Theme.text-dim : chip.kind == 1 ? Theme.lilac-text : Theme.text;
                                 font-size: 13px;
                                 vertical-alignment: center;
                                 horizontal-stretch: 1;
@@ -611,7 +611,7 @@ export component FilterBar inherits Rectangle {
                         Text {
                             x: 6px;
                             text: "Show " + FilterUi.more + " more";
-                            color: Theme.accent;
+                            color: Theme.lilac-text;
                             font-size: 12px;
                             font-weight: 600;
                             vertical-alignment: center;

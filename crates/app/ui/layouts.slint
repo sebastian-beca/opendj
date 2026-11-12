@@ -172,7 +172,7 @@ component SignButton inherits Rectangle {
     border-color: enabled ? (accent ? Theme.accent : Theme.border) : transparent;
     Text {
         text: sign;
-        color: !enabled ? Theme.text-dim.with-alpha(0.3) : accent ? Theme.accent : Theme.text;
+        color: !enabled ? Theme.text-dim.with-alpha(0.3) : accent ? Theme.lilac-text : Theme.text;
         font-size: 14px;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -219,7 +219,7 @@ component MineRow inherits Rectangle {
             HorizontalLayout {
                 spacing: 8px;
                 alignment: start;
-                Text { text: entry.name; color: current ? Theme.accent : Theme.text; font-size: 14px; font-weight: 600; }
+                Text { text: entry.name; color: current ? Theme.lilac-text : Theme.text; font-size: 14px; font-weight: 600; }
                 if current: Text { text: "In use"; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
             }
             Text { text: entry.detail; color: Theme.text-dim; font-size: 12px; wrap: word-wrap; }
@@ -261,7 +261,7 @@ component MoreCard inherits Rectangle {
                 horizontal-stretch: 1;
                 HorizontalLayout {
                     spacing: 8px;
-                    Text { text: entry.name; color: current ? Theme.accent : Theme.text; font-size: 14px; font-weight: 600; }
+                    Text { text: entry.name; color: current ? Theme.lilac-text : Theme.text; font-size: 14px; font-weight: 600; }
                     if current: Text { text: "In use"; color: Theme.text-dim; font-size: 11px; vertical-alignment: center; }
                 }
                 Text { text: entry.detail; color: Theme.text-dim; font-size: 12px; wrap: word-wrap; }
@@ -275,7 +275,7 @@ component MoreCard inherits Rectangle {
                     background: add.pressed ? Theme.control-pressed : add.has-hover ? Theme.n-2e2e32 : Theme.panel;
                     border-width: 1px;
                     border-color: Theme.accent;
-                    Text { text: "+ Add"; color: Theme.accent; font-size: 12px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                    Text { text: "+ Add"; color: Theme.lilac-text; font-size: 12px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
                     add := TouchArea {
                         mouse-cursor: pointer;
                         clicked => { LayoutsUi.add(entry.layout); }

@@ -319,7 +319,7 @@ export component SearchesPanel inherits Rectangle {
             }
             Line {
                 text: "Remove";
-                text-color: #ff6b5e;
+                text-color: Theme.c-ff6b5e;
                 clicked => {
                     SourceUi.remove-search(menu-index);
                     search-menu.close();
@@ -327,7 +327,7 @@ export component SearchesPanel inherits Rectangle {
             }
             Line {
                 text: "Clear all searches";
-                text-color: #ff6b5e;
+                text-color: Theme.c-ff6b5e;
                 clicked => {
                     SourceUi.clear-searches();
                     search-menu.close();
@@ -353,7 +353,7 @@ export component SearchesPanel inherits Rectangle {
                 width: clear-text.preferred-width + 12px;
                 border-radius: 5px;
                 background: cta.has-hover ? Theme.n-232326 : transparent;
-                clear-text := Text { text: "Clear all"; color: cta.has-hover ? #ff6b5e : Theme.text-dim; font-size: 12px; vertical-alignment: center; }
+                clear-text := Text { text: "Clear all"; color: cta.has-hover ? Theme.c-ff6b5e : Theme.text-dim; font-size: 12px; vertical-alignment: center; }
                 cta := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.clear-searches(); } }
             }
         }
@@ -452,7 +452,7 @@ component RowButton inherits Rectangle {
                 label := Text {
                     text: r.state == 0 ? (SourceUi.plays ? (r.kind == 1 ? "+ Album" : "+ Collection") : r.kind == 1 ? "↓ Album" : "↓")
                         : r.state == 1 ? (r.going != "" ? r.going : "Queued") : r.state == 3 ? (r.to-cache ? "✓ Cached" : "✓ Added") : "Retry";
-                    color: r.state == 0 ? Theme.on-selection : r.state == 3 ? #30d158 : r.state == 4 ? #ff6b5e : Theme.text-dim;
+                    color: r.state == 0 ? Theme.on-selection : r.state == 3 ? Theme.c-30d158 : r.state == 4 ? Theme.c-ff6b5e : Theme.text-dim;
                     font-size: 11px;
                     font-weight: 700;
                 }
@@ -884,13 +884,13 @@ export component SourceResults inherits Rectangle {
                             height: 18px;
                             border-radius: 4px;
                             background: Theme.n-2d2d33;
-                            ft := Text { text: r.format; color: r.format == "FLAC" || r.format == "WAV" || r.format == "AIFF" || r.format == "ALAC" ? #cfc4ff : Theme.n-bbbbbb; font-size: 11px; font-weight: 700; }
+                            ft := Text { text: r.format; color: r.format == "FLAC" || r.format == "WAV" || r.format == "AIFF" || r.format == "ALAC" ? Theme.c-cfc4ff : Theme.n-bbbbbb; font-size: 11px; font-weight: 700; }
                         }
                     }
                     Text { width: w-quality; text: r.quality; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
                     Text { width: w-size; text: r.size; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; horizontal-alignment: right; }
                     // Who shares it, or why its download failed.
-                    Text { width: w-from; text: r.state == 4 && r.note != "" ? r.note : r.from; color: r.state == 4 || r.preview == 3 ? #ff6b5e : Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
+                    Text { width: w-from; text: r.state == 4 && r.note != "" ? r.note : r.from; color: r.state == 4 || r.preview == 3 ? Theme.c-ff6b5e : Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
                     if SourceUi.plays && SourceUi.current-search >= 0: CacheButtons {
                         r: r;
                         play => { SourceUi.play(i); }
@@ -912,7 +912,7 @@ export component SourceResults inherits Rectangle {
                         y: (parent.height - self.height) / 2;
                         border-radius: 11px;
                         background: xta.has-hover ? Theme.n-3a3a3d : transparent;
-                        CloseIcon { size: 9px; color: xta.has-hover ? #ff6b5e : Theme.text-dim; }
+                        CloseIcon { size: 9px; color: xta.has-hover ? Theme.c-ff6b5e : Theme.text-dim; }
                         xta := TouchArea { mouse-cursor: pointer; clicked => { SourceUi.remove-download(i); } }
                     }
                 }

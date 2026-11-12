@@ -139,7 +139,7 @@ export component UsbExportDialog inherits Rectangle {
                     background: Theme.accent.with-alpha(0.18);
                     el := Text {
                         text: "EXPERIMENTAL";
-                        color: Theme.accent;
+                        color: Theme.lilac-text;
                         font-size: 9px;
                         font-weight: 700;
                         letter-spacing: 0.6px;
@@ -163,7 +163,7 @@ export component UsbExportDialog inherits Rectangle {
                     Rectangle { }
                     Text {
                         text: "Refresh";
-                        color: Theme.accent;
+                        color: Theme.lilac-text;
                         font-size: 11px;
                         TouchArea {
                             mouse-cursor: pointer;
@@ -252,7 +252,7 @@ export component UsbExportDialog inherits Rectangle {
 
             if UsbExport.result != "": Text {
                 text: UsbExport.result;
-                color: UsbExport.failed ? #ff6b5e : Theme.text;
+                color: UsbExport.failed ? Theme.c-ff6b5e : Theme.text;
                 font-size: 12px;
                 wrap: word-wrap;
                 width: inner;

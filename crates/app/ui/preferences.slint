@@ -333,7 +333,7 @@ component KeyButton inherits Rectangle {
     border-color: listening ? Theme.accent : Theme.separator;
     Text {
         text: listening ? "Press a key…" : root.text == "" ? "Add a key…" : root.text;
-        color: listening ? Theme.accent : root.text == "" ? Theme.text-dim : Theme.text;
+        color: listening ? Theme.lilac-text : root.text == "" ? Theme.text-dim : Theme.text;
         font-size: 13px;
         font-weight: root.text == "" ? 400 : 600;
         horizontal-alignment: center;
@@ -699,7 +699,7 @@ component StorageButton inherits Rectangle {
     border-width: 1px;
     border-color: warn ? #ff9f0a : Theme.border;
     background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-2a2a2e : Theme.control;
-    label := Text { text: root.text; color: warn ? #ff9f0a : Theme.text; font-size: 12px; }
+    label := Text { text: root.text; color: warn ? Theme.c-ff9f0a : Theme.text; font-size: 12px; }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
@@ -709,7 +709,7 @@ component StorageView inherits VerticalLayout {
     in property <PrefItem> item;
     in property <bool> searching;
     spacing: 8px;
-    if searching: Text { text: item.page-name; color: Theme.accent; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
+    if searching: Text { text: item.page-name; color: Theme.lilac-text; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
     HorizontalLayout {
         spacing: 10px;
         Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; vertical-alignment: center; }
@@ -931,7 +931,7 @@ export component PrefRow inherits Rectangle {
                 if item.title != "": ScriptField { item: item; }
                 Text {
                     text: item.detail;
-                    color: item.on ? #ff6b6b : Theme.text-dim;
+                    color: item.on ? Theme.c-ff6b6b : Theme.text-dim;
                     font-size: 12px;
                     wrap: word-wrap;
                 }
@@ -1092,7 +1092,7 @@ export component PrefRow inherits Rectangle {
         if item.kind == 23: StorageView { item: item; searching: searching; }
         if item.kind == 22: VerticalLayout {
             spacing: 8px;
-            if searching: Text { text: item.page-name; color: Theme.accent; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
+            if searching: Text { text: item.page-name; color: Theme.lilac-text; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
             Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; }
             HorizontalLayout {
                 alignment: start;
@@ -1129,7 +1129,7 @@ export component PrefRow inherits Rectangle {
                 horizontal-stretch: 1;
                 alignment: center;
                 spacing: 3px;
-                if searching: Text { text: item.page-name; color: Theme.accent; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
+                if searching: Text { text: item.page-name; color: Theme.lilac-text; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
                 if item.title != "": Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; overflow: elide; }
                 // Add-on pages (notes and text fields) wrap: their help is longer.
                 if item.detail != "" && item.kind != 6 && item.kind != 9: Text { text: item.detail; color: bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; overflow: elide; }
@@ -1566,9 +1566,9 @@ export component PreferencesOverlay inherits Rectangle {
                             spacing: 12px;
                             VerticalLayout {
                                 alignment: center;
-                                PageIcon { kind: i; color: selected ? Theme.accent : Theme.text-dim; }
+                                PageIcon { kind: i; color: selected ? Theme.lilac-text : Theme.text-dim; }
                             }
-                            Text { text: name; color: selected ? Theme.accent : Theme.text; font-size: 14px; font-weight: selected ? 600 : 400; vertical-alignment: center; }
+                            Text { text: name; color: selected ? Theme.lilac-text : Theme.text; font-size: 14px; font-weight: selected ? 600 : 400; vertical-alignment: center; }
                         }
                         pta := TouchArea {
                             mouse-cursor: pointer;

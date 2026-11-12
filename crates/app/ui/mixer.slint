@@ -246,7 +246,7 @@ export component OutputsTable inherits VerticalLayout {
                 xta := TouchArea { mouse-cursor: pointer; clicked => { AudioSettings.remove(r); } }
             }
         }
-        Text { text: row.status; color: !row.ok ? #ff9f0a : bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 12px : 10px; overflow: elide; x: 4px; }
+        Text { text: row.status; color: !row.ok ? Theme.c-ff9f0a : bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 12px : 10px; overflow: elide; x: 4px; }
     }
     HorizontalLayout {
         alignment: end;
@@ -312,7 +312,7 @@ export component ExternalOutputsTable inherits VerticalLayout {
             if r != 0: Rectangle { width: 263px; }
             Rectangle { width: 20px; }
         }
-        if row.device != 0: Text { text: row.status; color: !row.ok ? #ff9f0a : bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 12px : 10px; overflow: elide; x: 4px; }
+        if row.device != 0: Text { text: row.status; color: !row.ok ? Theme.c-ff9f0a : bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 12px : 10px; overflow: elide; x: 4px; }
     }
 }
 
@@ -357,7 +357,7 @@ export component InputsTable inherits VerticalLayout {
                 ixta := TouchArea { enabled: row.removable; mouse-cursor: row.removable ? pointer : default; clicked => { InputSettings.remove(r); } }
             }
         }
-        if row.status != "": Text { text: row.status; color: row.ok ? Theme.text-dim : #ff9f0a; font-size: 10px; overflow: elide; x: 4px; }
+        if row.status != "": Text { text: row.status; color: row.ok ? Theme.text-dim : Theme.c-ff9f0a; font-size: 10px; overflow: elide; x: 4px; }
     }
     if InputSettings.can-add: HorizontalLayout {
         alignment: end;

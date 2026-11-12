@@ -570,7 +570,7 @@ component SortHeading inherits Rectangle {
     HorizontalLayout {
         spacing: 4px;
         Heading { text: root.text; color: on ? Theme.text : Theme.text-dim; }
-        if on: Heading { text: InstrumentsUi.sort-descending ? "▼" : "▲"; color: Theme.accent; font-size: 9px; }
+        if on: Heading { text: InstrumentsUi.sort-descending ? "▼" : "▲"; color: Theme.lilac-text; font-size: 9px; }
         Rectangle { horizontal-stretch: 1; }
     }
     TouchArea { mouse-cursor: pointer; clicked => { InstrumentsUi.sort-by(column); } }
@@ -619,7 +619,7 @@ component InstrumentRow inherits Rectangle {
         Text {
             width: maker-width;
             text: item.problem != "" ? item.problem : item.maker;
-            color: item.problem != "" ? #ff9f0a : selected ? Theme.on-row-selection : Theme.text-dim;
+            color: item.problem != "" ? Theme.c-ff9f0a : selected ? Theme.on-row-selection : Theme.text-dim;
             font-size: 13px;
             vertical-alignment: center;
             overflow: elide;
@@ -628,7 +628,7 @@ component InstrumentRow inherits Rectangle {
         Text {
             width: 64px;
             text: decks == "" ? "" : (decks.character-count > 1 ? "Decks " : "Deck ") + decks;
-            color: selected ? Theme.on-row-selection : Theme.accent;
+            color: selected ? Theme.on-row-selection : Theme.lilac-text;
             font-size: 12px;
             font-weight: 600;
             vertical-alignment: center;
@@ -759,7 +759,7 @@ component InstrumentList inherits Rectangle {
                     height: 64px;
                     Text {
                         text: InstrumentsUi.empty-text;
-                        color: InstrumentsUi.empty-page >= 0 ? Theme.accent : Theme.text-dim;
+                        color: InstrumentsUi.empty-page >= 0 ? Theme.lilac-text : Theme.text-dim;
                         font-size: 13px;
                     }
                     if InstrumentsUi.empty-page >= 0: TouchArea {

@@ -18,6 +18,9 @@ export global Theme {
     // every colour below has a Light value beside its Dark one. The large
     // waveforms keep dark wells in both (see `wave-well`).
     in-out property <bool> light: false;
+    // The Player layout is showing: in Light it takes the calm look of
+    // music apps, with no striped rows.
+    in-out property <bool> player: false;
     out property <color> background: root.light ? #e4e3ea : #0e0e10;
     out property <color> panel: root.light ? #f7f6fa : #1a1a1c;
     out property <color> panel-raised: root.light ? #ffffff : #232326;
@@ -29,7 +32,7 @@ export global Theme {
     out property <color> scroll-thumb-active: root.light ? #00000085 : #ffffff8c;
     out property <color> scroll-lane: root.light ? #00000010 : #ffffff12;
     out property <color> row: root.light ? #ffffff : #161819;
-    out property <color> row-alt: root.light ? #f2f1f6 : #101112;
+    out property <color> row-alt: root.light ? (root.player ? #ffffff : #f2f1f6) : #101112;
     out property <color> control: root.light ? #ffffff : #161618;
     out property <color> control-pressed: root.light ? #e2e0ea : #2c2c2f;
     out property <color> border: root.light ? #c9c7d3 : #353538;
@@ -246,6 +249,24 @@ export global Theme {
     out property <color> s-000000a8: root.light ? #0000004c : #000000a8;
     out property <color> s-000000b0: root.light ? #0000004f : #000000b0;
     out property <color> s-000000c0: root.light ? #00000056 : #000000c0;
+
+    // Coloured text and marks as written across the UI (warnings, errors,
+    // stars, status), named by their Dark value, deeper in Light to read on white.
+    out property <color> c-30d158: root.light ? #1a7f37 : #30d158;
+    out property <color> c-4cd07d: root.light ? #1a7f37 : #4cd07d;
+    out property <color> c-5e5ce6: root.light ? #4a48c8 : #5e5ce6;
+    out property <color> c-64d2ff: root.light ? #0a7ab8 : #64d2ff;
+    out property <color> c-bf5af2: root.light ? #9a2fc4 : #bf5af2;
+    out property <color> c-cfc4ff: root.light ? #6a4bd4 : #cfc4ff;
+    out property <color> c-e0b050: root.light ? #9a6a00 : #e0b050;
+    out property <color> c-e5484d: root.light ? #c62828 : #e5484d;
+    out property <color> c-ff375f: root.light ? #c8173f : #ff375f;
+    out property <color> c-ff453a: root.light ? #d70015 : #ff453a;
+    out property <color> c-ff6961: root.light ? #c62828 : #ff6961;
+    out property <color> c-ff6b5e: root.light ? #c62828 : #ff6b5e;
+    out property <color> c-ff6b6b: root.light ? #c62828 : #ff6b6b;
+    out property <color> c-ff9f0a: root.light ? #b35900 : #ff9f0a;
+    out property <color> c-ffd60a: root.light ? #a67c00 : #ffd60a;
 
     public pure function deck-color(deck: int) -> color {
         deck == 0 ? root.deck1 : deck == 1 ? root.deck2 : deck == 2 ? root.deck3 : root.deck4

@@ -51,7 +51,7 @@ component SmallButton inherits Rectangle {
     HorizontalLayout {
         padding-left: 9px;
         padding-right: 9px;
-        Text { text: root.text; color: lit ? Theme.accent : Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center; }
+        Text { text: root.text; color: lit ? Theme.lilac-text : Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center; }
     }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
@@ -189,7 +189,7 @@ export component CuesPanel inherits Rectangle {
                             go-ta := TouchArea { mouse-cursor: pointer; clicked => { CueList.go(i); } }
                             VerticalLayout {
                                 alignment: center;
-                                Text { text: cue.time; color: go-ta.has-hover ? Theme.accent : Theme.text; font-family: "Inter Tabular"; font-size: 12px; font-weight: 600; }
+                                Text { text: cue.time; color: go-ta.has-hover ? Theme.lilac-text : Theme.text; font-family: "Inter Tabular"; font-size: 12px; font-weight: 600; }
                                 Text { text: (cue.is-loop ? "Loop · " : "") + cue.detail; color: Theme.text-dim; font-size: 10px; }
                             }
                         }

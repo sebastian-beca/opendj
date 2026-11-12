@@ -1404,7 +1404,7 @@ component TrackMenu inherits PopupWindow {
                 Text { text: "Rating"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; width: 48px; }
                 for n in [1, 2, 3, 4, 5]: Rectangle {
                     width: 22px;
-                    Text { text: n <= rating ? "★" : "☆"; color: #ffd60a; font-size: 16px; }
+                    Text { text: n <= rating ? "★" : "☆"; color: Theme.c-ffd60a; font-size: 16px; }
                     TouchArea {
                         clicked => {
                             LibraryEdit.set-rating(track-row, n == rating ? 0 : n);
@@ -2420,7 +2420,7 @@ component SpotifyConnect inherits Rectangle {
         Rectangle {
             height: 32px;
             border-radius: 16px;
-            background: tidal || mixcloud ? (cta.pressed ? Theme.n-dddddd : Theme.n-ffffff) : apple ? (cta.pressed ? #d9263d : #fa2d48) : soundcloud ? (cta.pressed ? #e64d00 : #ff5500) : cta.pressed ? #1db954 : #1ed760;
+            background: tidal || mixcloud ? (cta.pressed ? #dddddd : #ffffff) : apple ? (cta.pressed ? #d9263d : #fa2d48) : soundcloud ? (cta.pressed ? #e64d00 : #ff5500) : cta.pressed ? #1db954 : #1ed760;
             Text { text: mixcloud ? "Connect" : "Sign in with " + service; color: soundcloud || apple ? #ffffff : #000000; font-size: 13px; font-weight: 700; }
             cta := TouchArea { clicked => { connect(soundcloud ? client-id + " " + secret : apple ? client-id + "\n" + key-id + "\n" + secret : client-id); } }
         }
@@ -2855,7 +2855,7 @@ component FolderTree inherits Rectangle {
             }
             if menu-editable: MenuLine {
                 text: menu-kind == 1 ? "Delete folder and its lists" : menu-kind == 17 ? "Delete crate" : "Delete list";
-                text-color: #ff6b5e;
+                text-color: Theme.c-ff6b5e;
                 clicked => {
                     LibraryEdit.delete(menu-index);
                     folder-menu.close();
@@ -2929,7 +2929,7 @@ component FolderTree inherits Rectangle {
                 MenuLine {
                     width: 60px;
                     text: "OK";
-                    text-color: Theme.accent;
+                    text-color: Theme.lilac-text;
                     clicked => {
                         LibraryEdit.set-rule(rename-index, rename-text);
                         rename-popup.close();
@@ -2953,7 +2953,7 @@ component FolderTree inherits Rectangle {
                 background: lta.has-hover && !on ? Theme.n-ffffff08 : transparent;
                 Text {
                     text: name;
-                    color: on ? Theme.accent : lta.has-hover ? Theme.text : Theme.text-dim;
+                    color: on ? Theme.lilac-text : lta.has-hover ? Theme.text : Theme.text-dim;
                     font-size: 13px;
                     font-weight: on ? 600 : 500;
                     horizontal-alignment: center;
@@ -3156,7 +3156,7 @@ component FolderTree inherits Rectangle {
                         // New crate, or a new folder in Playlists.
                         if f.kind == 18 && tab == 0 && !f.locked: Rectangle {
                             width: 26px;
-                            Text { text: "+"; color: pta.has-hover ? Theme.accent : (i == current ? Theme.on-row-selection : Theme.text); font-size: 20px; vertical-alignment: center; }
+                            Text { text: "+"; color: pta.has-hover ? Theme.lilac-text : (i == current ? Theme.on-row-selection : Theme.text); font-size: 20px; vertical-alignment: center; }
                             pta := TouchArea {
                                 mouse-cursor: pointer;
                                 clicked => {
@@ -3236,7 +3236,7 @@ component HeaderCell inherits Rectangle {
     Text {
         width: 100%;
         text: root.text + (column == sort-column ? (ascending ? " ▲" : " ▼") : "");
-        color: moving ? Theme.accent : Theme.text;
+        color: moving ? Theme.lilac-text : Theme.text;
         font-size: 13px;
         font-weight: column == sort-column ? 600 : 500;
         horizontal-alignment: align;
@@ -3430,7 +3430,7 @@ component HealthPanel inherits Rectangle {
             spacing: 12px;
             alignment: start;
             Text { text: "Collection Health"; color: Theme.text; font-size: 18px; font-weight: 700; }
-            if HealthUi.status != "": Text { text: HealthUi.status; color: Theme.accent; font-size: 13px; wrap: word-wrap; }
+            if HealthUi.status != "": Text { text: HealthUi.status; color: Theme.lilac-text; font-size: 13px; wrap: word-wrap; }
             Rectangle {
                 border-radius: 10px;
                 background: Theme.panel;
@@ -3530,7 +3530,7 @@ component HealthPanel inherits Rectangle {
                                 primary: a.start;
                                 clicked => { HealthUi.open-area(i); }
                             }
-                            if a.start: Text { text: "Start here"; color: Theme.accent; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+                            if a.start: Text { text: "Start here"; color: Theme.lilac-text; font-size: 11px; font-weight: 600; vertical-alignment: center; }
                         }
                     }
                 }
@@ -3668,7 +3668,7 @@ component GenrePanel inherits Rectangle {
                 horizontal-stretch: 1;
                 spacing: 2px;
                 Text { text: "Genres"; color: Theme.text; font-size: 18px; font-weight: 700; }
-                if HealthUi.status != "": Text { text: HealthUi.status; color: Theme.accent; font-size: 13px; wrap: word-wrap; }
+                if HealthUi.status != "": Text { text: HealthUi.status; color: Theme.lilac-text; font-size: 13px; wrap: word-wrap; }
                 Text {
                     text: "Tick genres that mean the same, then merge them into one name. Lilac ones are spelled like another. The new genre is written to the files' tags too.";
                     color: Theme.text-dim;
@@ -3709,7 +3709,7 @@ component GenrePanel inherits Rectangle {
                     padding-right: 10px;
                     spacing: 12px;
                     VerticalLayout { alignment: center; Tick { on: g.picked; } }
-                    Text { horizontal-stretch: 1; text: g.name; color: g.alike ? Theme.lilac : Theme.text; font-size: 13px; vertical-alignment: center; overflow: elide; }
+                    Text { horizontal-stretch: 1; text: g.name; color: g.alike ? Theme.lilac-text : Theme.text; font-size: 13px; vertical-alignment: center; overflow: elide; }
                     Text { width: 60px; text: g.count; color: Theme.text-dim; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
                 }
                 TouchArea {
@@ -3778,7 +3778,7 @@ component HealthBar inherits Rectangle {
         Text {
             horizontal-stretch: 1;
             text: HealthUi.status != "" ? HealthUi.status : card.about;
-            color: HealthUi.status != "" ? Theme.accent : Theme.text-dim;
+            color: HealthUi.status != "" ? Theme.lilac-text : Theme.text-dim;
             font-size: 13px;
             vertical-alignment: center;
             overflow: elide;
@@ -3919,7 +3919,7 @@ component ReviewCard inherits Rectangle {
                     HorizontalLayout {
                         Text {
                             text: HealthUi.card.check;
-                            color: Theme.accent;
+                            color: Theme.lilac-text;
                             font-size: 12px;
                             font-weight: 600;
                         }
@@ -4228,7 +4228,7 @@ component TrackList inherits Rectangle {
             }
             MenuLine {
                 text: menu-count > 1 ? "Remove " + menu-count + " from Wanted" : "Remove from Wanted";
-                text-color: #ff6b5e;
+                text-color: Theme.c-ff6b5e;
                 clicked => {
                     WantedUi.remove(menu-row, menu-row);
                     wanted-menu.close();
@@ -4336,7 +4336,7 @@ component TrackList inherits Rectangle {
                         height: 26px;
                         border-radius: 4px;
                         background: cta.has-hover ? Theme.n-3a3a3d : transparent;
-                        Text { x: 10px; width: 18px; text: i < ColumnUi.all-shown.length && ColumnUi.all-shown[i] ? "✓" : ""; color: Theme.accent; font-size: 13px; vertical-alignment: center; }
+                        Text { x: 10px; width: 18px; text: i < ColumnUi.all-shown.length && ColumnUi.all-shown[i] ? "✓" : ""; color: Theme.lilac-text; font-size: 13px; vertical-alignment: center; }
                         Text { x: 30px; text: name; color: name == "Title" ? Theme.text-dim : Theme.text; font-size: 13px; vertical-alignment: center; }
                         cta := TouchArea { clicked => { ColumnUi.toggle(i); } }
                     }
@@ -4390,7 +4390,7 @@ component TrackList inherits Rectangle {
                             width: parent.width;
                             text: "‹ " + AlbumsUi.back-to;
                             overflow: elide;
-                            color: bta.has-hover ? Theme.text : Theme.accent;
+                            color: bta.has-hover ? Theme.text : Theme.lilac-text;
                             font-size: 14px;
                             font-weight: 600;
                             vertical-alignment: center;
@@ -4419,14 +4419,14 @@ component TrackList inherits Rectangle {
                     if LibraryEdit.picked-count < 2: Text { text: duration; color: Theme.text-dim; font-size: 14px; vertical-alignment: center; overflow: elide; }
                     if LibraryEdit.picked-count > 1 && empty-title == "" && !AlbumsUi.grid: Text {
                         text: LibraryEdit.picked-count + " selected · " + LibraryEdit.picked-time;
-                        color: Theme.accent;
+                        color: Theme.lilac-text;
                         font-size: 14px;
                         vertical-alignment: center;
                     }
                     // A smart list's search, so it's clear why these tracks are here.
                     Text {
                         text: LibraryEdit.rule != "" && empty-title == "" ? "· " + LibraryEdit.rule : "";
-                        color: Theme.accent;
+                        color: Theme.lilac-text;
                         font-size: 13px;
                         vertical-alignment: center;
                         horizontal-stretch: 1;
@@ -4434,7 +4434,7 @@ component TrackList inherits Rectangle {
                     }
                     if LibraryEdit.making-smart && search-text == "" && !FilterUi.any-active: Text {
                         text: "Add filters for the smart playlist, then Save";
-                        color: Theme.accent;
+                        color: Theme.lilac-text;
                         font-size: 13px;
                         vertical-alignment: center;
                         overflow: elide;
@@ -4535,7 +4535,7 @@ component TrackList inherits Rectangle {
                     width: LibraryEdit.making-smart ? 136px : 44px;
                     Text {
                         text: LibraryEdit.making-smart ? "Save Smart Playlist" : "Save";
-                        color: sta.has-hover ? Theme.text : Theme.accent;
+                        color: sta.has-hover ? Theme.text : Theme.lilac-text;
                         font-size: 13px;
                         font-weight: 600;
                         vertical-alignment: center;
@@ -4760,7 +4760,7 @@ component TrackList inherits Rectangle {
                         // A Spotify track that isn't in the collection: a hollow green ring.
                         if r.missing: Text {
                             text: "!";
-                            color: #ff9f0a;
+                            color: Theme.c-ff9f0a;
                             font-size: 14px;
                             font-weight: 700;
                         }
@@ -4812,7 +4812,7 @@ component TrackList inherits Rectangle {
                         if col.kind == 2: Text {
                             width: 100%;
                             text: r.rating == 0 ? "" : stars(r.rating);
-                            color: selected ? Theme.on-row-selection : #ffd60a;
+                            color: selected ? Theme.on-row-selection : Theme.c-ffd60a;
                             font-size: 12px;
                             vertical-alignment: center;
                         }
@@ -4833,7 +4833,7 @@ component TrackList inherits Rectangle {
                             Text {
                                 min-width: self.preferred-width;
                                 text: c < r.cells.length ? r.cells[c] : "";
-                                color: selected ? Theme.on-row-selection : r.key-match ? Theme.lilac : Theme.text;
+                                color: selected ? Theme.on-row-selection : r.key-match ? Theme.lilac-text : Theme.text;
                                 font-size: 15px;
                                 vertical-alignment: center;
                             }
@@ -4868,7 +4868,7 @@ component TrackList inherits Rectangle {
                         if col.kind == 0 || col.kind == 4 || col.kind == 5: Text {
                             width: 100%;
                             text: c < r.cells.length ? r.cells[c] : "";
-                            color: col.kind == 5 ? (selected ? Theme.on-row-selection : Theme.accent)
+                            color: col.kind == 5 ? (selected ? Theme.on-row-selection : Theme.lilac-text)
                                 : col.kind == 4 ? (selected ? Theme.on-row-selection-dim : Theme.text-dim)
                                 : plain;
                             font-size: col.kind >= 4 ? 14px : 15px;
@@ -4951,7 +4951,7 @@ component SmallButton inherits Rectangle {
     background: lit ? Theme.accent.with-alpha(0.18) : ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.panel-raised;
     border-width: lit ? 1px : 0px;
     border-color: Theme.accent;
-    label := Text { text: root.text; color: lit ? Theme.accent : Theme.text; font-size: 12px; font-weight: 500; }
+    label := Text { text: root.text; color: lit ? Theme.lilac-text : Theme.text; font-size: 12px; font-weight: 500; }
     ta := TouchArea { clicked => { root.clicked(); } }
     TourMark { id: root.tour-id; }
 }
@@ -5345,7 +5345,7 @@ component BuyDialog inherits Rectangle {
                             Text {
                                 width: 100%;
                                 text: r.name;
-                                color: name-ta.has-hover ? Theme.accent : Theme.text;
+                                color: name-ta.has-hover ? Theme.lilac-text : Theme.text;
                                 font-size: 12px;
                                 vertical-alignment: center;
                                 overflow: elide;
@@ -5541,7 +5541,7 @@ component SidePanel inherits Rectangle {
                 background: tta.has-hover && !on ? Theme.n-ffffff08 : transparent;
                 tab-word := Text {
                     text: name;
-                    color: on ? Theme.accent : tta.has-hover ? Theme.text : Theme.text-dim;
+                    color: on ? Theme.lilac-text : tta.has-hover ? Theme.text : Theme.text-dim;
                     font-size: 12px;
                     font-weight: on ? 600 : 500;
                     horizontal-alignment: center;
@@ -5864,13 +5864,13 @@ component SidePanel inherits Rectangle {
                     border-radius: 4px;
                     clip: true;
                     background: @linear-gradient(135deg, UpNextUi.now-tint 0%, UpNextUi.now-tint.darker(0.6) 100%);
-                    if !UpNextUi.now-has-cover: Text { text: UpNextUi.now-initials; color: Theme.n-ffffffd8; font-size: 18px; font-weight: 700; }
+                    if !UpNextUi.now-has-cover: Text { text: UpNextUi.now-initials; color: #ffffffd8; font-size: 18px; font-weight: 700; }
                     if UpNextUi.now-has-cover: Image { width: parent.width; height: parent.height; source: UpNextUi.now-cover; image-fit: cover; }
                 }
                 VerticalLayout {
                     alignment: center;
                     spacing: 2px;
-                    Text { text: "NOW PLAYING"; color: Theme.accent; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
+                    Text { text: "NOW PLAYING"; color: Theme.lilac-text; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
                     Text { text: UpNextUi.now-title; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
                     Text { text: UpNextUi.now-artist; color: Theme.text-dim; font-size: 13px; overflow: elide; }
                 }
@@ -6004,7 +6004,7 @@ component SidePanel inherits Rectangle {
                                     Text { horizontal-stretch: 1; text: r.artist; color: dim; font-size: 13px; overflow: elide; }
                                     HorizontalLayout {
                                         spacing: 2px;
-                                        Text { text: r.key; color: (i >= first-picked && i <= last-picked) ? (keys.has-focus ? Theme.on-row-selection : #ffffff) : r.key-match ? Theme.lilac : Theme.text; font-size: 13px; font-weight: 500; }
+                                        Text { text: r.key; color: (i >= first-picked && i <= last-picked) ? (keys.has-focus ? Theme.on-row-selection : #ffffff) : r.key-match ? Theme.lilac-text : Theme.text; font-size: 13px; font-weight: 500; }
                                         if r.key-shift != 0: Text {
                                             text: r.key-shift > 0 ? "+" + r.key-shift : "−" + (-r.key-shift);
                                             color: (i >= first-picked && i <= last-picked) ? Theme.on-row-selection-dim : r.key-shift == 1 || r.key-shift == -1 ? Theme.lilac-dim : Theme.key-far;
@@ -6013,7 +6013,7 @@ component SidePanel inherits Rectangle {
                                             vertical-alignment: center;
                                         }
                                     }
-                                    if r.mix != "": Text { text: "⤵ " + r.mix; color: (i >= first-picked && i <= last-picked) ? dim : Theme.lilac; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+                                    if r.mix != "": Text { text: "⤵ " + r.mix; color: (i >= first-picked && i <= last-picked) ? dim : Theme.lilac-text; font-size: 11px; font-weight: 600; vertical-alignment: center; }
                                     Text { text: r.length; color: dim; font-size: 13px; }
                                 }
                             }
@@ -6089,7 +6089,7 @@ component SidePanel inherits Rectangle {
             }
             MenuLine {
                 text: tab == 2 ? "Unlink" : "Remove";
-                text-color: #ff6961;
+                text-color: Theme.c-ff6961;
                 clicked => {
                     remove-picked();
                     row-menu.close();

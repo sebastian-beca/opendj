@@ -343,7 +343,7 @@ export component PlayerBar inherits Rectangle {
                         : automix-next-in != "" ? "NEXT IN " + automix-next-in + (what != "" ? " · " + what : "")
                         : automix-on ? (what != "" ? "NEXT · " + what : "AUTOMIX")
                         : "AUTOMIX OFF";
-                    color: automix-on ? Theme.accent : Theme.text-dim;
+                    color: automix-on ? Theme.lilac-text : Theme.text-dim;
                     font-size: 11px;
                     font-weight: 600;
                     overflow: elide;
@@ -720,7 +720,7 @@ export component PlayerBar inherits Rectangle {
                     background: info.lossless ? Theme.accent.with-alpha(0.16) : Theme.n-ffffff12;
                     q-text := Text {
                         text: info.quality;
-                        color: info.lossless ? Theme.accent : Theme.text-dim;
+                        color: info.lossless ? Theme.lilac-text : Theme.text-dim;
                         font-size: 10px;
                         font-weight: 700;
                         letter-spacing: 0.4px;
@@ -959,8 +959,8 @@ export component QuickResults inherits Rectangle {
                             // Artists round, as other players show them.
                             border-radius: r.kind == 1 ? 17px : 5px;
                             clip: true;
-                            background: @linear-gradient(135deg, Theme.accent 0%, Theme.accent.darker(0.6) 60%, Theme.n-101012 100%);
-                            if !r.has-cover: Text { text: r.initials; color: Theme.n-ffffffe0; font-size: 12px; font-weight: 700; }
+                            background: @linear-gradient(135deg, Theme.accent 0%, Theme.accent.darker(0.6) 60%, #101012 100%);
+                            if !r.has-cover: Text { text: r.initials; color: #ffffffe0; font-size: 12px; font-weight: 700; }
                             if r.has-cover: Image { width: parent.width; height: parent.height; source: r.cover; image-fit: cover; }
                         }
                     }
@@ -1002,7 +1002,7 @@ export component QuickResults inherits Rectangle {
                 : QuickSearch.rows.length == 0 ? "Esc clears"
                 : (QuickSearch.total > QuickSearch.rows.length ? "First " + QuickSearch.rows.length + " of " + QuickSearch.total + " · " : "")
                     + "↵ play next · ⇧↵ add to queue · ⌘↵ play now · Esc clears";
-            color: QuickSearch.note != "" ? Theme.accent : Theme.text-dim;
+            color: QuickSearch.note != "" ? Theme.lilac-text : Theme.text-dim;
             font-size: 11px;
             vertical-alignment: center;
             overflow: elide;
