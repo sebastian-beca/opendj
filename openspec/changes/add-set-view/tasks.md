@@ -12,6 +12,7 @@
 - [ ] 2.1 Control changes stamped with their audio frame through a ring from the audio thread
 - [ ] 2.2 Plugin parameter changes and instrument / Groove Box notes in the log
 - [ ] 2.3 Setting to record Mic and Aux to their own files beside the recording
+- [ ] 2.4 Deck place every audio block while a deck is scratched, backspun or braked
 
 ## 3. Set view
 
@@ -24,7 +25,9 @@
 - [ ] 4.1 Move and stretch transitions with beat and phrase snapping; styles; undo
 - [ ] 4.2 Transition editor: both tracks on one beatgrid, editable curves, as-played ghost, A/B
 - [ ] 4.3 Offline render through the engine to a new file; null test against an unedited recording
-- [ ] 4.4 Mixcloud export and tracklist from the rendered file
+- [ ] 4.4 Loops as brackets with a repeat count; drag to change length or count, or remove
+- [ ] 4.5 Hard moves as one block with Keep from recording (copied audio, the default) or Bypass
+- [ ] 4.6 Mixcloud export and tracklist from the rendered file
 
 ## 5. Docs
 
