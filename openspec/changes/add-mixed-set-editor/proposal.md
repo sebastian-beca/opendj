@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.7 · Your library, everywhere**
+Planned for: **v0.8 · From the booth to the studio**
 
 ## Why
 
