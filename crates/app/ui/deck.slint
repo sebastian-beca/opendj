@@ -4755,7 +4755,28 @@ component InputPicker inherits PopupWindow {
                 ta := TouchArea { clicked => { InstrumentsUi.pick(i); root.close(); } }
             }
         }
-        if InstrumentsUi.picker-rows.length > 0: Rectangle { height: 5px; Rectangle { y: 2px; height: 1px; background: Theme.separator; } }
+        // Adding a strip: the instrument plugin or the mic can join too.
+        if InstrumentsUi.picker-adding: Rectangle { height: 5px; Rectangle { y: 2px; height: 1px; background: Theme.separator; } }
+        for source in InstrumentsUi.picker-adding ? [{ group: "[Instrument1]", label: "Instrument plugin" }, { group: "[Microphone]", label: "Mic" }] : []: Rectangle {
+            property <bool> joined: InstrumentsUi.in-mixer(source.group, Controls.tick);
+            height: 22px;
+            border-radius: 4px;
+            background: add.has-hover ? Theme.selection : transparent;
+            Text {
+                x: 8px;
+                text: (joined ? "✓  " : "+  ") + source.label;
+                color: add.has-hover ? #ffffff : Theme.text;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+            add := TouchArea {
+                clicked => {
+                    Controls.set-value(Controls.resolve(source.group, "mixer"), joined ? 0 : 1);
+                    root.close();
+                }
+            }
+        }
+        if InstrumentsUi.picker-rows.length > 0 || InstrumentsUi.picker-adding: Rectangle { height: 5px; Rectangle { y: 2px; height: 1px; background: Theme.separator; } }
         Rectangle {
             height: 22px;
             border-radius: 4px;
@@ -4799,15 +4820,18 @@ global StripColors {
 component StripOn inherits Rectangle {
     in property <string> group;
     in property <int> number;
+    // What it reads: the number, or MIC / INST.
+    in property <string> badge: number;
+    in property <string> on-key: "main_mix";
     in property <length> font-size: 14px;
-    property <int> on-index: Controls.resolve(group, "main_mix");
+    property <int> on-index: Controls.resolve(group, on-key);
     property <bool> on: Controls.value(on-index, Controls.tick) > 0;
     border-radius: 4px;
     background: on ? Theme.accent : #3a3a3e;
     Text {
-        text: number;
+        text: badge;
         color: on ? Theme.on-selection : Theme.text-dim;
-        font-size: root.font-size;
+        font-size: badge.character-count > 2 ? root.font-size * 0.6 : root.font-size;
         font-weight: 700;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -4816,7 +4840,7 @@ component StripOn inherits Rectangle {
         mouse-cursor: pointer;
         clicked => { Controls.set-value(on-index, on ? 0 : 1); }
     }
-    MapMark { key: root.group + ",main_mix"; }
+    MapMark { key: root.group + "," + root.on-key; }
 }
 
 // A Mixer strip's S: solo inside the Mixer; Cmd/Ctrl solos it alone.
@@ -4860,8 +4884,8 @@ component StripSolo inherits Rectangle {
 component MixerStrip inherits Rectangle {
     in property <MixerStripInfo> info;
     in property <color> tint;
-    property <string> group: "[Auxiliary" + info.number + "]";
-    property <int> on-index: Controls.resolve(group, "main_mix");
+    property <string> group: info.group;
+    property <int> on-index: Controls.resolve(group, info.on-key);
     property <bool> on: Controls.value(on-index, Controls.tick) > 0;
     property <float> peak-db: Controls.value(Controls.resolve(group, "peak_db"), Controls.tick);
     property <color> strip-color: StripColors.of(info.number);
@@ -4894,7 +4918,7 @@ component MixerStrip inherits Rectangle {
                         font-weight: 600;
                         vertical-alignment: center;
                         overflow: elide;
-                        TouchArea { double-clicked => { root.renaming = true; } }
+                        TouchArea { double-clicked => { root.renaming = info.aux; } }
                     }
                     if root.renaming: Rectangle {
                         border-radius: 3px;
@@ -4929,8 +4953,24 @@ component MixerStrip inherits Rectangle {
                     }
                 }
                 if info.own-clock: VerticalLayout { alignment: center; ClockMark { } }
-                Rectangle {
+                // The mic and the instrument: × takes it out of the Mixer.
+                if !info.aux: Rectangle {
                     width: 20px;
+                    horizontal-stretch: 0;
+                    border-radius: 4px;
+                    background: out.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.control;
+                    Text {
+                        text: "×";
+                        color: out.has-hover ? Theme.text : Theme.text-dim;
+                        font-size: 12px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    out := TouchArea { clicked => { Controls.set-value(Controls.resolve(group, "mixer"), 0); } }
+                }
+                Rectangle {
+                    visible: info.aux;
+                    width: info.aux ? 20px : 0px;
                     horizontal-stretch: 0;
                     border-radius: 4px;
                     background: box.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.control;
@@ -4978,7 +5018,7 @@ component MixerStrip inherits Rectangle {
                 HorizontalLayout { alignment: center; ControlKnob { group: group; key: "pan"; label: "PAN"; size: 18px; bipolar: true; } }
                 ControlButton { group: group; key: "fx"; text: "FX"; tint: Theme.accent; height: 18px; font-size: 9px; fill-when-lit: true; }
                 Rectangle { vertical-stretch: 1; }
-                StripOn { group: group; number: info.number; height: 26px; }
+                StripOn { group: group; number: info.number; badge: info.badge; on-key: info.on-key; height: 26px; }
                 StripSolo { group: group; number: info.number; height: 18px; }
                 ControlButton { group: group; key: "pfl"; headphones: true; tint: Theme.accent; fill-when-lit: true; height: 18px; }
             }
@@ -5024,6 +5064,8 @@ component MixerStrips inherits Rectangle {
             spacing: 4px;
             alignment: start;
             for strip in InstrumentsUi.strips: MixerStrip { info: strip; tint: tint; }
+            if InstrumentsUi.in-mixer("[Instrument1]", Controls.tick): MixerStrip { info: InstrumentsUi.instrument-strip(Controls.tick); tint: tint; }
+            if InstrumentsUi.in-mixer("[Microphone]", Controls.tick): MixerStrip { info: InstrumentsUi.mic-strip(); tint: tint; }
             if InstrumentsUi.strips.length < 8: AddStrip {}
         }
     }
@@ -5034,6 +5076,8 @@ component MixerStrips inherits Rectangle {
 component TitleButton inherits Rectangle {
     in property <string> text;
     in property <string> icon;
+    // On: lilac, as the deck's lit buttons.
+    in property <bool> lit;
     callback clicked();
     height: 18px;
     min-width: 22px;
@@ -5041,12 +5085,12 @@ component TitleButton inherits Rectangle {
     border-radius: 4px;
     border-width: 1px;
     border-color: Theme.border;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.panel-raised : Theme.control;
+    background: lit ? Theme.accent : ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.panel-raised : Theme.control;
     HorizontalLayout {
         padding-left: 6px;
         padding-right: 6px;
         alignment: center;
-        if icon == "": Text { text: text; color: Theme.text; font-size: text == "+" ? 13px : 9px; font-weight: 700; vertical-alignment: center; }
+        if icon == "": Text { text: text; color: lit ? Theme.on-selection : Theme.text; font-size: text == "+" ? 13px : 9px; font-weight: 700; vertical-alignment: center; }
         if icon != "": Path {
             width: 12px;
             height: 12px;
@@ -5066,6 +5110,9 @@ component TitleButton inherits Rectangle {
 // interfaces and count on the left; CLEAR SOLO, + and the Audio settings
 // cog on the right.
 component MixerTitle inherits Rectangle {
+    // The deck shows the instrument plugin's panel (its knobs and
+    // keyboard) in place of the strips: KEYS, while it is a strip.
+    in-out property <bool> keys;
     title-picker := InputPicker { x: root.width - self.width - 8px; y: root.height; }
     property <bool> any-solo: Controls.value(Controls.resolve("[Auxiliary1]", "solo"), Controls.tick) > 0
         || Controls.value(Controls.resolve("[Auxiliary2]", "solo"), Controls.tick) > 0
@@ -5074,7 +5121,9 @@ component MixerTitle inherits Rectangle {
         || Controls.value(Controls.resolve("[Auxiliary5]", "solo"), Controls.tick) > 0
         || Controls.value(Controls.resolve("[Auxiliary6]", "solo"), Controls.tick) > 0
         || Controls.value(Controls.resolve("[Auxiliary7]", "solo"), Controls.tick) > 0
-        || Controls.value(Controls.resolve("[Auxiliary8]", "solo"), Controls.tick) > 0;
+        || Controls.value(Controls.resolve("[Auxiliary8]", "solo"), Controls.tick) > 0
+        || Controls.value(Controls.resolve("[Instrument1]", "solo"), Controls.tick) > 0
+        || Controls.value(Controls.resolve("[Microphone]", "solo"), Controls.tick) > 0;
     height: 26px;
     background: Theme.panel;
     HorizontalLayout {
@@ -5085,6 +5134,10 @@ component MixerTitle inherits Rectangle {
         Text { text: "MIXER"; color: Theme.text; font-size: 12px; font-weight: 700; letter-spacing: 1px; vertical-alignment: center; }
         Rectangle { horizontal-stretch: 1; }
         if any-solo: VerticalLayout { alignment: center; TitleButton { text: "CLEAR SOLO"; clicked => { InstrumentsUi.solo-alone(0); } } }
+        if InstrumentsUi.in-mixer("[Instrument1]", Controls.tick): VerticalLayout {
+            alignment: center;
+            TitleButton { text: "KEYS"; lit: root.keys; clicked => { root.keys = !root.keys; } }
+        }
         VerticalLayout {
             alignment: center;
             plus := TitleButton {
@@ -5277,8 +5330,8 @@ component LivePanel inherits Rectangle {
 component SlimMixerStrip inherits Rectangle {
     in property <MixerStripInfo> info;
     in property <color> tint;
-    property <string> group: "[Auxiliary" + info.number + "]";
-    property <bool> on: Controls.value(Controls.resolve(group, "main_mix"), Controls.tick) > 0;
+    property <string> group: info.group;
+    property <bool> on: Controls.value(Controls.resolve(group, info.on-key), Controls.tick) > 0;
     property <color> strip-color: StripColors.of(info.number);
     width: 70px;
     border-radius: 5px;
@@ -5305,17 +5358,21 @@ component SlimMixerStrip inherits Rectangle {
                 }
                 if info.own-clock: VerticalLayout { alignment: center; ClockMark { width: 8px; height: 8px; } }
                 Text {
-                    text: "▼";
+                    text: info.aux ? "▼" : "×";
                     color: name.has-hover ? Theme.text : Theme.text-dim;
-                    font-size: 7px;
+                    font-size: info.aux ? 7px : 10px;
                     vertical-alignment: center;
                     horizontal-stretch: 0;
                 }
             }
             name := TouchArea {
                 clicked => {
-                    InstrumentsUi.open-picker(info.number);
-                    picker.show();
+                    if info.aux {
+                        InstrumentsUi.open-picker(info.number);
+                        picker.show();
+                    } else {
+                        Controls.set-value(Controls.resolve(group, "mixer"), 0);
+                    }
                 }
             }
             picker := InputPicker { x: 0; y: parent.height + 2px; }
@@ -5329,7 +5386,7 @@ component SlimMixerStrip inherits Rectangle {
                 width: 26px;
                 spacing: 3px;
                 alignment: end;
-                StripOn { group: group; number: info.number; height: 20px; font-size: 11px; }
+                StripOn { group: group; number: info.number; badge: info.badge; on-key: info.on-key; height: 20px; font-size: 11px; }
                 StripSolo { group: group; number: info.number; height: 16px; }
                 ControlButton { group: group; key: "pfl"; headphones: true; tint: Theme.accent; fill-when-lit: true; height: 16px; }
                 ControlButton { group: group; key: "fx"; text: "FX"; tint: Theme.accent; height: 16px; font-size: 8px; fill-when-lit: true; }
@@ -5349,6 +5406,8 @@ component SlimMixerStrips inherits Rectangle {
             spacing: 3px;
             alignment: start;
             for strip in InstrumentsUi.strips: SlimMixerStrip { info: strip; tint: tint; }
+            if InstrumentsUi.in-mixer("[Instrument1]", Controls.tick): SlimMixerStrip { info: InstrumentsUi.instrument-strip(Controls.tick); tint: tint; }
+            if InstrumentsUi.in-mixer("[Microphone]", Controls.tick): SlimMixerStrip { info: InstrumentsUi.mic-strip(); tint: tint; }
             if InstrumentsUi.strips.length < 8: AddStrip { }
         }
     }
@@ -5454,6 +5513,8 @@ export component Deck inherits Rectangle {
     property <bool> looper: !info.loaded && Controls.value(Controls.resolve("[Looper" + (deck + 1) + "]", "enabled"), Controls.tick) > 0;
     property <int> live: info.loaded || groove || looper ? 0 : InstrumentsUi.live(deck);
     property <bool> mixer: live == InstrumentsUi.mixer-live;
+    // The Mixer deck shows the instrument's panel instead of its strips.
+    property <bool> mixer-keys;
     // Files dragged in from Finder or a file manager (see TrackDrag.files-over).
     property <bool> under-files: TrackDrag.files-x >= self.absolute-position.x && TrackDrag.files-x < self.absolute-position.x + self.width
         && TrackDrag.files-y >= self.absolute-position.y && TrackDrag.files-y < self.absolute-position.y + self.height;
@@ -5489,14 +5550,14 @@ export component Deck inherits Rectangle {
         // A Mixer deck gives the header's room to its strips: a slim title
         // row instead.
         header := Header { deck: deck; info: info; overview: overview; mirrored: mirrored; group: group; visible: !mixer; height: mixer ? 0px : self.preferred-height; }
-        if mixer: MixerTitle { }
+        if mixer: MixerTitle { keys <=> root.mixer-keys; }
 
         Rectangle {
             background: Theme.panel;
             vertical-stretch: 1;
             // Outside in: the tempo column, the pads, the loop, and the jog
             // with play and CUE under it beside the mixer. Deck B is the mirror image.
-            if live > 0: LivePanel { x: mixer ? 4px : 8px; y: mixer ? 4px : 8px; width: parent.width - (mixer ? 8px : 16px); height: parent.height - (mixer ? 8px : 16px); live: live; group: group; tint: tint; }
+            if live > 0: LivePanel { x: mixer ? 4px : 8px; y: mixer ? 4px : 8px; width: parent.width - (mixer ? 8px : 16px); height: parent.height - (mixer ? 8px : 16px); live: mixer && mixer-keys && InstrumentsUi.in-mixer("[Instrument1]", Controls.tick) ? 3 : live; group: group; tint: tint; }
             if looper: LooperPanel { x: 8px; y: 8px; width: parent.width - 16px; height: parent.height - 16px; deck: deck; group: group; tint: tint; }
             if !groove && !looper && live == 0: HorizontalLayout {
                 padding: 8px;

@@ -47,6 +47,8 @@ pub fn install(app: &AppWindow, engine: Rc<AudioEngine>) {
         let (picker, engine, weak) = (picker.clone(), engine.clone(), app.as_weak());
         ui.on_open_picker(move |strip| {
             let Some(app) = weak.upgrade() else { return };
+            // + also offers the instrument plugin and the mic.
+            app.global::<InstrumentsUi>().set_picker_adding(strip == 0);
             let setup = settings::audio_setup();
             let strip = match usize::try_from(strip) {
                 Ok(n) if (1..=InputRole::AUXILIARIES.len()).contains(&n) => n,
