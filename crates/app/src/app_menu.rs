@@ -32,10 +32,13 @@ pub enum Action {
     ZoomIn,
     ZoomOut,
     ResetZoom,
+    TallerWaveforms,
+    ShorterWaveforms,
+    ResetWaveformHeight,
 }
 
 impl Action {
-    const ALL: [Action; 14] = [
+    const ALL: [Action; 17] = [
         Action::Settings,
         Action::Quit,
         Action::Undo,
@@ -50,6 +53,9 @@ impl Action {
         Action::ZoomIn,
         Action::ZoomOut,
         Action::ResetZoom,
+        Action::TallerWaveforms,
+        Action::ShorterWaveforms,
+        Action::ResetWaveformHeight,
     ];
 
     /// Its number, as the ☰ menu and the macOS menu items carry it.
@@ -76,6 +82,9 @@ impl Action {
                 | Action::ZoomIn
                 | Action::ZoomOut
                 | Action::ResetZoom
+                | Action::TallerWaveforms
+                | Action::ShorterWaveforms
+                | Action::ResetWaveformHeight
         )
     }
 }
@@ -187,6 +196,24 @@ pub const MENUS: &[Menu] = &[
             Entry::Item {
                 action: Action::ResetZoom,
                 title: "Reset Waveform Zoom",
+                key: None,
+            },
+            Entry::Separator,
+            // How tall they are in this layout; ⌥⌘↑ / ⌥⌘↓ are the
+            // window's keys, as for the zoom.
+            Entry::Item {
+                action: Action::TallerWaveforms,
+                title: "Taller Waveforms",
+                key: None,
+            },
+            Entry::Item {
+                action: Action::ShorterWaveforms,
+                title: "Shorter Waveforms",
+                key: None,
+            },
+            Entry::Item {
+                action: Action::ResetWaveformHeight,
+                title: "Reset Waveform Height",
                 key: None,
             },
         ],
@@ -386,6 +413,9 @@ pub fn run(app: &AppWindow, action: Action) {
         Action::ZoomIn => crate::waveform_zoom::step(app, 1),
         Action::ZoomOut => crate::waveform_zoom::step(app, -1),
         Action::ResetZoom => crate::waveform_zoom::reset(app),
+        Action::TallerWaveforms => crate::waveform_height::step(app, 1),
+        Action::ShorterWaveforms => crate::waveform_height::step(app, -1),
+        Action::ResetWaveformHeight => crate::waveform_height::reset(app),
         Action::RecordMix => {
             let controls = app.global::<crate::Controls>();
             let index = controls.invoke_resolve("[Recording]".into(), "toggle_recording".into());

@@ -1,0 +1,223 @@
+// How tall the large scrolling waveforms are: four sizes, Small to Extra
+// large, Medium being the height they always had, kept per layout. Set
+// from the grip under the waveforms, the waveforms button's arrow, a
+// waveform's right-click menu, ⌥⌘↑ / ⌥⌘↓, View and controllers; the app
+// saves it (waveform_height.rs). The window turns a size into pixels for
+// its layout and shows a smaller one while the library would get too
+// little room.
+import { Theme } from "theme.slint";
+
+export global WaveHeight {
+    // Each layout's size, by layout number (0 2-Deck Pro, 1 Player,
+    // 2 4-Deck, 3 Prep, 4 2-Deck): 1 Small to `steps` Extra large.
+    in property <[int]> levels: [2, 2, 2, 2, 2];
+    in property <int> steps: 4;
+    in property <int> default-level: 2;
+    // The layout showing, kept up to date by the window.
+    in-out property <int> layout;
+    out property <int> level: layout >= 0 && layout < levels.length ? levels[layout] : default-level;
+    // Counts each change, so the size can show a moment.
+    in property <int> changes;
+    // Asks the app for a size in a layout; it keeps it in range and saves it.
+    callback set-level(layout: int, level: int);
+
+    public function pick(level: int) {
+        set-level(layout, clamp(level, 1, steps));
+    }
+    public function step(by: int) {
+        pick(level + by);
+    }
+    public function reset() {
+        pick(default-level);
+    }
+    public pure function name(level: int) -> string {
+        level == 1 ? "Small" : level == 3 ? "Large" : level == 4 ? "Extra large" : "Medium"
+    }
+    public pure function short(level: int) -> string {
+        level == 1 ? "S" : level == 3 ? "L" : level == 4 ? "XL" : "M"
+    }
+}
+
+// The four sizes as rows, the chosen one ticked: the waveforms button's
+// drop-down. `fits` is the largest size the window has room for now; a
+// bigger one can still be chosen, and shows once there is room.
+export component WaveHeightList inherits VerticalLayout {
+    in property <int> fits: 4;
+    callback picked();
+    padding: 4px;
+    Rectangle {
+        height: 22px;
+        Text {
+            x: 10px;
+            text: "WAVEFORM HEIGHT";
+            color: Theme.text-dim;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            vertical-alignment: center;
+        }
+    }
+    for i in WaveHeight.steps: Rectangle {
+        property <int> level: i + 1;
+        height: 26px;
+        background: ta.has-hover ? Theme.panel-raised.brighter(0.3) : transparent;
+        border-radius: 4px;
+        // A tick by the chosen size.
+        if WaveHeight.level == level: Path {
+            x: 10px;
+            width: 10px;
+            height: 8px;
+            viewbox-width: 10;
+            viewbox-height: 8;
+            commands: "M 1 4 L 4 7 L 9 1";
+            stroke: Theme.accent;
+            stroke-width: 1.6px;
+            fill: transparent;
+        }
+        Text {
+            x: 28px;
+            text: WaveHeight.name(level);
+            color: Theme.text;
+            font-size: 12px;
+            font-weight: WaveHeight.level == level ? 600 : 400;
+            vertical-alignment: center;
+        }
+        if level > fits: Text {
+            x: parent.width - self.width - 10px;
+            text: "needs room";
+            color: Theme.text-dim;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+        ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                WaveHeight.pick(level);
+                picked();
+            }
+        }
+    }
+}
+
+// The grip on the line under the waveforms. Dragging it snaps the
+// waveforms to the nearest size, with a tick for each size along the right
+// edge and the size's name in the middle while dragging; double-click
+// goes back to Medium. Placed over the whole window, so the ticks for
+// taller sizes show over the decks.
+export component WaveHeightGrip inherits Rectangle {
+    // Where the waveforms are, in the window.
+    in property <length> strip-top;
+    in property <length> strip-height;
+    in property <length> strip-width;
+    // The strip's height at each size, Small first, and the largest size
+    // that fits now.
+    in property <[length]> heights;
+    in property <int> fits: 4;
+    // The size showing (smaller than the chosen one while it doesn't fit).
+    in property <int> shown: 2;
+    property <bool> dragging: grip.pressed;
+    property <int> height-changes: WaveHeight.changes;
+    property <bool> flash;
+    changed height-changes => {
+        flash = true;
+        hide.running = false;
+        hide.running = true;
+    }
+    hide := Timer {
+        interval: 900ms;
+        running: false;
+        triggered => {
+            flash = false;
+            self.running = false;
+        }
+    }
+    // The size whose strip ends nearest `bottom`, among those that fit.
+    pure function nearest(bottom: length) -> int {
+        let target = bottom - strip-top;
+        let d1 = abs(heights[0] - target);
+        let d2 = abs(heights[1] - target);
+        let d3 = abs(heights[2] - target);
+        let d4 = abs(heights[3] - target);
+        let best = d1 <= d2 && d1 <= d3 && d1 <= d4 ? 1 : d2 <= d3 && d2 <= d4 ? 2 : d3 <= d4 ? 3 : 4;
+        min(best, max(fits, 1))
+    }
+    // Only the grip itself takes the pointer: the rest of this layer is
+    // just where the ticks and the size's name draw.
+    width: strip-width;
+    // The ticks while dragging, one per size that fits: a short line where
+    // the waveforms would end, just right of the grip, with the size's
+    // letter on a dark tag so it reads over waveforms and decks alike.
+    for h[i] in heights: Rectangle {
+        visible: dragging && i < fits;
+        x: root.width / 2 + 26px;
+        y: strip-top + h - 0.5px;
+        width: 50px;
+        height: 1px;
+        Rectangle {
+            width: 18px;
+            height: i + 1 == shown ? 2px : 1px;
+            background: i + 1 == shown ? Theme.accent : Theme.text;
+        }
+        Rectangle {
+            x: 22px;
+            y: -8px;
+            width: 24px;
+            height: 16px;
+            border-radius: 4px;
+            background: i + 1 == shown ? Theme.accent : #000000c0;
+            Text {
+                text: WaveHeight.short(i + 1);
+                color: i + 1 == shown ? #000000 : Theme.text;
+                font-size: 10px;
+                font-weight: 700;
+            }
+        }
+    }
+    // The size's name, in the middle of the waveforms.
+    Rectangle {
+        x: (root.width - self.width) / 2;
+        y: strip-top + (strip-height - self.height) / 2;
+        width: name.preferred-width + 18px;
+        height: 22px;
+        border-radius: 11px;
+        background: #000000c0;
+        border-width: 1px;
+        border-color: dragging ? Theme.accent : Theme.border;
+        opacity: dragging || flash ? 1 : 0;
+        animate opacity { duration: 180ms; }
+        name := Text {
+            text: "Height: " + WaveHeight.name(shown);
+            color: Theme.text;
+            font-size: 11px;
+            font-weight: 600;
+        }
+    }
+    // The grip: a lilac pill in the middle of the line, while the pointer
+    // is near the line or dragging.
+    Rectangle {
+        x: (root.width - self.width) / 2;
+        y: strip-top + strip-height - 3px;
+        width: 40px;
+        height: 5px;
+        border-radius: 2.5px;
+        background: Theme.accent;
+        opacity: grip.has-hover || dragging ? 1 : 0;
+        animate opacity { duration: 120ms; }
+    }
+    grip := TouchArea {
+        x: 0;
+        y: strip-top + strip-height - 4px;
+        width: root.width;
+        height: 8px;
+        mouse-cursor: row-resize;
+        moved => {
+            if self.pressed {
+                let size = nearest(self.absolute-position.y + self.mouse-y - root.absolute-position.y);
+                if size != WaveHeight.level {
+                    WaveHeight.pick(size);
+                }
+            }
+        }
+        double-clicked => { WaveHeight.reset(); }
+    }
+}

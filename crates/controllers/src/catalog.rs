@@ -622,6 +622,10 @@ pub fn describe(group: &str, key: &str) -> Function {
                 "layout" => "Switch layout".into(),
                 "layout_next" => "Next layout".into(),
                 "show_maximized_library" => "Big browser".into(),
+                "waveform_height" => "Waveform height".into(),
+                "waveform_height_up" => "Taller waveforms".into(),
+                "waveform_height_down" => "Shorter waveforms".into(),
+                "waveform_height_set_default" => "Reset waveform height".into(),
                 _ => humanize(key),
             };
             Function::new("View", n, "View")

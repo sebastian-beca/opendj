@@ -4199,3 +4199,7 @@
 [Sculpt_[Channel4]],lpf
 [Shoutcast],enabled
 [Shoutcast],status
+[Skin],waveform_height
+[Skin],waveform_height_down
+[Skin],waveform_height_set_default
+[Skin],waveform_height_up

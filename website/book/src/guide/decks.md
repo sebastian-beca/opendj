@@ -77,6 +77,27 @@ The waveforms stretch smoothly to each step, and the step shows for a moment
 in the waveform's top left. openDJ remembers it for next time. Decks playing
 an input, an instrument or the Groove Box keep ten seconds across.
 
+### Waveform height
+
+The large scrolling waveforms come in four heights: **Small**, **Medium**
+(the usual), **Large** and **Extra large**. Each layout remembers its own, so
+tall waveforms in 2-Deck don't make 4-Deck taller.
+
+- Drag the line under the waveforms: a lilac grip shows when the pointer is
+  on it, and the waveforms snap from one height to the next as you drag.
+  Double-click the line to go back to Medium.
+- Click the arrow on the right of the waveforms button in the top bar and
+  pick a height.
+- Right-click a large waveform and pick **S**, **M**, **L** or **XL**.
+- **⌥⌘↑** and **⌥⌘↓** (**Ctrl+Alt** on Windows and Linux) make them taller
+  or shorter. They are also in **View**.
+- On a controller, map **Taller waveforms**, **Shorter waveforms**, **Reset
+  waveform height** or **Waveform height** (1 to 4).
+
+The library always keeps room for about five tracks. When the window is too
+short for the height you chose, the waveforms show the biggest one that
+fits, and grow back when the window does. The decks never shrink.
+
 ### Beat counter
 
 Beside the title, four squares light up one beat at a time, so you can see
