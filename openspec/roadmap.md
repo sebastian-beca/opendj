@@ -110,6 +110,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 ## v0.8 · From the booth to the studio
 
 - [add-ableton-set-export](changes/add-ableton-set-export/proposal.md) (History sets, lists and recordings as Ableton Live sets: warped clips, tempo, markers, then a full rebuild with automation from the control log; moved from v1.0 2026-11-06)
+- [add-mixed-set-editor](changes/add-mixed-set-editor/proposal.md) (a recording opens in a simple view with Check my mix, quick fixes (trim, track level, cut, loudness) and chapter export, and a timeline: deck rows, transitions with length and style, loops, scratches, playback and a transitions list; pair mixes learned from its transitions; a user request after a DJ.Studio comparison, 2026-11-12; moved to v0.8 2026-11-12 to ship v0.7 sooner)
 - [add-set-view](changes/add-set-view/proposal.md) (editing in the Mixed Set Editor: move and stretch transitions, edit curves and loops, Keep or Bypass for scratches, frame-accurate capture, render a new mix through the engine)
 
 ## v1.0 · Ready for any DJ switching over
