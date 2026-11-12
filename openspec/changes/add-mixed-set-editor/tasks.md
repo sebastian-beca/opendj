@@ -12,15 +12,9 @@
 - [ ] 2.3 Playback of the recording with a playhead; click to jump
 - [ ] 2.4 Transitions list with details of the selected one; click jumps to 4 bars before
 
-## 3. Automix points from a set
+## 3. Docs
 
-- [ ] 3.1 `pair_mixes` table and Automix plan lookup: pair mix, then track points, then phrases
-- [ ] 3.2 Learn Automix points: out and in points per transition, existing points beside them, save ticks
-- [ ] 3.3 Play it again as Automix
-
-## 4. Docs
-
-- [ ] 4.1 User guide page for the Mixed Set Editor and learned Automix points in website/book/src/guide
+- [ ] 3.1 User guide page for the Mixed Set Editor in website/book/src/guide
 
 ## Workflow follow-up
 
