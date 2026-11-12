@@ -4793,6 +4793,7 @@ component MixerStrip inherits Rectangle {
     border-radius: 6px;
     background: Theme.panel-raised;
     clip: true;
+    property <bool> renaming;
     VerticalLayout {
         spacing: 0px;
         Rectangle { height: 3px; background: on ? strip-color : strip-color.with-alpha(0.35); }
@@ -4800,41 +4801,77 @@ component MixerStrip inherits Rectangle {
             padding: 5px;
             padding-bottom: 0px;
             spacing: 3px;
-            Text {
-                text: info.name;
-                color: Theme.text;
-                font-size: 11px;
-                font-weight: 600;
-                overflow: elide;
-            }
-            // The input box: which channels, ▼ to pick others.
-            Rectangle {
+            // The strip's name, then ▼ to pick its input.
+            HorizontalLayout {
                 height: 18px;
-                border-radius: 4px;
-                border-width: 1px;
-                border-color: info.problem != "" ? #ff9f0a : box.has-hover ? Theme.text-dim : Theme.border;
-                background: Theme.control;
-                Text {
-                    x: 5px;
-                    text: info.problem != "" ? "Missing" : info.channels;
-                    color: info.problem != "" ? #ff9f0a : Theme.text;
-                    font-size: 10px;
-                    vertical-alignment: center;
-                }
-                Text {
-                    x: parent.width - 13px;
-                    text: "▼";
-                    color: Theme.text-dim;
-                    font-size: 7px;
-                    vertical-alignment: center;
-                }
-                box := TouchArea {
-                    clicked => {
-                        InstrumentsUi.open-picker(info.number);
-                        picker.show();
+                spacing: 4px;
+                // Double-click to rename; Return keeps it, Esc or a click
+                // elsewhere leaves it as it was.
+                Rectangle {
+                    if !root.renaming: Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: info.name;
+                        // Dim while its input is missing.
+                        color: info.problem != "" ? Theme.text-dim : Theme.text;
+                        font-size: 11px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        TouchArea { double-clicked => { root.renaming = true; } }
+                    }
+                    if root.renaming: Rectangle {
+                        border-radius: 3px;
+                        background: Theme.control;
+                        border-width: 1px;
+                        border-color: Theme.accent;
+                        name-input := TextInput {
+                            x: 3px;
+                            width: parent.width - 6px;
+                            text: info.name;
+                            color: Theme.text;
+                            font-size: 11px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                            single-line: true;
+                            init => { self.focus(); self.select-all(); }
+                            accepted => {
+                                InstrumentsUi.rename-strip(info.number, self.text);
+                                root.renaming = false;
+                            }
+                            key-pressed(e) => {
+                                if e.text == Key.Escape {
+                                    root.renaming = false;
+                                    return accept;
+                                }
+                                reject
+                            }
+                            changed has-focus => {
+                                if !self.has-focus { root.renaming = false; }
+                            }
+                        }
                     }
                 }
-                picker := InputPicker { x: 0; y: parent.height + 2px; }
+                Rectangle {
+                    width: 20px;
+                    horizontal-stretch: 0;
+                    border-radius: 4px;
+                    background: box.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.control;
+                    Text {
+                        text: "▼";
+                        color: box.has-hover ? Theme.text : Theme.text-dim;
+                        font-size: 8px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    box := TouchArea {
+                        clicked => {
+                            InstrumentsUi.open-picker(info.number);
+                            picker.show();
+                        }
+                    }
+                    picker := InputPicker { x: parent.width - 190px; y: parent.height + 2px; }
+                }
             }
         }
         HorizontalLayout {
@@ -5013,14 +5050,7 @@ component MixerTitle inherits Rectangle {
         spacing: 8px;
         VerticalLayout { alignment: center; LiveIcon { kind: 7; tint: Theme.accent; size: 16px; } }
         Text { text: "MIXER"; color: Theme.text; font-size: 12px; font-weight: 700; letter-spacing: 1px; vertical-alignment: center; }
-        Text {
-            text: InstrumentsUi.route(InstrumentsUi.mixer-live);
-            color: Theme.text-dim;
-            font-size: 11px;
-            vertical-alignment: center;
-            overflow: elide;
-            horizontal-stretch: 1;
-        }
+        Rectangle { horizontal-stretch: 1; }
         if any-solo: VerticalLayout { alignment: center; TitleButton { text: "CLEAR SOLO"; clicked => { InstrumentsUi.solo-alone(0); } } }
         VerticalLayout {
             alignment: center;
