@@ -625,7 +625,10 @@ fn refresh(app: &AppWindow) {
 /// from the engine's input states ("M4 · In 3 · 44.1 kHz"): the device and
 /// channels only, or nothing for an input that isn't recording. The
 /// Mixer's line, after the inputs', sums up its strips (see [`mixer_route`]).
-pub fn show_routes(app: &AppWindow, status: &[String]) {
+///
+/// `clock` is the engine's status (the main output's device first): a
+/// strip on another interface runs on its own clock.
+pub fn show_routes(app: &AppWindow, status: &[String], clock: &str) {
     let mut routes: Vec<String> = status.iter().map(|s| route(s)).collect();
     let mixer = mixer_route(&routes);
     routes.resize(MIXER_ROUTE, String::new());
@@ -636,6 +639,7 @@ pub fn show_routes(app: &AppWindow, status: &[String]) {
     ui.set_strips(ModelRc::new(VecModel::from(strips(
         status,
         &settings::mixer_names(),
+        clock_device(clock),
     ))));
     STATE.with_borrow_mut(|s| s.routes = routes);
     refresh(app);
@@ -643,8 +647,9 @@ pub fn show_routes(app: &AppWindow, status: &[String]) {
 
 /// The Mixer's channels from the engine's input states: each aux input
 /// that has a device, working or not, under the name given it ("Ch N"
-/// until renamed).
-fn strips(status: &[String], names: &[String]) -> Vec<MixerStripInfo> {
+/// until renamed), marked when its interface isn't `clock`'s (the main
+/// output's device, "" when there is none).
+fn strips(status: &[String], names: &[String], clock: &str) -> Vec<MixerStripInfo> {
     inputs::AUXILIARIES
         .iter()
         .enumerate()
@@ -652,7 +657,7 @@ fn strips(status: &[String], names: &[String]) -> Vec<MixerStripInfo> {
             let status = status.get(i).filter(|s| !s.is_empty())?;
             let route = route(status);
             let mut parts = route.split(" · ");
-            parts.next();
+            let device = parts.next().unwrap_or_default();
             let channels = parts.next().map(channels).unwrap_or_default();
             Some(MixerStripInfo {
                 number: n as i32 + 1,
@@ -664,6 +669,7 @@ fn strips(status: &[String], names: &[String]) -> Vec<MixerStripInfo> {
                     .into(),
                 channels: channels.as_str().into(),
                 stereo: channels.contains('/'),
+                own_clock: !route.is_empty() && !clock.is_empty() && device != clock,
                 problem: if route.is_empty() {
                     status.as_str()
                 } else {
@@ -698,6 +704,15 @@ fn mixer_route(routes: &[String]) -> String {
         0 => String::new(),
         1 => format!("{} · 1 input", devices[0]),
         n => format!("{} · {n} inputs", devices.join(", ")),
+    }
+}
+
+/// The main output's device from the engine's status ("M4 · 48 kHz · …"),
+/// or "" when it isn't playing ("No audio output", "M4 went away").
+pub fn clock_device(status: &str) -> &str {
+    match status.split_once(" · ") {
+        Some((device, rest)) if rest.contains(" kHz") => device,
+        _ => "",
     }
 }
 
@@ -827,25 +842,37 @@ mod tests {
         status[inputs::AUXILIARY] = "M4 · In 1 & 2 · 48 kHz".into();
         status[inputs::AUXILIARIES[4]] = "M4 · In 3 · 48 kHz".into();
         status[inputs::AUXILIARIES[7]] = "iPhone is not connected".into();
+        status[inputs::AUXILIARIES[2]] = "iPhone · In 1 · 48 kHz".into();
         let mut names = vec![String::new(); 8];
         names[4] = "Vocals".into();
-        let shown: Vec<(i32, String, String, String)> = strips(&status, &names)
+        let clock = clock_device("M4 · 48 kHz · 256 samples (5.3 ms)");
+        let shown: Vec<(i32, String, String, bool, String)> = strips(&status, &names, clock)
             .into_iter()
-            .map(|s| (s.number, s.name.into(), s.channels.into(), s.problem.into()))
+            .map(|s| {
+                let (name, channels, problem) =
+                    (s.name.into(), s.channels.into(), s.problem.into());
+                (s.number, name, channels, s.own_clock, problem)
+            })
             .collect();
         assert_eq!(
             shown,
             [
-                (1, "Ch 1".into(), "1/2".into(), "".into()),
-                (5, "Vocals".into(), "3".into(), "".into()),
+                (1, "Ch 1".into(), "1/2".into(), false, "".into()),
+                (3, "Ch 3".into(), "1".into(), true, "".into()),
+                (5, "Vocals".into(), "3".into(), false, "".into()),
                 (
                     8,
                     "Ch 8".into(),
                     "".into(),
+                    false,
                     "iPhone is not connected".into()
                 ),
             ]
         );
+        // No main output: nothing to drift from.
+        assert!(strips(&status, &names, clock_device("No audio output"))
+            .iter()
+            .all(|s| !s.own_clock));
     }
 
     #[test]
