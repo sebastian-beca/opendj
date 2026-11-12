@@ -1,6 +1,6 @@
 # Proposal
 
-Planned for: **v0.7 · Your library, everywhere**
+Planned for: **v0.8 · From the booth to the studio** (moved from v0.7 on 2026-11-12)
 
 ## Why
 
@@ -17,7 +17,7 @@ A recorded set is only a sound file today, with a cue sheet beside it. openDJ al
 - **Export with chapters**: a Mixcloud tracklist, YouTube chapters (first at 0:00, at least 3, each at least 10 s), a .cue sheet, and Export for Mixcloud with ID3 chapters as today, all following the fixes (a cut moves later times).
 - Recordings without a control log open with the recording's waveform and the cue sheet's tracklist only.
 
-Mockups (board 1; board 2 is v0.8): https://claude.ai/artifact/76fLT6FF4ULjWNcXRSQCzv
+Mockups (boards 0 and 1; board 2 is add-set-view): https://claude.ai/artifact/76fLT6FF4ULjWNcXRSQCzv
 
 ## Capabilities
 
@@ -32,11 +32,11 @@ None.
 
 ## Out of Scope
 
-- Changing the mix itself (moving transitions, editing curves and loops), rendering through the engine, Keep or Bypass for scratches, frame-accurate capture (add-set-view, v0.8).
-- Ableton export (add-ableton-set-export, v0.8).
+- Changing the mix itself (moving transitions, editing curves and loops), rendering through the engine, Keep or Bypass for scratches, frame-accurate capture (add-set-view, later in v0.8).
+- Ableton export (add-ableton-set-export).
 - Recordings made by other apps (no control log).
 - Learning a track's own Automix points from a set: those are set in Prep (add-prep-layout).
 
 ## Impact
 
-A control-log reader and timeline model in a new module (shared with v0.8), a `pair_mixes` table in the library and an Automix plan lookup, the Mixed Set Editor screen and its menu entries, Check my mix detectors, an audio-only fix renderer (trim, fades, track gain, cut, loudness) reusing the loudness meter and true-peak limiter, chapter exports.
+A control-log reader and timeline model in a new module (shared with add-set-view and add-ableton-set-export), a `pair_mixes` table in the library and an Automix plan lookup, the Mixed Set Editor screen and its menu entries, Check my mix detectors, an audio-only fix renderer (trim, fades, track gain, cut, loudness) reusing the loudness meter and true-peak limiter, chapter exports.

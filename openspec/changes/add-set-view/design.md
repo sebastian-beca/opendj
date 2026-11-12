@@ -1,6 +1,6 @@
 # Design
 
-The timeline model, the reader of the control log and the read-only Mixed Set Editor come from add-mixed-set-editor (v0.7). This change adds editing, the render and the capture it needs.
+The timeline model, the reader of the control log and the read-only Mixed Set Editor come from add-mixed-set-editor (also v0.8, first). This change adds editing, the render and the capture it needs.
 
 ## Render
 

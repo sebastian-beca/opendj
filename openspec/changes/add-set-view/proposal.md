@@ -4,7 +4,7 @@ Planned for: **v0.8 · From the booth to the studio**
 
 ## Why
 
-The Mixed Set Editor (add-mixed-set-editor, v0.7) shows a recorded set as a timeline but changes nothing. DJs want to fix a set after playing it: move a transition, smooth a fader, take out an FX stab, and get a new mix file. Mix editors such as DJ.Studio do this for mixes built from playlists, with no live mode; openDJ can do it for sets played live because it logs every control change beside the recording and can play that log back through its own engine.
+The Mixed Set Editor (add-mixed-set-editor, earlier in v0.8) shows a recorded set as a timeline but changes nothing. DJs want to fix a set after playing it: move a transition, smooth a fader, take out an FX stab, and get a new mix file. Mix editors such as DJ.Studio do this for mixes built from playlists, with no live mode; openDJ can do it for sets played live because it logs every control change beside the recording and can play that log back through its own engine.
 
 ## What Changes
 
