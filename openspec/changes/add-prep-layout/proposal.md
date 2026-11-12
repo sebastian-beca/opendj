@@ -34,7 +34,7 @@ None.
 ## Out of Scope
 
 - Preparing on a headphone-only deck while a set plays.
-- Prepare lists for a gig (add-prepare-list).
+- Prepare lists for a gig (dropped 2026-11-12; the In Prep stage and Automix lists cover it).
 - Writing cues or grids into file tags.
 
 ## Impact
