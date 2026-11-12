@@ -104,7 +104,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-djay-library-import](changes/add-djay-library-import/proposal.md) (djay Pro library import: tracks, hot cues, saved loops, colors, Automix points and playlists from `MediaLibrary.db`; a user request after the EngineX-OS comparison, issue #579, 2026-11-10)
 - [add-itunes-library-import](changes/add-itunes-library-import/proposal.md) (iTunes and Music app library import: tracks with tags, stars, play counts and dates, and playlists in their folders from the Library XML; a user request, issue #630, 2026-11-11)
 - [add-mixer-deck](changes/add-mixer-deck/proposal.md) (a Mixer deck with up to eight thin input strips in place of Aux 1 to 3, the mic as a strip, an FX switch per strip, and each interface opened once; a user request after the aux latency fix, issue #606, 2026-11-10)
-- [add-mixed-set-editor](changes/add-mixed-set-editor/proposal.md) (a recording opens as a read-only timeline: deck rows, transitions with length and style, loops, scratches, playback and a transitions list; Automix points and pair mixes learned from its transitions; a user request after a DJ.Studio comparison, 2026-11-12)
+- [add-mixed-set-editor](changes/add-mixed-set-editor/proposal.md) (a recording opens as a read-only timeline: deck rows, transitions with length and style, loops, scratches, playback and a transitions list; a user request after a DJ.Studio comparison, 2026-11-12)
 
 ## v0.8 · From the booth to the studio
 
