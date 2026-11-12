@@ -2,6 +2,8 @@
 
 Planned for: **v0.6 · Buy it from the artist** (moved from v1.x 2026-11-06: phrases already ship, and phrase mixing is a top gap for new DJs)
 
+The tasks still open moved to **v0.8 · From the booth to the studio** on 2026-11-12, so v0.7 ships with what is built.
+
 ## Why
 
 New DJs judge a DJ app by how good its help sounds. djay's Automix AI and rekordbox's phrase-based mixing bring the next track in where the music changes: its intro over the outgoing outro, with the next drop landing as the old track ends. openDJ Automix still mixes by time or by a fixed number of bars counted back from the end, so it often starts in the middle of a vocal, or brings a drop in over a breakdown.
