@@ -14,7 +14,7 @@
 - [x] 2.1 Mixer item in the Jam source in place of Aux 1 to 3
 - [x] 2.2 2-Deck strips: input box, TRIM, PAN, FX, number square, S, Cue, meter with fader arrow and peak readout, + to add
 - [x] 2.3 Input picker: pairs then single channels with live meters, then Settings › Audio
-- [ ] 2.4 4-Deck slim strips
+- [x] 2.4 4-Deck slim strips
 - [ ] 2.5 "Own clock" note on a strip from another interface than the master's
 - [ ] 2.6 Recording input choice with External mixer on
 

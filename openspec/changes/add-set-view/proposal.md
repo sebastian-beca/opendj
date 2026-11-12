@@ -12,7 +12,6 @@ The Mixed Set Editor (add-mixed-set-editor, v0.7) shows a recorded set as a time
 - Editing in the Mixed Set Editor: drag a transition earlier or later (snapping to beats and phrases), stretch it, pick a style, open a transition editor with both tracks on one beatgrid and editable curves (VirtualDJ's Automix editor layout), change a loop's length or repeat count, A/B against the recording, undo.
 - Hard moves (scratches, backspins, brakes and anything else the render cannot rebuild from mixer controls) stay one block with two choices, not editable stroke by stroke: **Keep from recording** (the default: that stretch of audio is copied from the recording into the render) or **Bypass** (the deck plays straight through as if the move never happened). DJs fine-tune fader, EQ, filter and FX lines; they keep or drop a scratch whole.
 - Render: play the edited set offline through openDJ's engine to a new file beside the recording; the recording is never changed. Mixcloud export and tracklist from the new file.
-- Things to check: FX left on past a phrase change, jumps mid-phrase, the limiter working hard.
 - The Ableton export (add-ableton-set-export step 3) uses the same timeline, with kept hard moves as rendered audio clips.
 
 Mockups (board 2, and the scratch block on board 1): https://claude.ai/artifact/76fLT6FF4ULjWNcXRSQCzv

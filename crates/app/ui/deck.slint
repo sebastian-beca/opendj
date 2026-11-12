@@ -4772,6 +4772,70 @@ component InputPicker inherits PopupWindow {
     }
 }
 
+// Each Mixer channel's own color, by its number.
+global StripColors {
+    pure public function of(number: int) -> color {
+        [Theme.c-ff6b5e, Theme.c-64d2ff, Theme.c-30d158, Theme.c-bf5af2, Theme.c-ff9f0a, Theme.c-5e5ce6, Theme.c-ff375f, Theme.c-ffd60a][Math.mod(number - 1, 8)]
+    }
+}
+
+// A Mixer strip's number square: lilac while it is on, grey when off; a
+// click switches it.
+component StripOn inherits Rectangle {
+    in property <string> group;
+    in property <int> number;
+    in property <length> font-size: 14px;
+    property <int> on-index: Controls.resolve(group, "main_mix");
+    property <bool> on: Controls.value(on-index, Controls.tick) > 0;
+    border-radius: 4px;
+    background: on ? Theme.accent : Theme.n-3a3a3e;
+    Text {
+        text: number;
+        color: on ? Theme.on-selection : Theme.text-dim;
+        font-size: root.font-size;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Controls.set-value(on-index, on ? 0 : 1); }
+    }
+    MapMark { key: root.group + ",main_mix"; }
+}
+
+// A Mixer strip's S: solo inside the Mixer; Cmd/Ctrl solos it alone.
+component StripSolo inherits Rectangle {
+    in property <string> group;
+    in property <int> number;
+    property <int> solo-index: Controls.resolve(group, "solo");
+    property <bool> solo: Controls.value(solo-index, Controls.tick) > 0;
+    border-radius: 4px;
+    background: solo ? #ffd60a : Theme.control;
+    border-width: 1px;
+    border-color: solo ? #ffd60a : Theme.border;
+    Text {
+        text: "S";
+        color: solo ? #1c1c1e : Theme.text;
+        font-size: 10px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                if e.modifiers.control || e.modifiers.meta {
+                    InstrumentsUi.solo-alone(number);
+                } else {
+                    Controls.set-value(solo-index, solo ? 0 : 1);
+                }
+            }
+        }
+    }
+    MapMark { key: root.group + ",solo"; }
+}
+
 // One strip of the Mixer deck (2-Deck), at almost the deck's full height:
 // a color bar, its name and the input box (its channels, a click opens
 // Settings › Audio); then a column with the peak readout (red over 0 dB),
@@ -4784,11 +4848,8 @@ component MixerStrip inherits Rectangle {
     property <string> group: "[Auxiliary" + info.number + "]";
     property <int> on-index: Controls.resolve(group, "main_mix");
     property <bool> on: Controls.value(on-index, Controls.tick) > 0;
-    property <int> solo-index: Controls.resolve(group, "solo");
-    property <bool> solo: Controls.value(solo-index, Controls.tick) > 0;
     property <float> peak-db: Controls.value(Controls.resolve(group, "peak_db"), Controls.tick);
-    // Each strip's own color, by its number.
-    property <color> strip-color: [Theme.c-ff6b5e, Theme.c-64d2ff, Theme.c-30d158, Theme.c-bf5af2, Theme.c-ff9f0a, Theme.c-5e5ce6, Theme.c-ff375f, Theme.c-ffd60a][Math.mod(info.number - 1, 8)];
+    property <color> strip-color: StripColors.of(info.number);
     width: 104px;
     border-radius: 6px;
     background: Theme.panel-raised;
@@ -4901,52 +4962,8 @@ component MixerStrip inherits Rectangle {
                 HorizontalLayout { alignment: center; ControlKnob { group: group; key: "pan"; label: "PAN"; size: 18px; bipolar: true; } }
                 ControlButton { group: group; key: "fx"; text: "FX"; tint: Theme.accent; height: 18px; font-size: 9px; fill-when-lit: true; }
                 Rectangle { vertical-stretch: 1; }
-                // On or off: the number.
-                Rectangle {
-                    height: 26px;
-                    border-radius: 4px;
-                    background: on ? Theme.accent : Theme.n-3a3a3e;
-                    Text {
-                        text: info.number;
-                        color: on ? Theme.on-selection : Theme.text-dim;
-                        font-size: 14px;
-                        font-weight: 700;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                    TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => { Controls.set-value(on-index, on ? 0 : 1); }
-                    }
-                    MapMark { key: root.group + ",main_mix"; }
-                }
-                Rectangle {
-                    height: 18px;
-                    border-radius: 4px;
-                    background: solo ? #ffd60a : Theme.control;
-                    border-width: 1px;
-                    border-color: solo ? #ffd60a : Theme.border;
-                    Text {
-                        text: "S";
-                        color: solo ? Theme.n-1c1c1e : Theme.text;
-                        font-size: 10px;
-                        font-weight: 700;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                    TouchArea {
-                        pointer-event(e) => {
-                            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
-                                if e.modifiers.control || e.modifiers.meta {
-                                    InstrumentsUi.solo-alone(info.number);
-                                } else {
-                                    Controls.set-value(solo-index, solo ? 0 : 1);
-                                }
-                            }
-                        }
-                    }
-                    MapMark { key: root.group + ",solo"; }
-                }
+                StripOn { group: group; number: info.number; height: 26px; }
+                StripSolo { group: group; number: info.number; height: 18px; }
                 ControlButton { group: group; key: "pfl"; headphones: true; tint: Theme.accent; fill-when-lit: true; height: 18px; }
             }
             StripMeter { group: group; stereo: info.stereo; tint: tint; horizontal-stretch: 1; }
@@ -5238,10 +5255,93 @@ component LivePanel inherits Rectangle {
     }
 }
 
+// A slim Mixer channel for 4-Deck: its name (a click picks its input),
+// then the number square, S, Cue and FX beside the meter with the fader
+// as an arrow on its scale.
+component SlimMixerStrip inherits Rectangle {
+    in property <MixerStripInfo> info;
+    in property <color> tint;
+    property <string> group: "[Auxiliary" + info.number + "]";
+    property <bool> on: Controls.value(Controls.resolve(group, "main_mix"), Controls.tick) > 0;
+    property <color> strip-color: StripColors.of(info.number);
+    width: 70px;
+    border-radius: 5px;
+    background: Theme.panel-raised;
+    clip: true;
+    VerticalLayout {
+        spacing: 0px;
+        Rectangle { height: 2px; background: on ? strip-color : strip-color.with-alpha(0.35); }
+        Rectangle {
+            height: 16px;
+            background: name.has-hover ? Theme.control : transparent;
+            HorizontalLayout {
+                padding-left: 4px;
+                padding-right: 4px;
+                spacing: 2px;
+                Text {
+                    text: info.name;
+                    color: info.problem != "" ? Theme.text-dim : Theme.text;
+                    font-size: 10px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: "▼";
+                    color: name.has-hover ? Theme.text : Theme.text-dim;
+                    font-size: 7px;
+                    vertical-alignment: center;
+                    horizontal-stretch: 0;
+                }
+            }
+            name := TouchArea {
+                clicked => {
+                    InstrumentsUi.open-picker(info.number);
+                    picker.show();
+                }
+            }
+            picker := InputPicker { x: 0; y: parent.height + 2px; }
+        }
+        HorizontalLayout {
+            padding: 3px;
+            padding-top: 1px;
+            spacing: 3px;
+            vertical-stretch: 1;
+            VerticalLayout {
+                width: 26px;
+                spacing: 3px;
+                alignment: end;
+                StripOn { group: group; number: info.number; height: 20px; font-size: 11px; }
+                StripSolo { group: group; number: info.number; height: 16px; }
+                ControlButton { group: group; key: "pfl"; headphones: true; tint: Theme.accent; fill-when-lit: true; height: 16px; }
+                ControlButton { group: group; key: "fx"; text: "FX"; tint: Theme.accent; height: 16px; font-size: 8px; fill-when-lit: true; }
+            }
+            StripMeter { group: group; stereo: info.stereo; tint: tint; horizontal-stretch: 1; }
+        }
+    }
+}
+
+// The Mixer's channels in a 4-Deck strip, side by side, scrolling sideways
+// when they don't fit, then + to pick another input.
+component SlimMixerStrips inherits Rectangle {
+    in property <color> tint;
+    Flickable {
+        content-width: max(self.width, row.preferred-width);
+        row := HorizontalLayout {
+            spacing: 3px;
+            alignment: start;
+            for strip in InstrumentsUi.strips: SlimMixerStrip { info: strip; tint: tint; }
+            if InstrumentsUi.strips.length < 8: AddStrip { }
+        }
+    }
+}
+
 // A 4-Deck strip's live input, in place of PLAY, the loop and the pads
 // (`DeckStrip` in fourdeck.slint): what it needs if it is not set up yet;
 // otherwise for an instrument a small scope, OPEN, its first four knobs and
-// TRIM, and for an input where it comes in, TRIM and PAN. The strip's header carries its
+// TRIM, for an input where it comes in, TRIM and PAN, and for the Mixer its
+// channels, slim. The strip's header carries its
 // image and presets, and its channel the meter. No keyboard here.
 export component LiveStrip inherits Rectangle {
     in property <int> live;
@@ -5279,7 +5379,8 @@ export component LiveStrip inherits Rectangle {
             }
         }
     }
-    if ready: VerticalLayout {
+    if live == InstrumentsUi.mixer-live: SlimMixerStrips { x: 3px; y: 3px; width: parent.width - 6px; height: parent.height - 6px; tint: tint; }
+    if ready && live != InstrumentsUi.mixer-live: VerticalLayout {
         padding: 6px;
         spacing: 6px;
         // The scope keeps its shape (see InstrumentScope), so it sits
