@@ -213,6 +213,11 @@ export global InstrumentsUi {
     callback picker-tick();
     // Choice `index` of picker-rows picked.
     callback pick(index: int);
+    // The picker's strip plays the Mixer deck's Groove Box; picking it.
+    in property <bool> picker-groove;
+    callback pick-groove();
+    // A Mixer channel plays the Mixer deck's Groove Box: GROOVE shows it.
+    in property <bool> mixer-groove;
 
     // Each ticked plugin's own image, in the picker's order, and each
     // input's (microphone, aux 1, aux 2, aux 3, Mixer), with whether there is one:

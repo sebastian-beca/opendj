@@ -20,5 +20,5 @@
 
 ## 3. Later
 
-- [ ] 3.1 Instrument plugins and the Groove Box as strip sources, with a Mixer / instrument view switch on the deck
+- [x] 3.1 Instrument plugins and the Groove Box as strip sources, with a Mixer / instrument view switch on the deck
 - [x] 3.2 Mappings: Xone K2 columns on strips 1 to 4

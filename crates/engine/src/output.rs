@@ -29,7 +29,7 @@ use cpal::{BufferSize, ErrorKind, FromSample, SampleFormat, SizedSample, Support
 use opendj_control::{ControlHandle, ControlRegistry};
 
 use crate::engine::{Engine, MIX_CHANNELS, OUTPUT_CHANNELS};
-use crate::inputs::{InputFeed, AUXILIARIES, MICROPHONE, NUM_AUXILIARIES, NUM_INPUTS};
+use crate::inputs::{InputFeed, AUXILIARIES, GROOVE_BOX, MICROPHONE, NUM_AUXILIARIES, NUM_INPUTS};
 
 /// What an output plays, each a stereo pair of the buffer the engine
 /// renders: the mixes, or one deck or the sampler on its own (for a DAW or
@@ -672,6 +672,12 @@ impl Outputs {
         self.setup.inputs = setup.inputs.clone();
         let mut feeds: [Option<InputFeed>; NUM_INPUTS] = Default::default();
         self.input_status = Default::default();
+        // Strips playing the Mixer deck's Groove Box open no device.
+        let mut grooves = [false; NUM_INPUTS];
+        for r in setup.inputs.iter().filter(|r| r.device == GROOVE_BOX) {
+            grooves[r.role.index()] = true;
+            self.input_status[r.role.index()] = GROOVE_BOX.to_string();
+        }
         for (device, routes) in group_inputs(&setup.inputs) {
             if no_audio() {
                 for r in routes {
@@ -693,6 +699,7 @@ impl Outputs {
         let mut old = Vec::new();
         if let Ok(mut engine) = self.engine.lock() {
             for (i, feed) in feeds.into_iter().enumerate() {
+                engine.set_input_groove(i, grooves[i]);
                 old.push(engine.set_input(i, feed));
             }
         }
@@ -1222,7 +1229,11 @@ fn buffer_frames(config: &cpal::SupportedStreamConfig, frames: Option<u32>) -> B
 fn group_inputs(inputs: &[InputRoute]) -> Vec<(String, Vec<InputRoute>)> {
     let mut groups: Vec<(String, Vec<InputRoute>)> = Vec::new();
     for role in InputRole::ALL {
-        let Some(r) = inputs.iter().find(|r| r.role == role) else {
+        // A strip playing the Groove Box opens no device.
+        let Some(r) = inputs
+            .iter()
+            .find(|r| r.role == role && r.device != GROOVE_BOX)
+        else {
             continue;
         };
         match groups.iter_mut().find(|(d, _)| *d == r.device) {

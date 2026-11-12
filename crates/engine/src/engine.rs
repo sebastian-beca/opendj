@@ -2000,6 +2000,11 @@ impl Engine {
         self.inputs[input].set_feed(feed)
     }
 
+    /// Input `input` plays the Mixer deck's Groove Box, or not.
+    pub(crate) fn set_input_groove(&mut self, input: usize, on: bool) {
+        self.inputs[input].set_groove(on);
+    }
+
     /// The other end of the preview player's queues; there is only one.
     pub(crate) fn take_preview_input(&mut self) -> Option<PreviewInput> {
         self.preview_input.take()
@@ -3444,56 +3449,19 @@ impl Engine {
                 .then_some(sr),
             }
         });
-        let mixing = mixer_on.contains(&true);
-        // The Mixer's strips: the auxiliary inputs, and the mic if it is
-        // one.
-        let strips: [bool; NUM_INPUTS] =
-            std::array::from_fn(|k| mixing && self.inputs[k].mixer_strip());
-        let any_solo = (0..NUM_INPUTS).any(|k| strips[k] && self.inputs[k].soloed());
-        // A deck playing the Mixer with the mic in it isn't ducked under
-        // the mic, as the voice would duck itself.
-        let unducked = mixer_on
-            .iter()
-            .position(|&m| m)
-            .filter(|_| strips[MICROPHONE]);
-        for (i, input) in self.inputs.iter_mut().enumerate() {
-            let on_deck = live_on.contains(&(i + 1)) || looper_in.contains(&(i + 1));
-            let routing = if on_deck {
-                Routing::Deck
-            } else if strips[i] {
-                Routing::Mixer { any_solo }
-            } else {
-                Routing::Main
-            };
-            input.render(frames, &mut self.fx, input_target(i), dt as f32, routing);
-        }
-        let master = (self.master_gain, master_target);
-        let balance = (self.balance, balance_target);
-
-        let mut deck_peak = [[0.0f32; 2]; NUM_DECKS];
-        let mut master_peak = [0.0f32; 2];
-        let mut master_clip = [false; 2];
-        let mut ended = [false; NUM_DECKS];
-        let out_rate = self.sample_rate;
-        let quick_step = fade_step(out_rate as f32);
-        // The mix runs in stages over the whole buffer, so effects can work
-        // a block at a time (plugin slots need that): each deck's audio up
-        // to its effects, then the effects, then the mix up to the main
-        // mix's effects, then those, then the rest.
-        let mut deck_buf = std::mem::take(&mut self.deck_buf);
-        let mut mixer_dry = std::mem::take(&mut self.mixer_dry);
-        let mixer_deck = mixer_on.iter().position(|&m| m);
-        let mut click_buf = std::mem::take(&mut self.click_buf);
-        let mut main_buf = std::mem::take(&mut self.main_buf);
-        let mut cue_buf = std::mem::take(&mut self.cue_buf);
-        let mut tap_buf = std::mem::take(&mut self.tap_buf);
         // Groove Boxes render their buffer first, on the beat of the
         // leading deck (the one SYNC follows, else the first playing), else
         // Link's, else their own tempo.
         let mut groove_buf = std::mem::take(&mut self.groove_buf);
         let mut duck_buf = std::mem::take(&mut self.duck_buf);
-        let groove_on: [bool; NUM_DECKS] =
-            std::array::from_fn(|i| self.grooves[i].enabled() && self.decks[i].track.is_none());
+        // The Mixer deck's own Groove Box plays while a strip takes it.
+        let groove_strip = mixer_on
+            .iter()
+            .position(|&m| m)
+            .filter(|_| self.inputs.iter().any(|inp| inp.plays_groove()));
+        let groove_on: [bool; NUM_DECKS] = std::array::from_fn(|i| {
+            (self.grooves[i].enabled() || groove_strip == Some(i)) && self.decks[i].track.is_none()
+        });
         for g in duck_buf.iter_mut() {
             g[..frames].fill(1.0);
         }
@@ -3551,6 +3519,52 @@ impl Engine {
                 }
             }
         }
+        let mixing = mixer_on.contains(&true);
+        // The Mixer's strips: the auxiliary inputs, and the mic if it is
+        // one.
+        let strips: [bool; NUM_INPUTS] =
+            std::array::from_fn(|k| mixing && self.inputs[k].mixer_strip());
+        let any_solo = (0..NUM_INPUTS).any(|k| strips[k] && self.inputs[k].soloed());
+        // A deck playing the Mixer with the mic in it isn't ducked under
+        // the mic, as the voice would duck itself.
+        let unducked = mixer_on
+            .iter()
+            .position(|&m| m)
+            .filter(|_| strips[MICROPHONE]);
+        for (i, input) in self.inputs.iter_mut().enumerate() {
+            if let Some(m) = groove_strip.filter(|_| input.plays_groove()) {
+                input.take_groove(&groove_buf[m][..frames]);
+            }
+            let on_deck = live_on.contains(&(i + 1)) || looper_in.contains(&(i + 1));
+            let routing = if on_deck {
+                Routing::Deck
+            } else if strips[i] {
+                Routing::Mixer { any_solo }
+            } else {
+                Routing::Main
+            };
+            input.render(frames, &mut self.fx, input_target(i), dt as f32, routing);
+        }
+        let master = (self.master_gain, master_target);
+        let balance = (self.balance, balance_target);
+
+        let mut deck_peak = [[0.0f32; 2]; NUM_DECKS];
+        let mut master_peak = [0.0f32; 2];
+        let mut master_clip = [false; 2];
+        let mut ended = [false; NUM_DECKS];
+        let out_rate = self.sample_rate;
+        let quick_step = fade_step(out_rate as f32);
+        // The mix runs in stages over the whole buffer, so effects can work
+        // a block at a time (plugin slots need that): each deck's audio up
+        // to its effects, then the effects, then the mix up to the main
+        // mix's effects, then those, then the rest.
+        let mut deck_buf = std::mem::take(&mut self.deck_buf);
+        let mut mixer_dry = std::mem::take(&mut self.mixer_dry);
+        let mixer_deck = mixer_on.iter().position(|&m| m);
+        let mut click_buf = std::mem::take(&mut self.click_buf);
+        let mut main_buf = std::mem::take(&mut self.main_buf);
+        let mut cue_buf = std::mem::take(&mut self.cue_buf);
+        let mut tap_buf = std::mem::take(&mut self.tap_buf);
         // Loopers play and record on the same beat as the Groove Boxes.
         let mut looper_buf = std::mem::take(&mut self.looper_buf);
         if looper_on.iter().any(|&on| on) {
@@ -7507,6 +7521,38 @@ mod tests {
         inst("mixer").set_bool(true);
         run(&mut engine, 0.05);
         assert!(engine.inputs[INSTRUMENT].in_mixer);
+    }
+
+    #[test]
+    fn a_mixer_channel_plays_the_mixer_decks_groove_box() {
+        use crate::inputs::{AUXILIARIES, MIXER};
+        let (reg, mut engine, _input) = setup();
+        let aux = |k: &str| reg.get("[Auxiliary3]", k).unwrap();
+        let ch = |k: &str| reg.get("[Channel2]", k).unwrap();
+        ch("live_input").set(MIXER as f64);
+        aux("main_mix").set_bool(true);
+        // No strip takes the Groove Box: the Mixer is silent.
+        ch("play").set_bool(true);
+        assert!(run(&mut engine, 0.3) < 1e-4);
+        ch("play").set_bool(false);
+        engine.set_input_groove(AUXILIARIES[2], true);
+        assert!(aux("input_configured").get_bool());
+        run(&mut engine, 0.05);
+        // PLAY in its GROOVE view starts it.
+        ch("play").set_bool(true);
+        assert!(run(&mut engine, 0.5) > 0.05, "the groove is heard");
+        // The deck stays the Mixer, not a Groove Box deck.
+        assert!(!reg.get("[Groove2]", "enabled").unwrap().get_bool());
+        // The strip's fader turns it down.
+        aux("volume").set(0.0);
+        run(&mut engine, 0.1);
+        let quiet = run(&mut engine, 0.5);
+        assert!(quiet < 1e-3, "{quiet}");
+        // Without a deck playing the Mixer it renders nothing.
+        aux("volume").set(1.0);
+        ch("live_input").set(0.0);
+        run(&mut engine, 0.1);
+        assert!(run(&mut engine, 0.3) < 1e-4);
     }
 
     #[test]

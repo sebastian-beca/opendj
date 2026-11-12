@@ -59,6 +59,10 @@ pub const AUXILIARIES: [usize; NUM_AUXILIARIES] = [
 /// inputs' own values, 1 + each input.
 pub const MIXER: usize = NUM_INPUTS + 1;
 
+/// The device an auxiliary input's route names when the strip plays the
+/// Mixer deck's own Groove Box instead of an interface's channels.
+pub const GROOVE_BOX: &str = "Groove Box";
+
 /// Where an input's sound goes this buffer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Routing {
@@ -378,6 +382,12 @@ pub(crate) struct Input {
     /// The master deck's key, for Auto.
     master_key: Option<crate::key::Key>,
     feed: Option<InputFeed>,
+    /// It plays the Mixer deck's Groove Box (see [`GROOVE_BOX`]) instead of
+    /// a device.
+    groove: bool,
+    /// The Groove Box's sound for this buffer, when the engine rendered it.
+    groove_block: Vec<[f32; 2]>,
+    groove_got: usize,
     /// How full its queue runs.
     queue: Queue,
     eq: Isolator,
@@ -454,6 +464,9 @@ impl Input {
                 Vec::new()
             },
             feed: None,
+            groove: false,
+            groove_block: vec![[0.0; 2]; 4096],
+            groove_got: 0,
             queue: Queue::default(),
             eq: Isolator::new(sample_rate),
             eq_gains: [1.0; 3],
@@ -484,6 +497,26 @@ impl Input {
         AUXILIARIES.contains(&self.index) || self.c.mixer.as_ref().is_some_and(|m| m.get_bool())
     }
 
+    /// It plays the Mixer deck's Groove Box.
+    pub(crate) fn plays_groove(&self) -> bool {
+        self.groove
+    }
+
+    /// Plays the Mixer deck's Groove Box from now on, or not.
+    pub(crate) fn set_groove(&mut self, on: bool) {
+        self.groove = on;
+        self.c.configured.set_bool(on || self.feed.is_some());
+    }
+
+    /// The Groove Box's sound for the coming [`Input::render`].
+    pub(crate) fn take_groove(&mut self, block: &[[f32; 2]]) {
+        if self.groove_block.len() < block.len() {
+            self.groove_block.resize(block.len(), [0.0; 2]);
+        }
+        self.groove_block[..block.len()].copy_from_slice(block);
+        self.groove_got = block.len();
+    }
+
     /// Soloed in the Mixer.
     pub(crate) fn soloed(&self) -> bool {
         self.c.solo.as_ref().is_some_and(|s| s.get_bool())
@@ -498,7 +531,7 @@ impl Input {
     /// to be dropped off the audio thread.
     pub(crate) fn set_feed(&mut self, feed: Option<InputFeed>) -> Option<InputFeed> {
         self.queue = Queue::default();
-        self.c.configured.set_bool(feed.is_some());
+        self.c.configured.set_bool(self.groove || feed.is_some());
         std::mem::replace(&mut self.feed, feed)
     }
 
@@ -583,6 +616,12 @@ impl Input {
             let playing = fx.finish_instrument(buf);
             self.c.configured.set_bool(fx.has_instrument());
             playing
+        } else if self.groove {
+            // Silent while no deck plays the Mixer to render it.
+            let got = std::mem::take(&mut self.groove_got).min(frames);
+            buf[..got].copy_from_slice(&self.groove_block[..got]);
+            buf[got..].fill([0.0; 2]);
+            true
         } else {
             let got = match &mut self.feed {
                 Some(feed) => pull(feed, &mut self.queue, buf),
