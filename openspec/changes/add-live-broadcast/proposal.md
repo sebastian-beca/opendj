@@ -2,6 +2,8 @@
 
 Planned for: **v0.5 · Stems, performance and switching over** for steps 1 and 2 (Broadcast meter, Icecast radio), **v0.6** for steps 3 to 5 (Go live to video platforms, WebRTC, radio show tools). Moved from v1.x, 2026-11-02, after the radio and livestream research in the project notes (`notes/radio-livestream-review.md`).
 
+The tasks still open moved to **v0.8 · From the booth to the studio** on 2026-11-12, so v0.7 ships with what is built.
+
 ## Why
 
 Internet radio, podcasts and DJ livestreams are a big part of why people pick Mixxx: it streams straight to Icecast with a mic, talkover and Auto DJ. But it gets the parts a broadcaster cares about wrong. Its main output has no limiter. Its meters don't read in any unit and fill up at about −11 dBFS average, so any modern track pegs them. It has no loudness (LUFS) meter, so a stream can't be set to a target. And it can't reach Twitch, YouTube or Mixcloud Live without OBS in between.
