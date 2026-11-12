@@ -1840,7 +1840,13 @@ impl Prefs {
                             &r.device
                         };
                         names.push(r.device.clone());
-                        shown.push(format!("{name} (not connected)"));
+                        // A Mixer channel playing the Mixer deck's Groove
+                        // Box: no interface to connect.
+                        if r.device == opendj_engine::inputs::GROOVE_BOX {
+                            shown.push(name.to_string());
+                        } else {
+                            shown.push(format!("{name} (not connected)"));
+                        }
                         device = names.len() - 1;
                         starts = vec![(r.channel, r.mono)];
                     }

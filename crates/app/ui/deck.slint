@@ -4776,7 +4776,22 @@ component InputPicker inherits PopupWindow {
                 }
             }
         }
-        if InstrumentsUi.picker-rows.length > 0 || InstrumentsUi.picker-adding: Rectangle { height: 5px; Rectangle { y: 2px; height: 1px; background: Theme.separator; } }
+        // The Mixer deck's own Groove Box, on this channel.
+        Rectangle { height: 5px; Rectangle { y: 2px; height: 1px; background: Theme.separator; } }
+        Rectangle {
+            height: 22px;
+            border-radius: 4px;
+            background: groove.has-hover ? Theme.selection : transparent;
+            Text {
+                x: 8px;
+                text: (InstrumentsUi.picker-groove ? "✓  " : "") + "Groove Box";
+                color: groove.has-hover ? #ffffff : Theme.text;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+            groove := TouchArea { clicked => { InstrumentsUi.pick-groove(); root.close(); } }
+        }
+        Rectangle { height: 5px; Rectangle { y: 2px; height: 1px; background: Theme.separator; } }
         Rectangle {
             height: 22px;
             border-radius: 4px;
@@ -5113,6 +5128,8 @@ component MixerTitle inherits Rectangle {
     // The deck shows the instrument plugin's panel (its knobs and
     // keyboard) in place of the strips: KEYS, while it is a strip.
     in-out property <bool> keys;
+    // Or the Mixer deck's own Groove Box: GROOVE, while a channel plays it.
+    in-out property <bool> groove;
     title-picker := InputPicker { x: root.width - self.width - 8px; y: root.height; }
     property <bool> any-solo: Controls.value(Controls.resolve("[Auxiliary1]", "solo"), Controls.tick) > 0
         || Controls.value(Controls.resolve("[Auxiliary2]", "solo"), Controls.tick) > 0
@@ -5136,7 +5153,11 @@ component MixerTitle inherits Rectangle {
         if any-solo: VerticalLayout { alignment: center; TitleButton { text: "CLEAR SOLO"; clicked => { InstrumentsUi.solo-alone(0); } } }
         if InstrumentsUi.in-mixer("[Instrument1]", Controls.tick): VerticalLayout {
             alignment: center;
-            TitleButton { text: "KEYS"; lit: root.keys; clicked => { root.keys = !root.keys; } }
+            TitleButton { text: "KEYS"; lit: root.keys && !root.groove; clicked => { root.keys = !root.keys || root.groove; root.groove = false; } }
+        }
+        if InstrumentsUi.mixer-groove: VerticalLayout {
+            alignment: center;
+            TitleButton { text: "GROOVE"; lit: root.groove; clicked => { root.groove = !root.groove; root.keys = false; } }
         }
         VerticalLayout {
             alignment: center;
@@ -5515,6 +5536,9 @@ export component Deck inherits Rectangle {
     property <bool> mixer: live == InstrumentsUi.mixer-live;
     // The Mixer deck shows the instrument's panel instead of its strips.
     property <bool> mixer-keys;
+    // Or its Groove Box's panel, while a channel plays it.
+    property <bool> mixer-groove;
+    property <bool> mixer-groove-shown: mixer && mixer-groove && InstrumentsUi.mixer-groove;
     // Files dragged in from Finder or a file manager (see TrackDrag.files-over).
     property <bool> under-files: TrackDrag.files-x >= self.absolute-position.x && TrackDrag.files-x < self.absolute-position.x + self.width
         && TrackDrag.files-y >= self.absolute-position.y && TrackDrag.files-y < self.absolute-position.y + self.height;
@@ -5550,14 +5574,15 @@ export component Deck inherits Rectangle {
         // A Mixer deck gives the header's room to its strips: a slim title
         // row instead.
         header := Header { deck: deck; info: info; overview: overview; mirrored: mirrored; group: group; visible: !mixer; height: mixer ? 0px : self.preferred-height; }
-        if mixer: MixerTitle { keys <=> root.mixer-keys; }
+        if mixer: MixerTitle { keys <=> root.mixer-keys; groove <=> root.mixer-groove; }
 
         Rectangle {
             background: Theme.panel;
             vertical-stretch: 1;
             // Outside in: the tempo column, the pads, the loop, and the jog
             // with play and CUE under it beside the mixer. Deck B is the mirror image.
-            if live > 0: LivePanel { x: mixer ? 4px : 8px; y: mixer ? 4px : 8px; width: parent.width - (mixer ? 8px : 16px); height: parent.height - (mixer ? 8px : 16px); live: mixer && mixer-keys && InstrumentsUi.in-mixer("[Instrument1]", Controls.tick) ? 3 : live; group: group; tint: tint; }
+            if mixer-groove-shown: GrooveBox { x: 4px; y: 4px; width: parent.width - 8px; height: parent.height - 8px; deck: deck; group: group; tint: tint; }
+            if live > 0 && !mixer-groove-shown: LivePanel { x: mixer ? 4px : 8px; y: mixer ? 4px : 8px; width: parent.width - (mixer ? 8px : 16px); height: parent.height - (mixer ? 8px : 16px); live: mixer && mixer-keys && InstrumentsUi.in-mixer("[Instrument1]", Controls.tick) ? 3 : live; group: group; tint: tint; }
             if looper: LooperPanel { x: 8px; y: 8px; width: parent.width - 16px; height: parent.height - 16px; deck: deck; group: group; tint: tint; }
             if !groove && !looper && live == 0: HorizontalLayout {
                 padding: 8px;
