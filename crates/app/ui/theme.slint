@@ -1,6 +1,8 @@
 // Colors and sizes for the default skin. A skin restyles the app by changing these.
-// Near-black panels, flat dark controls with thin
-// borders, Electric Lilac as the accent, Apple system colors elsewhere and a SF-like typeface (Inter, bundled).
+// Two appearances, Dark and Light (`Theme.light`). Dark: near-black panels,
+// flat dark controls with thin borders. Light: lilac-grey and white panels
+// with the waveforms kept on black. Both: Electric Lilac as the accent, Apple
+// system colors elsewhere and a SF-like typeface (Inter, bundled).
 import "fonts/InterTabular-Regular.otf";
 import "fonts/InterTabular-Medium.otf";
 import "fonts/InterTabular-SemiBold.otf";
@@ -12,49 +14,61 @@ export global Theme {
     in-out property <string> font-family: "Inter Tabular";
     // The openDJ wordmark.
     out property <string> brand-font: "Zen Dots";
-    out property <color> background: #0e0e10;
-    out property <color> panel: #1a1a1c;
-    out property <color> panel-raised: #232326;
+    // Light appearance (Settings › Layouts › Appearance), set from Rust:
+    // every colour below has a Light value beside its Dark one. The large
+    // waveforms keep dark wells in both (see `wave-well`).
+    in-out property <bool> light: false;
+    out property <color> background: root.light ? #e4e3ea : #0e0e10;
+    out property <color> panel: root.light ? #f7f6fa : #1a1a1c;
+    out property <color> panel-raised: root.light ? #ffffff : #232326;
     // The library browser's background, and its rows, which alternate
     // between two tones.
-    out property <color> browser: #101112;
+    out property <color> browser: root.light ? #ffffff : #101112;
     // Scrollbar thumbs, and while under the pointer or dragged.
-    out property <color> scroll-thumb: #ffffff59;
-    out property <color> scroll-thumb-active: #ffffff8c;
-    out property <color> scroll-lane: #ffffff12;
-    out property <color> row: #161819;
-    out property <color> row-alt: #101112;
-    out property <color> control: #161618;
-    out property <color> control-pressed: #2c2c2f;
-    out property <color> border: #353538;
+    out property <color> scroll-thumb: root.light ? #00000052 : #ffffff59;
+    out property <color> scroll-thumb-active: root.light ? #00000085 : #ffffff8c;
+    out property <color> scroll-lane: root.light ? #00000010 : #ffffff12;
+    out property <color> row: root.light ? #ffffff : #161819;
+    out property <color> row-alt: root.light ? #f2f1f6 : #101112;
+    out property <color> control: root.light ? #ffffff : #161618;
+    out property <color> control-pressed: root.light ? #e2e0ea : #2c2c2f;
+    out property <color> border: root.light ? #c9c7d3 : #353538;
     // Automix: its button while on, and the crossfader while Automix holds it.
-    out property <color> automix: #30c158;
-    out property <color> separator: #28282b;
-    out property <color> text: #f2f2f7;
-    out property <color> text-dim: #8e8e93;
-    out property <color> label: #98989d;
-    out property <color> knob: #1b1b1d;
-    out property <color> knob-rim: #4a4a4f;
+    out property <color> automix: root.light ? #24a148 : #30c158;
+    out property <color> separator: root.light ? #d8d6e0 : #28282b;
+    out property <color> text: root.light ? #16151b : #f2f2f7;
+    out property <color> text-dim: root.light ? #5d5b69 : #8e8e93;
+    out property <color> label: root.light ? #5d5b69 : #98989d;
+    out property <color> knob: root.light ? #ffffff : #1b1b1d;
+    out property <color> knob-rim: root.light ? #b5b3c0 : #4a4a4f;
     // The lit part of the ring round mixer knobs.
-    out property <color> knob-arc: #0a84ff;
-    out property <color> knob-ring: #3a3a3e;
-    out property <color> fader-handle: #8e8e93;
-    out property <color> tick: #3e3e42;
+    out property <color> knob-arc: root.light ? #0060df : #0a84ff;
+    out property <color> knob-ring: root.light ? #d5d3de : #3a3a3e;
+    out property <color> fader-handle: root.light ? #6e6c7a : #8e8e93;
+    out property <color> tick: root.light ? #b5b3c0 : #3e3e42;
     // Electric Lilac, openDJ's own color: the logo, the accent and the
     // library highlight.
     out property <color> lilac: #b69cff;
     out property <color> accent: root.lilac;
+    // Lilac used as text or a thin mark: the brand lilac on dark, a deeper
+    // lilac on light, where #b69cff on white is too faint to read.
+    out property <color> lilac-text: root.light ? #6a4bd4 : root.lilac;
+    // The large waveforms' and overviews' background: dark in both
+    // appearances, as the waveform colours are made for black.
+    out property <color> wave-well: #0d0d0e;
+    // Lines between panels: black on dark, a soft grey on light.
+    out property <color> edge: root.light ? #c9c7d3 : #000000;
     // The library's key marks: a dimmer lilac for tracks one semitone from
     // mixing with the track playing, grey for two.
-    out property <color> lilac-dim: #b69cff99;
-    out property <color> key-far: #8e8e93;
+    out property <color> lilac-dim: root.light ? #6a4bd499 : #b69cff99;
+    out property <color> key-far: root.light ? #7a7885 : #8e8e93;
     // The collection's prep stages, at the lilac's lightness and chroma
     // (OKLCH ~0.77 / 0.12) so they sit beside it: Wanted pink-red, Inbox
     // orange, In Prep yellow, Play Ready green.
-    out property <color> stage-wanted: #f2909f;
-    out property <color> stage-inbox: #f2a26a;
-    out property <color> stage-prep: #ead070;
-    out property <color> stage-ready: #83d494;
+    out property <color> stage-wanted: root.light ? #c8364f : #f2909f;
+    out property <color> stage-inbox: root.light ? #c25e12 : #f2a26a;
+    out property <color> stage-prep: root.light ? #9a7400 : #ead070;
+    out property <color> stage-ready: root.light ? #1a7f37 : #83d494;
     // Collection labels in their stage's color too, not only the icons.
     out property <bool> stage-labels: false;
     // A sidebar node kind's stage color (Wanted 4, Inbox 10, In Prep 11,
@@ -68,9 +82,9 @@ export global Theme {
     }
     // A Collection Health area's state: 0 clear, 1 to look at, 2 won't
     // play, 3 a goal.
-    out property <color> health-clear: #83d494;
-    out property <color> health-check: #ead070;
-    out property <color> health-problem: #ff6961;
+    out property <color> health-clear: root.light ? #1a7f37 : #83d494;
+    out property <color> health-check: root.light ? #9a7400 : #ead070;
+    out property <color> health-problem: root.light ? #d70015 : #ff6961;
     public pure function health-state(state: int) -> color {
         state == 0 ? root.health-clear
             : state == 1 ? root.health-check
@@ -83,28 +97,28 @@ export global Theme {
         stage == 1 ? root.stage-inbox : stage == 2 ? root.stage-prep : root.stage-ready
     }
     // The library highlight: a darker lilac so white text reads on it.
-    out property <color> selection: #8c72d9;
+    out property <color> selection: root.light ? #7559cc : #8c72d9;
     // The highlight in whichever list (folders or tracks) doesn't have focus.
-    out property <color> selection-idle: #4a4a4d;
+    out property <color> selection-idle: root.light ? #7a7885 : #4a4a4d;
     // Text on the lilac highlight: the logo's ink.
     out property <color> on-selection: #151329;
     out property <color> on-selection-dim: #151329b0;
     // Text on a lilac track row in the library browser.
     out property <color> on-row-selection: #ffffff;
     out property <color> on-row-selection-dim: #ffffffb0;
-    out property <color> deck1: #0a84ff;
-    out property <color> deck2: #ff453a;
-    out property <color> deck3: #30d158;
-    out property <color> deck4: #ffd60a;
+    out property <color> deck1: root.light ? #0060df : #0a84ff;
+    out property <color> deck2: root.light ? #d70015 : #ff453a;
+    out property <color> deck3: root.light ? #1a7f37 : #30d158;
+    out property <color> deck4: root.light ? #b88a00 : #ffd60a;
     // The microphone while it is on: amber, apart from the red of REC.
-    out property <color> mic: #ff9f0a;
-    out property <color> play: #f2f2f7;
-    out property <color> cue: #ff9f0a;
-    out property <color> sync: #8e8e93;
+    out property <color> mic: root.light ? #c05600 : #ff9f0a;
+    out property <color> play: root.light ? #16151b : #f2f2f7;
+    out property <color> cue: root.light ? #c05600 : #ff9f0a;
+    out property <color> sync: root.light ? #5d5b69 : #8e8e93;
     out property <color> loop: root.lilac;
-    out property <color> key: #8e7cff;
-    out property <color> danger: #ff453a;
-    out property <color> well: #0d0d0e;
+    out property <color> key: root.light ? #6a4bd4 : #8e7cff;
+    out property <color> danger: root.light ? #d70015 : #ff453a;
+    out property <color> well: root.light ? #eceaf1 : #0d0d0e;
     out property <length> radius: 6px;
     out property <length> font-small: 10px;
     out property <length> font-normal: 13px;
@@ -123,7 +137,13 @@ export global Theme {
     // DJ key charts colour it, so keys that mix sit in neighbouring hues;
     // grey for no key.
     public pure function key-wheel-color(n: int) -> color {
-        n == 1 ? #4fe3c6 : n == 2 ? #5fe68e : n == 3 ? #93e85f : n == 4 ? #cde65c
+        root.light ? (
+            n == 1 ? #0f9e86 : n == 2 ? #1f9a4e : n == 3 ? #4f9a1c : n == 4 ? #7d8f00
+            : n == 5 ? #9a7d00 : n == 6 ? #b36200 : n == 7 ? #c8432c : n == 8 ? #c42e63
+            : n == 9 ? #a83a9f : n == 10 ? #7a47d6 : n == 11 ? #4560d6 : n == 12 ? #1a86b8
+            : root.key-far
+        )
+        : n == 1 ? #4fe3c6 : n == 2 ? #5fe68e : n == 3 ? #93e85f : n == 4 ? #cde65c
         : n == 5 ? #f1d35e : n == 6 ? #f4a960 : n == 7 ? #f2806c : n == 8 ? #ef6f9a
         : n == 9 ? #dc72d4 : n == 10 ? #ad80f4 : n == 11 ? #7f95f6 : n == 12 ? #5cc3f0
         : root.key-far
@@ -142,8 +162,8 @@ export global KeyNotation {
 export component EdgeLine inherits Rectangle {
     in property <length> left;
     in property <length> right;
-    // Black between grey panels; grey inside a black box.
-    in property <color> line-color: #000000;
+    // Black between grey panels (soft grey in Light); grey inside a black box.
+    in property <color> line-color: Theme.edge;
     height: 1px;
     Rectangle { x: -left; width: parent.width + left + right; height: 1px; background: root.line-color; }
 }
@@ -151,7 +171,7 @@ export component EdgeLine inherits Rectangle {
 export component EdgeVLine inherits Rectangle {
     in property <length> top;
     in property <length> bottom;
-    in property <color> line-color: #000000;
+    in property <color> line-color: Theme.edge;
     width: 1px;
     Rectangle { y: -top; width: 1px; height: parent.height + top + bottom; background: root.line-color; }
 }

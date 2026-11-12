@@ -1442,8 +1442,14 @@ export component AppWindow inherits Window {
         }
     }
 
+    // Text fields and other std widgets follow the appearance.
+    property <bool> light-look: Theme.light;
+    changed light-look => {
+        Palette.color-scheme = self.light-look ? ColorScheme.light : ColorScheme.dark;
+    }
+
     init => {
-        Palette.color-scheme = ColorScheme.dark;
+        Palette.color-scheme = Theme.light ? ColorScheme.light : ColorScheme.dark;
         WaveHeight.layout = layout;
         keys.focus();
         LibraryEdit.window-height = root.height;
