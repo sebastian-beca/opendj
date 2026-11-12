@@ -81,7 +81,7 @@ export component TourMark inherits Rectangle {
         // A slow pulse, so the eye finds it.
         opacity: 0.6 + 0.4 * sin(animation-tick() / 1ms * 0.25deg);
         drop-shadow-blur: glow ? 10px : 0px;
-        drop-shadow-color: Theme.lilac.with-alpha(0.6);
+        drop-shadow-color: Theme.lilac-text.with-alpha(0.6);
         init => { Tour.place(self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
         changed absolute-position => { Tour.place(self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
         changed width => { Tour.place(self.absolute-position.x, self.absolute-position.y, self.width, self.height); }

@@ -1546,12 +1546,26 @@ impl Prefs {
                 items
             }
             KEYBOARD => self.keyboard_page(),
-            LAYOUTS => vec![item(
-                "layouts",
-                LAYOUTS_ROW,
-                "Your layouts",
-                "The layouts the layout menu offers: add, remove and reorder them.",
-            )],
+            LAYOUTS => vec![
+                PrefItem {
+                    choices: strings(&crate::appearance::LABELS),
+                    chosen: crate::appearance::mode() as i32,
+                    ..item(
+                        crate::appearance::KEY,
+                        SEGMENTED,
+                        "Appearance",
+                        "Light is easier to read in daylight and at outdoor gigs; the \
+                         waveforms stay on black in both. Match system follows your \
+                         computer's light or dark setting.",
+                    )
+                },
+                item(
+                    "layouts",
+                    LAYOUTS_ROW,
+                    "Your layouts",
+                    "The layouts the layout menu offers: add, remove and reorder them.",
+                ),
+            ],
             FEEDBACK => vec![
                 item("", HEADING, "GUIDED TOUR", ""),
                 PrefItem {
@@ -3032,6 +3046,11 @@ impl Prefs {
                 key::set_mixing(m);
             }
             crate::track_end::KEY => crate::track_end::choose(index),
+            crate::appearance::KEY => {
+                if let Some(app) = self.app.upgrade() {
+                    crate::appearance::choose(&app, index);
+                }
+            }
             crate::wave_look::COLOR_KEY
             | crate::wave_look::PALETTE_KEY
             | crate::wave_look::HALF_KEY => {

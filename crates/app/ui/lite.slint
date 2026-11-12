@@ -57,7 +57,7 @@ component LiteTempoMenu inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
         }
         VerticalLayout {
             padding: 10px;
@@ -91,7 +91,7 @@ component LiteTempoMenu inherits Rectangle {
             Rectangle {
                 height: 26px;
                 border-radius: Theme.radius;
-                background: rta.pressed ? Theme.control-pressed : rta.has-hover ? #1d1d20 : Theme.control;
+                background: rta.pressed ? Theme.control-pressed : rta.has-hover ? Theme.n-1d1d20 : Theme.control;
                 border-width: 1px;
                 border-color: Theme.border;
                 Text { text: "RESET TEMPO"; color: Theme.text; font-size: 11px; font-weight: 700; }

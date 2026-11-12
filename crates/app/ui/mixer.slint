@@ -97,7 +97,7 @@ export component MenuField inherits Rectangle {
     callback opening();
     callback picked(index: int);
     height: 26px;
-    background: ta.has-hover ? #2a2a2e : Theme.control;
+    background: ta.has-hover ? Theme.n-2a2a2e : Theme.control;
     border-radius: Theme.radius;
     border-width: 1px;
     border-color: Theme.border;
@@ -135,7 +135,7 @@ export component MenuField inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
         }
         Flickable {
             x: 6px;
@@ -150,7 +150,7 @@ export component MenuField inherits Rectangle {
                 for c[i] in choices: Rectangle {
                     height: 26px;
                     border-radius: 4px;
-                    background: i == chosen ? Theme.accent.with-alpha(0.35) : ita.has-hover ? #3a3a3d : transparent;
+                    background: i == chosen ? Theme.accent.with-alpha(0.35) : ita.has-hover ? Theme.n-3a3a3d : transparent;
                     Text { x: 8px; width: parent.width - 16px; text: c; color: Theme.text; font-size: 13px; font-weight: i == chosen ? 600 : 400; overflow: elide; }
                     ita := TouchArea {
                         clicked => {
@@ -246,7 +246,7 @@ export component OutputsTable inherits VerticalLayout {
                 xta := TouchArea { mouse-cursor: pointer; clicked => { AudioSettings.remove(r); } }
             }
         }
-        Text { text: row.status; color: !row.ok ? #ff9f0a : bright ? #c8c8cd : Theme.text-dim; font-size: bright ? 12px : 10px; overflow: elide; x: 4px; }
+        Text { text: row.status; color: !row.ok ? Theme.c-ff9f0a : bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 12px : 10px; overflow: elide; x: 4px; }
     }
     HorizontalLayout {
         alignment: end;
@@ -254,7 +254,7 @@ export component OutputsTable inherits VerticalLayout {
             width: 26px;
             height: 22px;
             border-radius: Theme.radius;
-            background: ata.has-hover ? #2a2a2e : Theme.control;
+            background: ata.has-hover ? Theme.n-2a2a2e : Theme.control;
             border-width: 1px;
             border-color: Theme.border;
             Text { text: "+"; color: Theme.text; font-size: 15px; }
@@ -312,7 +312,7 @@ export component ExternalOutputsTable inherits VerticalLayout {
             if r != 0: Rectangle { width: 263px; }
             Rectangle { width: 20px; }
         }
-        if row.device != 0: Text { text: row.status; color: !row.ok ? #ff9f0a : bright ? #c8c8cd : Theme.text-dim; font-size: bright ? 12px : 10px; overflow: elide; x: 4px; }
+        if row.device != 0: Text { text: row.status; color: !row.ok ? Theme.c-ff9f0a : bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 12px : 10px; overflow: elide; x: 4px; }
     }
 }
 
@@ -357,7 +357,7 @@ export component InputsTable inherits VerticalLayout {
                 ixta := TouchArea { enabled: row.removable; mouse-cursor: row.removable ? pointer : default; clicked => { InputSettings.remove(r); } }
             }
         }
-        if row.status != "": Text { text: row.status; color: row.ok ? Theme.text-dim : #ff9f0a; font-size: 10px; overflow: elide; x: 4px; }
+        if row.status != "": Text { text: row.status; color: row.ok ? Theme.text-dim : Theme.c-ff9f0a; font-size: 10px; overflow: elide; x: 4px; }
     }
     if InputSettings.can-add: HorizontalLayout {
         alignment: end;
@@ -365,7 +365,7 @@ export component InputsTable inherits VerticalLayout {
             width: 26px;
             height: 22px;
             border-radius: Theme.radius;
-            background: iata.has-hover ? #2a2a2e : Theme.control;
+            background: iata.has-hover ? Theme.n-2a2a2e : Theme.control;
             border-width: 1px;
             border-color: Theme.border;
             Text { text: "+"; color: Theme.text; font-size: 15px; }
@@ -389,7 +389,7 @@ component ColorFxArrow inherits Rectangle {
     border-radius: 2px;
     border-width: 1px;
     border-color: ta.has-hover ? Theme.text-dim : Theme.border;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2a2e : Theme.control;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-2a2a2e : Theme.control;
     Path {
         width: 6px;
         height: 4px;
@@ -410,7 +410,7 @@ component ColorFxArrow inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
         }
         VerticalLayout {
             padding: 5px;
@@ -419,7 +419,7 @@ component ColorFxArrow inherits Rectangle {
                 property <bool> current: cfx == i + 1;
                 height: 24px;
                 border-radius: 4px;
-                background: current ? Theme.accent.with-alpha(0.35) : ita.has-hover ? #3a3a3d : transparent;
+                background: current ? Theme.accent.with-alpha(0.35) : ita.has-hover ? Theme.n-3a3a3d : transparent;
                 Text { x: 8px; text: name; color: Theme.text; font-size: 12px; font-weight: current ? 700 : 500; vertical-alignment: center; height: parent.height; }
                 ita := TouchArea {
                     clicked => {
@@ -544,14 +544,14 @@ export component ModeMenu inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
         }
         VerticalLayout {
             padding: 5px;
             for name[i] in MixerMode.names: Rectangle {
                 height: 24px;
                 border-radius: 4px;
-                background: i == MixerMode.mode ? Theme.accent.with-alpha(0.35) : ita.has-hover ? #3a3a3d : transparent;
+                background: i == MixerMode.mode ? Theme.accent.with-alpha(0.35) : ita.has-hover ? Theme.n-3a3a3d : transparent;
                 Text { x: 8px; text: name; color: Theme.text; font-size: 12px; font-weight: i == MixerMode.mode ? 700 : 500; vertical-alignment: center; height: parent.height; }
                 ita := TouchArea {
                     clicked => {

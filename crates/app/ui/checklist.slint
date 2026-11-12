@@ -37,7 +37,7 @@ component Box inherits Rectangle {
     border-width: ticked ? 0px : 1.5px;
     border-color: Theme.text-dim;
     background: ticked ? (auto ? Theme.stage-ready.with-alpha(0.55) : Theme.stage-ready) : transparent;
-    if ticked: Text { text: "✓"; color: #0e0e10; font-size: 12px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+    if ticked: Text { text: "✓"; color: Theme.n-0e0e10; font-size: 12px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
 }
 
 export component ChecklistPanel inherits Rectangle {
@@ -63,7 +63,7 @@ export component ChecklistPanel inherits Rectangle {
         for row[i] in ChecklistUi.rows: Rectangle {
             height: 34px;
             border-radius: Theme.radius;
-            background: ta.has-hover && !row.auto ? #ffffff08 : transparent;
+            background: ta.has-hover && !row.auto ? Theme.n-ffffff08 : transparent;
             ta := TouchArea {
                 mouse-cursor: row.auto ? default : pointer;
                 clicked => { ChecklistUi.tick(i); }
@@ -101,7 +101,7 @@ export component ChecklistPanel inherits Rectangle {
                 horizontal-stretch: 1;
                 border-radius: Theme.radius;
                 property <bool> on: ChecklistUi.score > n;
-                background: on ? Theme.accent.with-alpha(stta.has-hover ? 1.0 : 0.85) : stta.has-hover ? #2a2a2e : Theme.control;
+                background: on ? Theme.accent.with-alpha(stta.has-hover ? 1.0 : 0.85) : stta.has-hover ? Theme.n-2a2a2e : Theme.control;
                 border-width: 1px;
                 border-color: on ? transparent : Theme.border;
                 Text { text: n + 1; color: on ? #151329 : Theme.text-dim; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
@@ -116,7 +116,7 @@ export component ChecklistPanel inherits Rectangle {
         Rectangle {
             height: 28px;
             border-radius: Theme.radius;
-            background: ela.has-hover ? #2a2a2e : Theme.control;
+            background: ela.has-hover ? Theme.n-2a2a2e : Theme.control;
             border-width: 1px;
             border-color: Theme.border;
             Text { text: "Edit checklist lines…"; color: Theme.text; font-size: 12px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }

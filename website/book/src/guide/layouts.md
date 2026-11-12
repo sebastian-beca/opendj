@@ -130,6 +130,17 @@ goes to the next of your layouts, and from the last back to the first.
 Prep, and layouts added to openDJ in later versions, start under More
 layouts.
 
+## Appearance
+
+**Settings › Layouts › Appearance** picks **Dark**, **Light** or **Match
+system**. Dark is the default. Light is easier to read in daylight and at
+outdoor gigs: panels, the library, buttons and Settings turn light, while
+the big waveforms and the overviews stay on black with their colours, as
+they read best there. Lilac text turns a deeper lilac so it stays readable
+on white, and the Player layout drops its striped rows. **Match system**
+follows your computer's light or dark setting, also when it changes while
+openDJ is open. The mini player and the karaoke screen stay dark.
+
 ## Prep
 
 Prep shows deck 1 alone, with no mixer, crossfader or effects, and opens the

@@ -43,7 +43,7 @@ export component SuggestionList inherits Rectangle {
         for s[i] in items: Rectangle {
             height: 28px;
             border-radius: 5px;
-            background: i == highlight ? Theme.selection : sta.has-hover ? #3a3a3d : transparent;
+            background: i == highlight ? Theme.selection : sta.has-hover ? Theme.n-3a3a3d : transparent;
             HorizontalLayout {
                 padding-left: 10px;
                 padding-right: 10px;
@@ -127,7 +127,7 @@ component PopupBackground inherits Rectangle {
     border-width: 1px;
     border-color: Theme.border;
     drop-shadow-blur: 16px;
-    drop-shadow-color: #000000b0;
+    drop-shadow-color: Theme.s-000000b0;
 }
 
 component Toggle inherits Rectangle {
@@ -136,13 +136,13 @@ component Toggle inherits Rectangle {
     width: 34px;
     height: 20px;
     border-radius: 10px;
-    background: on ? Theme.accent : #48484a;
+    background: on ? Theme.accent : Theme.n-48484a;
     Rectangle {
         x: on ? 16px : 2px;
         width: 16px;
         height: 16px;
         border-radius: 8px;
-        background: #ffffff;
+        background: Theme.n-ffffff;
     }
     TouchArea { mouse-cursor: pointer; clicked => { toggled(); } }
 }
@@ -162,7 +162,7 @@ component Segments inherits Rectangle {
         spacing: 2px;
         for s[i] in items: Rectangle {
             border-radius: 4px;
-            background: i == chosen ? Theme.accent : sta.has-hover ? #2c2c2f : transparent;
+            background: i == chosen ? Theme.accent : sta.has-hover ? Theme.n-2c2c2f : transparent;
             Text { text: s; color: i == chosen ? Theme.on-selection : Theme.text; font-size: 12px; font-weight: 600; }
             sta := TouchArea { mouse-cursor: pointer; clicked => { picked(i); } }
         }
@@ -211,7 +211,7 @@ component Chip inherits Rectangle {
     height: 26px;
     horizontal-stretch: 0;
     border-radius: 13px;
-    background: cta.has-hover ? #2c2c2f : Theme.control;
+    background: cta.has-hover ? Theme.n-2c2c2f : Theme.control;
     border-width: 1px;
     border-color: chip.active ? Theme.accent : Theme.border;
     HorizontalLayout {
@@ -226,7 +226,7 @@ component Chip inherits Rectangle {
         }
         Text {
             text: chip.value;
-            color: chip.active ? Theme.accent : Theme.text;
+            color: chip.active ? Theme.lilac-text : Theme.text;
             font-size: 13px;
             font-weight: 600;
             vertical-alignment: center;
@@ -242,8 +242,8 @@ component Chip inherits Rectangle {
                 Rectangle {
                     height: 18px;
                     border-radius: 9px;
-                    background: xta.has-hover ? #ffffff26 : transparent;
-                    CloseIcon { size: 7px; color: Theme.accent; }
+                    background: xta.has-hover ? Theme.n-ffffff26 : transparent;
+                    CloseIcon { size: 7px; color: Theme.lilac-text; }
                 }
             }
             xta := TouchArea { mouse-cursor: pointer; clicked => { cleared(); } }
@@ -252,7 +252,7 @@ component Chip inherits Rectangle {
         if split: Rectangle {
             width: 24px;
             border-radius: 13px;
-            background: dta.has-hover ? #ffffff1a : transparent;
+            background: dta.has-hover ? Theme.n-ffffff1a : transparent;
             Rectangle {
                 x: 0px;
                 width: 1px;
@@ -374,7 +374,7 @@ export component FilterBar inherits Rectangle {
                 width: 34px;
                 height: 26px;
                 border-radius: 13px;
-                background: pta.has-hover ? #3a3a3d : #2c2c2f;
+                background: pta.has-hover ? Theme.n-3a3a3d : Theme.n-2c2c2f;
                 Text { text: "+"; color: Theme.text; font-size: 17px; font-weight: 500; }
                 pta := TouchArea {
                     mouse-cursor: pointer;
@@ -433,11 +433,11 @@ export component FilterBar inherits Rectangle {
                                     if first && section == 2: Rectangle {
                                         height: 28px;
                                         border-radius: 5px;
-                                        background: mfta.has-hover ? #3a3a3d : transparent;
+                                        background: mfta.has-hover ? Theme.n-3a3a3d : transparent;
                                         Text {
                                             x: 10px;
                                             text: (more-fields ? "▾ " : "▸ ") + "More fields";
-                                            color: Theme.accent;
+                                            color: Theme.lilac-text;
                                             font-size: 13px;
                                             font-weight: 600;
                                             vertical-alignment: center;
@@ -447,7 +447,7 @@ export component FilterBar inherits Rectangle {
                                     if section < 2 || more-fields: Rectangle {
                                         height: 28px;
                                         border-radius: 5px;
-                                        background: ata.has-hover ? #3a3a3d : transparent;
+                                        background: ata.has-hover ? Theme.n-3a3a3d : transparent;
                                         Text { x: section == 2 ? 22px : 10px; text: name; color: Theme.text; font-size: 13px; vertical-alignment: center; }
                                         ata := TouchArea {
                                             mouse-cursor: pointer;
@@ -470,7 +470,7 @@ export component FilterBar inherits Rectangle {
             width: 50px;
             Text {
                 text: "Clear";
-                color: clta.has-hover ? Theme.text : Theme.accent;
+                color: clta.has-hover ? Theme.text : Theme.lilac-text;
                 font-size: 13px;
                 font-weight: 600;
             }
@@ -504,7 +504,7 @@ export component FilterBar inherits Rectangle {
                 Text { text: chip.label; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                 if chip.active: Text {
                     text: "Clear";
-                    color: ecta.has-hover ? Theme.text : Theme.accent;
+                    color: ecta.has-hover ? Theme.text : Theme.lilac-text;
                     font-size: 13px;
                     font-weight: 600;
                     vertical-alignment: center;
@@ -582,7 +582,7 @@ export component FilterBar inherits Rectangle {
                     for c[i] in FilterUi.choices: Rectangle {
                         height: 28px;
                         border-radius: 5px;
-                        background: ota.has-hover ? #3a3a3d : transparent;
+                        background: ota.has-hover ? Theme.n-3a3a3d : transparent;
                         HorizontalLayout {
                             padding-left: 6px;
                             padding-right: 8px;
@@ -594,7 +594,7 @@ export component FilterBar inherits Rectangle {
                             }
                             Text {
                                 text: c.label;
-                                color: c.label == "(none)" ? Theme.text-dim : chip.kind == 1 ? Theme.accent : Theme.text;
+                                color: c.label == "(none)" ? Theme.text-dim : chip.kind == 1 ? Theme.lilac-text : Theme.text;
                                 font-size: 13px;
                                 vertical-alignment: center;
                                 horizontal-stretch: 1;
@@ -607,11 +607,11 @@ export component FilterBar inherits Rectangle {
                     if FilterUi.more > 0: Rectangle {
                         height: 28px;
                         border-radius: 5px;
-                        background: mta.has-hover ? #3a3a3d : transparent;
+                        background: mta.has-hover ? Theme.n-3a3a3d : transparent;
                         Text {
                             x: 6px;
                             text: "Show " + FilterUi.more + " more";
-                            color: Theme.accent;
+                            color: Theme.lilac-text;
                             font-size: 12px;
                             font-weight: 600;
                             vertical-alignment: center;

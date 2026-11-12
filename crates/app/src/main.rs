@@ -37,6 +37,7 @@ slint::include_modules!();
 
 mod analysis_queue;
 mod app_menu;
+mod appearance;
 mod apple_music;
 mod art;
 mod audio_plugins;
@@ -636,8 +637,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // An image dropped on a deck playing an instrument becomes its art.
         let dropped = file_drop.files();
         instrument_art::install(&app, move || std::mem::take(&mut *dropped.borrow_mut()));
+        // Dark, Light or Match system, as last picked.
+        appearance::install(&app);
+        let theme_app = app.as_weak();
         app.window().on_winit_window_event(move |window, event| {
             file_drop.window_event(window, event);
+            if let slint::winit_030::winit::event::WindowEvent::ThemeChanged(theme) = event {
+                if let Some(app) = theme_app.upgrade() {
+                    appearance::system_changed(&app, *theme);
+                }
+            }
             // The traffic lights, centred in the top bar after anything that
             // might have moved them back.
             #[cfg(target_os = "macos")]

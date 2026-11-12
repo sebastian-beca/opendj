@@ -507,7 +507,7 @@ component InstrumentTree inherits Rectangle {
                 for n[i] in InstrumentsUi.nodes: Rectangle {
                     height: 34px;
                     border-radius: Theme.radius;
-                    background: i == InstrumentsUi.current-node ? Theme.selection : ta.has-hover ? #232326 : transparent;
+                    background: i == InstrumentsUi.current-node ? Theme.selection : ta.has-hover ? Theme.n-232326 : transparent;
                     ta := TouchArea {
                         clicked => { InstrumentsUi.select-node(i); }
                         double-clicked => { InstrumentsUi.toggle-node(i); }
@@ -573,7 +573,7 @@ component SortHeading inherits Rectangle {
     HorizontalLayout {
         spacing: 4px;
         Heading { text: root.text; color: on ? Theme.text : Theme.text-dim; }
-        if on: Heading { text: InstrumentsUi.sort-descending ? "▼" : "▲"; color: Theme.accent; font-size: 9px; }
+        if on: Heading { text: InstrumentsUi.sort-descending ? "▼" : "▲"; color: Theme.lilac-text; font-size: 9px; }
         Rectangle { horizontal-stretch: 1; }
     }
     TouchArea { mouse-cursor: pointer; clicked => { InstrumentsUi.sort-by(column); } }
@@ -612,7 +612,7 @@ component InstrumentRow inherits Rectangle {
                 width: 24px;
                 height: 24px;
                 border-radius: 4px;
-                background: #000000;
+                background: Theme.n-000000;
                 if item.kind != 5: LiveIcon { kind: item.kind; size: 20px; tint: Theme.accent; }
                 if item.kind == 5: NodeIcon { kind: 7; tint: Theme.accent; }
             }
@@ -622,7 +622,7 @@ component InstrumentRow inherits Rectangle {
         Text {
             width: maker-width;
             text: item.problem != "" ? item.problem : item.maker;
-            color: item.problem != "" ? #ff9f0a : selected ? Theme.on-row-selection : Theme.text-dim;
+            color: item.problem != "" ? Theme.c-ff9f0a : selected ? Theme.on-row-selection : Theme.text-dim;
             font-size: 13px;
             vertical-alignment: center;
             overflow: elide;
@@ -631,7 +631,7 @@ component InstrumentRow inherits Rectangle {
         Text {
             width: 64px;
             text: decks == "" ? "" : (decks.character-count > 1 ? "Decks " : "Deck ") + decks;
-            color: selected ? Theme.on-row-selection : Theme.accent;
+            color: selected ? Theme.on-row-selection : Theme.lilac-text;
             font-size: 12px;
             font-weight: 600;
             vertical-alignment: center;
@@ -649,7 +649,7 @@ export component TagChip inherits Rectangle {
     height: 22px;
     min-width: label.preferred-width + 16px;
     border-radius: 11px;
-    background: on ? Theme.accent.with-alpha(0.25) : tcta.has-hover ? #3a3a3d : Theme.control;
+    background: on ? Theme.accent.with-alpha(0.25) : tcta.has-hover ? Theme.n-3a3a3d : Theme.control;
     border-width: 1px;
     border-color: on ? Theme.accent : Theme.border;
     label := Text { text: root.text; color: on ? Theme.text : Theme.text-dim; font-size: 11px; }
@@ -762,7 +762,7 @@ component InstrumentList inherits Rectangle {
                     height: 64px;
                     Text {
                         text: InstrumentsUi.empty-text;
-                        color: InstrumentsUi.empty-page >= 0 ? Theme.accent : Theme.text-dim;
+                        color: InstrumentsUi.empty-page >= 0 ? Theme.lilac-text : Theme.text-dim;
                         font-size: 13px;
                     }
                     if InstrumentsUi.empty-page >= 0: TouchArea {
