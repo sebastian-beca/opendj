@@ -1268,3 +1268,107 @@ fn xdj_az_decks_mixer_pads_and_beat_fx() {
     assert_eq!(c.errors(), Vec::<String>::new());
     c.shutdown();
 }
+
+#[test]
+fn ddj_flx10_decks_mixer_fx_and_displays() {
+    let (reg, mut c) = load("Pioneer-DDJ-FLX10.midi.xml");
+    settle(&mut c, 50);
+    let out = c.take_output();
+    assert!(
+        out.iter().any(|m| m[..] == [0x9F, 0x5D, 0x00]),
+        "jog display shown: {out:x?}"
+    );
+
+    // Each deck has its own channel: PLAY on channel 3 plays deck 3.
+    c.receive(&[0x92, 0x0B, 0x7F]);
+    c.receive(&[0x92, 0x0B, 0x00]);
+    assert_eq!(get(&reg, "[Channel3]", "play"), 1.0);
+    assert_eq!(get(&reg, "[Channel1]", "play"), 0.0);
+
+    // The mixer, as on the FLX6.
+    sweep14(&mut c, 0xB3, 0x13, 0x33, 0x20);
+    let v = get(&reg, "[Channel4]", "volume");
+    assert!((v - 0.25).abs() < 0.02, "deck 4 volume {v}");
+
+    // Deck 4's pads: hot cue 1.
+    c.receive(&[0x9D, 0x00, 0x7F]);
+    assert_eq!(get(&reg, "[Channel4]", "hotcue_1_activate"), 1.0);
+    c.receive(&[0x9D, 0x00, 0x00]);
+
+    // The FLX10's own buttons: QUANTIZE, SLIP, KEY SYNC, 4 BEAT JUMP,
+    // CROSSFADER ASSIGN; SHIFT + BEAT SYNC pins the sync leader.
+    let quantize = get(&reg, "[Channel1]", "quantize");
+    c.receive(&[0x90, 0x35, 0x7F]);
+    assert_ne!(get(&reg, "[Channel1]", "quantize"), quantize);
+    c.receive(&[0x91, 0x40, 0x7F]);
+    assert_eq!(get(&reg, "[Channel2]", "slip_enabled"), 1.0);
+    c.receive(&[0x90, 0x65, 0x7F]);
+    c.receive(&[0x90, 0x65, 0x00]);
+    c.receive(&[0x90, 0x5E, 0x7F]);
+    c.receive(&[0x92, 0x18, 0x7F]);
+    assert_eq!(get(&reg, "[Channel3]", "orientation"), 2.0);
+    c.receive(&[0x92, 0x16, 0x7F]);
+    assert_eq!(get(&reg, "[Channel3]", "orientation"), 0.0);
+    c.receive(&[0x91, 0x5C, 0x7F]);
+    assert_eq!(get(&reg, "[Channel2]", "sync_leader"), 2.0);
+
+    // BEAT FX: ON/OFF, SELECT on REVERB, CH SELECT on CH3 then MASTER.
+    let unit = "[EffectRack1_EffectUnit5]";
+    let fx = "[EffectRack1_EffectUnit5_Effect1]";
+    c.receive(&[0x94, 0x47, 0x7F]);
+    assert_eq!(get(&reg, fx, "enabled"), 1.0);
+    c.receive(&[0x94, 0x24, 0x7F]);
+    assert_eq!(get(&reg, fx, "loaded_effect"), 2.0);
+    c.receive(&[0x94, 0x12, 0x7F]);
+    assert_eq!(get(&reg, unit, "group_[Channel3]_enable"), 1.0);
+    assert_eq!(get(&reg, unit, "group_[Channel1]_enable"), 0.0);
+    c.receive(&[0x94, 0x14, 0x7F]);
+    for deck in 1..=4 {
+        assert_eq!(
+            get(&reg, unit, &format!("group_[Channel{deck}]_enable")),
+            1.0
+        );
+    }
+
+    // SOUND COLOR FX: NOISE on every deck's COLOR knob, lit.
+    c.receive(&[0x96, 0x04, 0x7F]);
+    for deck in 1..=4 {
+        assert_eq!(
+            get(
+                &reg,
+                &format!("[QuickEffectRack1_[Channel{deck}]]"),
+                "loaded_chain_preset"
+            ),
+            4.0
+        );
+    }
+
+    // ACTIVE PART VOCAL mutes deck 1's vocals stem.
+    c.receive(&[0x90, 0x0E, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1_Stem4]", "mute"), 1.0);
+
+    // The jog display shows the playhead and the time.
+    reg.get("[Channel1]", "track_loaded").unwrap().set(1.0);
+    reg.get("[Channel1]", "duration").unwrap().set(180.0);
+    reg.get("[Channel1]", "playposition")
+        .unwrap()
+        .set(61.5 / 180.0);
+    settle(&mut c, 100);
+    let out = c.take_output();
+    assert!(
+        out.iter()
+            .any(|m| m[0] == 0xBF && (m[1] == 0x10 || m[1] == 0x30) && m[2] > 0),
+        "jog display moved: {out:x?}"
+    );
+    assert!(
+        out.iter().any(|m| m[..] == [0xBF, 0x42, 0x01]),
+        "minutes shown: {out:x?}"
+    );
+    assert!(
+        out.iter()
+            .any(|m| m[0] == 0x96 && m[1] == 0x04 && m[2] == 0x7F),
+        "NOISE lit: {out:x?}"
+    );
+    assert_eq!(c.errors(), Vec::<String>::new());
+    c.shutdown();
+}
