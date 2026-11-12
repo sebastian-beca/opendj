@@ -16,7 +16,7 @@
 - [x] 2.3 Input picker: pairs then single channels with live meters, then Settings › Audio
 - [x] 2.4 4-Deck slim strips
 - [x] 2.5 "Own clock" note on a strip from another interface than the master's
-- [ ] 2.6 Recording input choice with External mixer on
+- [x] 2.6 Recording input choice with External mixer on
 
 ## 3. Later
 
