@@ -61,6 +61,7 @@ mod tag_chips;
 mod track_menu;
 mod up_next;
 mod usb;
+mod views;
 mod wanted;
 
 pub use filters::DEFAULT_PINNED;
@@ -588,6 +589,11 @@ pub struct Browser {
     tree: i32,
     /// The other sources' trees, selections and sort orders while not shown.
     parked: HashMap<i32, Parked>,
+    /// Where each list was left, the list shown now, and the place a list
+    /// just picked goes back to once its tracks are in.
+    views: HashMap<views::ViewKey, views::View>,
+    shown_view: Option<views::ViewKey>,
+    waiting_view: Option<views::View>,
     /// Keys in Camelot notation rather than notes.
     camelot: bool,
     /// The key notation the rows were written with, to redo them on a change.
@@ -1256,6 +1262,9 @@ impl Browser {
             collection_stale: false,
             tree: COLLECTION,
             parked: HashMap::new(),
+            views: HashMap::new(),
+            shown_view: None,
+            waiting_view: None,
             camelot: crate::settings::camelot_keys(),
             notation: opendj_engine::key::notation(),
             art: Art::start(),
@@ -1382,6 +1391,7 @@ impl Browser {
         app.on_select_folder(move |i| {
             w(Box::new(move |b| {
                 if let Some(&n) = b.visible_nodes.get(i as usize) {
+                    b.park_view();
                     b.current_node = n;
                     // An artist opens to show their albums too.
                     if b.nodes[n].kind == KIND_ARTIST {
@@ -2055,6 +2065,7 @@ impl Browser {
         if !usable || source == self.tree {
             return;
         }
+        self.park_view();
         // Health's checks aren't kept: the collection comes back as itself.
         if self.tree == COLLECTION && self.health_view {
             self.health_view = false;
@@ -2120,6 +2131,7 @@ impl Browser {
         if self.health_view == on {
             return;
         }
+        self.park_view();
         self.health_view = on;
         self.nodes.clear();
         self.current_node = 0;
@@ -3982,6 +3994,7 @@ impl Browser {
         if on == self.history_tab {
             return;
         }
+        self.park_view();
         self.history_tab = on;
         std::mem::swap(&mut self.current_node, &mut self.other_tab_node);
         if self
@@ -4258,6 +4271,7 @@ impl Browser {
                 .position(|&n| n == self.current_node)
                 .unwrap_or(0) as i64;
             let to = (at + folder_steps).clamp(0, self.visible_nodes.len() as i64 - 1) as usize;
+            self.park_view();
             self.current_node = self.visible_nodes[to];
             app.set_current_track(-1);
             self.refresh_tree();
@@ -5436,6 +5450,11 @@ impl Browser {
     }
 
     fn refresh_rows(&mut self) {
+        self.fill_rows();
+        self.follow_view();
+    }
+
+    fn fill_rows(&mut self) {
         if let Some(app) = self.app.upgrade() {
             app.global::<WantedUi>().set_shown(self.shows_wanted());
         }
