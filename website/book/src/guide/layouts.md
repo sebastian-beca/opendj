@@ -125,7 +125,7 @@ library rail's choosers have:
 
 - Switch a layout on to put it in the menu, or off to take it out. The
   layout you're on, and the last one on, can't be switched off.
-- Drag a row by its grip (**⋮⋮**) to move it up or down the menu.
+- Drag a row by its grip (the six dots at its left) to move it up or down the menu.
 - **Reset to default** goes back to Player, 2-Deck, 4-Deck and Prep.
 
 Click the lit pencil to go back to the menu. **Settings › Layouts** shows

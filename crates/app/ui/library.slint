@@ -2136,7 +2136,8 @@ component Switch inherits Rectangle {
         width: 16px;
         height: 16px;
         border-radius: 8px;
-        background: Theme.n-ffffff;
+        // The knob stays white in Light too, as macOS draws it.
+        background: #ffffff;
     }
     TouchArea { mouse-cursor: pointer; clicked => { toggled(); } }
 }

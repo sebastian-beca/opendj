@@ -25,7 +25,7 @@ import { DeckStrip, FourDeckBar } from "fourdeck.slint";
 import { LiteDeck, LiteMixer, LiteUi, PadBarHalf } from "lite.slint";
 import { FxBar } from "fxbar.slint";
 import { InstrumentsUi, LiveItem, ParamMatch, PresetItem, PresetUi } from "instruments.slint";
-import { Browser, Folder, TrackRow, SideRow, SideTab, SideTabs, RailOrder, TrackDrag, LibraryEdit, KeepGoingUi, UpNextUi, MenuListRow, MenuTag, StoreUi, StreamMatch, WantedUi, FilesUi, AlbumsUi, AlbumTile, ColumnUi, ListColumn, HealthUi, HealthCard, HealthStage, HealthLine, HealthArea, HealthChip, HealthReview, CleanupUi, CleanupRow, FixNamesUi, GenreRow, BuyUi, BuyGroup, BuyRow } from "library.slint";
+import { Browser, Folder, TrackRow, SideRow, SideTab, SideTabs, RailOrder, DragGrip, TrackDrag, LibraryEdit, KeepGoingUi, UpNextUi, MenuListRow, MenuTag, StoreUi, StreamMatch, WantedUi, FilesUi, AlbumsUi, AlbumTile, ColumnUi, ListColumn, HealthUi, HealthCard, HealthStage, HealthLine, HealthArea, HealthChip, HealthReview, CleanupUi, CleanupRow, FixNamesUi, GenreRow, BuyUi, BuyGroup, BuyRow } from "library.slint";
 import { Preferences, PreferencesOverlay, PrefItem, ImportWizard, PluginErrors, StorageUi, StoragePart } from "preferences.slint";
 import { UsbExport, UsbExportDialog } from "usb_export.slint";
 import { Tour, TourSetup, TourSetupDialog, TourTip, TourOffer } from "tour.slint";
@@ -997,7 +997,8 @@ component LayoutSwitch inherits Rectangle {
         width: 16px;
         height: 16px;
         border-radius: 8px;
-        background: Theme.n-ffffff;
+        // The knob stays white in Light too, as macOS draws it.
+        background: #ffffff;
     }
     TouchArea { mouse-cursor: pointer; clicked => { toggled(); } }
 }
@@ -1054,8 +1055,8 @@ component LayoutChooser inherits Rectangle {
                     padding-right: 6px;
                     spacing: 8px;
                     Rectangle {
-                        width: 16px;
-                        Text { text: "⋮⋮"; color: grip.has-hover ? Theme.text : Theme.text-dim; font-size: 13px; }
+                        width: 14px;
+                        DragGrip { dot-color: grip.has-hover ? Theme.text : Theme.text-dim; }
                         grip := TouchArea {
                             mouse-cursor: drag-from >= 0 ? MouseCursor.grabbing : MouseCursor.grab;
                             pointer-event(ev) => {
@@ -1109,10 +1110,7 @@ component LayoutChooser inherits Rectangle {
                     padding-left: 4px;
                     padding-right: 6px;
                     spacing: 8px;
-                    Rectangle {
-                        width: 16px;
-                        Text { text: "⋮⋮"; color: Theme.text; font-size: 13px; }
-                    }
+                    Rectangle { width: 14px; DragGrip { dot-color: Theme.text; } }
                     VerticalLayout { alignment: center; LayoutIcon { kind: dragged.layout == 3 ? 4 : dragged.layout == 4 ? 5 : dragged.layout; } }
                     Text { text: dragged.name; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
                     VerticalLayout { alignment: center; LayoutSwitch { on: dragged.on; } }
