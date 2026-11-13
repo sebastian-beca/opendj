@@ -8,7 +8,7 @@ Most DJs keep their playlists in a streaming service. Even without playing strea
 
 ## What Changes
 
-- Split `SERVICES_ENABLED` per source, so streaming sources go live in v0.5 while the stores and purchase inbox wait for v0.6 (`enable-stores-and-purchase-inbox`).
+- Split `SERVICES_ENABLED` per source, so streaming sources go live in v0.5 while the stores and purchase inbox wait for v0.6 (now `add-stores-and-purchasing`, v0.8).
 - **Spotify**: switch on the built browse view (sign-in, playlists, liked songs, tracks), with a clearer sign-in in Settings.
 - **TIDAL**: sign in, playlists, favourite tracks, tracks.
 - **Apple Music**: sign in, library playlists and songs (MusicKit with openDJ's Apple developer account).
@@ -32,7 +32,7 @@ None.
 ## Out of Scope
 
 - Playing streamed audio of any kind, partner SDKs and DRM workarounds (still decided against).
-- Buying missing tracks (`add-find-and-buy`, v0.6).
+- Buying missing tracks (`add-stores-and-purchasing`, v0.8).
 
 ## Impact
 
