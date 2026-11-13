@@ -128,10 +128,7 @@ library rail's choosers have:
 - Drag a row by its grip (**⋮⋮**) to move it up or down the menu.
 - **Reset to default** goes back to Player, 2-Deck, 4-Deck and Prep.
 
-Click the lit pencil to go back to the menu. **Settings › Appearance › Layouts** shows
-the same list with a small drawing of each layout: **↑** and **↓** move
-one of your layouts, **−** takes it out, and **+ Add** puts one of the
-others back.
+Click the lit pencil to go back to the menu.
 
 A controller's VIEW button (on the DDJ-FLX4, **SHIFT** + right **LOAD**)
 goes to the next of your layouts, and from the last back to the first.
@@ -142,7 +139,7 @@ called 2-Deck. Your layouts carry over.
 
 ## Appearance
 
-**Settings › Appearance › Look** picks **Dark**, **Light** or **Match
+**Settings › Appearance** picks **Dark**, **Light** or **Match
 system**, and so does the row at the foot of the layout menu (**Auto**
 there is Match system). Dark is the default. Light is easier to read in daylight and at
 outdoor gigs: panels, the library, buttons and Settings turn light, while

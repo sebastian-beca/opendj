@@ -37,7 +37,7 @@ cover has **Unload deck** too, and <kbd>⇧</kbd> <kbd>⌥</kbd> <kbd>←</kbd> 
 
 ### Waveform colors
 
-**Settings › Appearance › Look › Waveform color** picks how the waveforms are colored:
+**Settings › Appearance › Waveform color** picks how the waveforms are colored:
 
 - **RGB** (the default): one shape, red where the bass is loudest, amber for
   the mids and blue for the highs.

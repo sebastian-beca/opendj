@@ -1,4 +1,4 @@
-//! Settings › Appearance › Look: Dark, Light or Match system.
+//! Settings › Appearance: Dark, Light or Match system.
 //!
 //! Sets `Theme.light`, which every Theme colour reads, and the window's
 //! native appearance so the title bar matches. Under Match system the

@@ -62,11 +62,8 @@ const MIXER: i32 = 1;
 const DECKS: i32 = 2;
 /// Settings › Decks' tabs.
 const DECK_TABS: [&str; 3] = ["Playing", "Tempo and key", "Header"];
-/// Your layouts and the others (layouts.rs), and the look: light or dark,
-/// waveforms and track colors.
+/// Settings › Appearance: light or dark, waveforms and track colors.
 const LAYOUTS: i32 = 3;
-/// Settings › Appearance's tabs.
-const APPEARANCE_TABS: [&str; 2] = ["Layouts", "Look"];
 const CONTROLLERS: i32 = 4;
 /// Settings › Controllers' tabs.
 const CONTROLLER_TABS: [&str; 3] = ["Controllers", "MIDI clock", "OSC"];
@@ -162,8 +159,6 @@ const TAG_ROW: i32 = 19;
 const FOLDER_LIST: i32 = 21;
 /// How track colors show: segmented buttons with a preview beside them.
 const TRACK_COLOR: i32 = 22;
-/// The whole of Settings › Appearance › Layouts, drawn from LayoutsUi.
-const LAYOUTS_ROW: i32 = 24;
 /// The storage bar with its Manage menu (see StorageUi in preferences.slint).
 const STORAGE: i32 = 23;
 /// The Manage menu's clean-ups, in its order.
@@ -1520,98 +1515,88 @@ impl Prefs {
             KEYBOARD => self.keyboard_page(),
             LAYOUTS => {
                 let mut items = Vec::new();
-                if shows(0) {
-                    items.push(item(
-                        "layouts",
-                        LAYOUTS_ROW,
-                        "Your layouts",
-                        "The layouts the layout menu offers: add, remove and reorder them.",
-                    ));
+                items.extend([
+                    PrefItem {
+                        choices: strings(&crate::appearance::LABELS),
+                        chosen: crate::appearance::mode() as i32,
+                        ..item(
+                            crate::appearance::KEY,
+                            SEGMENTED,
+                            "Appearance",
+                            "Light is easier to read in daylight and at outdoor gigs; the \
+                             waveforms stay on black in both. Match system follows your \
+                             computer's light or dark setting.",
+                        )
+                    },
+                    PrefItem {
+                        choices: strings(&crate::wave_look::COLOR_LABELS),
+                        chosen: crate::wave_look::color() as i32,
+                        ..item(
+                            crate::wave_look::COLOR_KEY,
+                            MENU,
+                            "Waveform color",
+                            "How the decks' waveforms are colored. RGB: one shape, red where \
+                             the bass is loudest, amber for the mids, blue for the highs. \
+                             3-Band: bass, mids and highs stacked in their own colors, as on \
+                             rekordbox. Blue: one blue shape, lighter where the highs are loud. \
+                             Stems: each stem in its pad color once a track has stems, RGB \
+                             until then.",
+                        )
+                    },
+                ]);
+                if crate::wave_look::color() == 1 {
+                    items.push(PrefItem {
+                        choices: strings(&crate::wave_look::PALETTE_LABELS),
+                        chosen: crate::wave_look::palette_index() as i32,
+                        ..item(
+                            crate::wave_look::PALETTE_KEY,
+                            MENU,
+                            "Palette",
+                            "3-Band's colors for the bass, mids and highs.",
+                        )
+                    });
                 }
-                if shows(1) {
-                    items.extend([
-                        PrefItem {
-                            choices: strings(&crate::appearance::LABELS),
-                            chosen: crate::appearance::mode() as i32,
-                            ..item(
-                                crate::appearance::KEY,
-                                SEGMENTED,
-                                "Appearance",
-                                "Light is easier to read in daylight and at outdoor gigs; the \
-                                 waveforms stay on black in both. Match system follows your \
-                                 computer's light or dark setting.",
-                            )
-                        },
-                        PrefItem {
-                            choices: strings(&crate::wave_look::COLOR_LABELS),
-                            chosen: crate::wave_look::color() as i32,
-                            ..item(
-                                crate::wave_look::COLOR_KEY,
-                                MENU,
-                                "Waveform color",
-                                "How the decks' waveforms are colored. RGB: one shape, red where \
-                                 the bass is loudest, amber for the mids, blue for the highs. \
-                                 3-Band: bass, mids and highs stacked in their own colors, as on \
-                                 rekordbox. Blue: one blue shape, lighter where the highs are loud. \
-                                 Stems: each stem in its pad color once a track has stems, RGB \
-                                 until then.",
-                            )
-                        },
-                    ]);
-                    if crate::wave_look::color() == 1 {
-                        items.push(PrefItem {
-                            choices: strings(&crate::wave_look::PALETTE_LABELS),
-                            chosen: crate::wave_look::palette_index() as i32,
-                            ..item(
-                                crate::wave_look::PALETTE_KEY,
-                                MENU,
-                                "Palette",
-                                "3-Band's colors for the bass, mids and highs.",
-                            )
-                        });
-                    }
-                    items.extend([
-                        PrefItem {
-                            choices: strings(&crate::wave_look::SHAPE_LABELS),
-                            chosen: crate::wave_look::half() as i32,
-                            ..item(
-                                crate::wave_look::HALF_KEY,
-                                SEGMENTED,
-                                "Overview",
-                                "The whole-track waveform under each deck: mirrored about its \
-                                 middle, or half, growing from the bottom edge as on rekordbox. \
-                                 The big scrolling waveform is always whole.",
-                            )
-                        },
-                        switch(
-                            crate::wave_look::GAIN_KEY,
-                            "Size follows gain",
-                            "A deck's gain knob makes its waveforms taller or shorter, as on \
-                             VirtualDJ.",
-                            settings::flag(crate::wave_look::GAIN_KEY, false),
-                        ),
-                        switch(
-                            crate::wave_look::VOCALS_KEY,
-                            "Show vocals",
-                            "Tints the sung parts of the waveforms green, as on VirtualDJ. \
-                             Each track is checked once, in the background, the first time \
-                             it is loaded.",
-                            settings::flag(crate::wave_look::VOCALS_KEY, false),
-                        ),
-                        switch(
-                            crate::browser::WAVE_LYRICS,
-                            "Lyrics on waveforms",
-                            "A track's timed lyrics run along the bottom of its big waveform, \
-                             lilac as far as they have been sung.",
-                            settings::flag(crate::browser::WAVE_LYRICS, true),
-                        ),
-                        PrefItem {
-                            choices: strings(&["Dot", "Strip", "Tint", "Off"]),
-                            chosen: settings::track_color().unwrap_or(0) as i32,
-                            ..item("track_color", TRACK_COLOR, "Track color", "")
-                        },
-                    ]);
-                }
+                items.extend([
+                    PrefItem {
+                        choices: strings(&crate::wave_look::SHAPE_LABELS),
+                        chosen: crate::wave_look::half() as i32,
+                        ..item(
+                            crate::wave_look::HALF_KEY,
+                            SEGMENTED,
+                            "Overview",
+                            "The whole-track waveform under each deck: mirrored about its \
+                             middle, or half, growing from the bottom edge as on rekordbox. \
+                             The big scrolling waveform is always whole.",
+                        )
+                    },
+                    switch(
+                        crate::wave_look::GAIN_KEY,
+                        "Size follows gain",
+                        "A deck's gain knob makes its waveforms taller or shorter, as on \
+                         VirtualDJ.",
+                        settings::flag(crate::wave_look::GAIN_KEY, false),
+                    ),
+                    switch(
+                        crate::wave_look::VOCALS_KEY,
+                        "Show vocals",
+                        "Tints the sung parts of the waveforms green, as on VirtualDJ. \
+                         Each track is checked once, in the background, the first time \
+                         it is loaded.",
+                        settings::flag(crate::wave_look::VOCALS_KEY, false),
+                    ),
+                    switch(
+                        crate::browser::WAVE_LYRICS,
+                        "Lyrics on waveforms",
+                        "A track's timed lyrics run along the bottom of its big waveform, \
+                         lilac as far as they have been sung.",
+                        settings::flag(crate::browser::WAVE_LYRICS, true),
+                    ),
+                    PrefItem {
+                        choices: strings(&["Dot", "Strip", "Tint", "Off"]),
+                        chosen: settings::track_color().unwrap_or(0) as i32,
+                        ..item("track_color", TRACK_COLOR, "Track color", "")
+                    },
+                ]);
                 items
             }
             _ => Vec::new(),
@@ -2310,7 +2295,6 @@ impl Prefs {
         let tabs: &[&str] = match page {
             AUDIO => &AUDIO_TABS,
             DECKS => &DECK_TABS,
-            LAYOUTS => &APPEARANCE_TABS,
             CONTROLLERS => &CONTROLLER_TABS,
             LIBRARY => &LIBRARY_TABS,
             AUDIO_PLUGINS => &PLUGIN_TABS,

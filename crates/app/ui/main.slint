@@ -1180,7 +1180,7 @@ component LayoutPill inherits Rectangle {
                     }
                 }
             }
-            // The DJ's layouts (Settings › Appearance › Layouts), in their order.
+            // The DJ's layouts (switched on in the menu's chooser), in their order.
             for e in LayoutsUi.menu: LayoutItem {
                 kind: e.layout == 3 ? 4 : e.layout == 4 ? 5 : e.layout;
                 text: e.name;
@@ -1191,7 +1191,7 @@ component LayoutPill inherits Rectangle {
                 }
             }
             Rectangle { height: 9px; Rectangle { height: 1px; background: Theme.border; } }
-            // Dark, Light or Auto (Match system), as in Settings › Appearance › Look.
+            // Dark, Light or Auto (Match system), as in Settings › Appearance.
             AppearanceRow {}
         }
     }

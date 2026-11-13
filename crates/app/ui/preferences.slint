@@ -4,7 +4,6 @@
 // box above them finds an option on any page. Changes apply and are saved at
 // once: there is no OK or Apply.
 import { Theme, CloseIcon } from "theme.slint";
-import { LayoutsPage } from "layouts.slint";
 import { ControlKnob } from "controls.slint";
 import { AudioSettings, MenuField, OutputsTable, ExternalOutputsTable, InputsTable } from "mixer.slint";
 
@@ -1097,8 +1096,6 @@ export component PrefRow inherits Rectangle {
             }
         }
         if item.kind == 21: FolderList { item: item; bright: bright; }
-        // Settings › Appearance › Layouts (layouts.slint).
-        if item.kind == 24: LayoutsPage {}
         if item.kind == 23: StorageView { item: item; searching: searching; }
         if item.kind == 22: VerticalLayout {
             spacing: 8px;

@@ -1,7 +1,6 @@
 //! The DJ's layouts: which of openDJ's layouts the layout menu at the top
 //! left offers, in their order, and the menu's chooser (its pencil) where
-//! each is switched on or off and dragged into place. Settings › Appearance › Layouts
-//! shows the same list with drawings. A controller's VIEW
+//! each is switched on or off and dragged into place. A controller's VIEW
 //! (`[Skin],layout_next`) steps through the ones switched on.
 //!
 //! settings.json keeps the layouts switched on, in menu order, under
@@ -163,24 +162,6 @@ fn moved(list: &[(i32, bool)], l: i32, by: i32) -> Vec<(i32, bool)> {
     list
 }
 
-/// `list` with `l` moved `by` places among the layouts switched on (Settings
-/// › Layouts' ↑ and ↓), the ones off keeping their rows.
-fn moved_among_on(list: &[(i32, bool)], l: i32, by: i32) -> Vec<(i32, bool)> {
-    let slots: Vec<usize> = (0..list.len()).filter(|&k| list[k].1).collect();
-    let Some(from) = slots.iter().position(|&k| list[k].0 == l) else {
-        return list.to_vec();
-    };
-    let to = (from as i32 + by).clamp(0, slots.len() as i32 - 1) as usize;
-    let mut on: Vec<(i32, bool)> = slots.iter().map(|&k| list[k]).collect();
-    let item = on.remove(from);
-    on.insert(to, item);
-    let mut list = list.to_vec();
-    for (&k, t) in slots.iter().zip(on) {
-        list[k] = t;
-    }
-    list
-}
-
 /// The starting list, for Reset to default; the layout in use stays on.
 fn reset(current: i32) -> Vec<(i32, bool)> {
     let list = clean(None, None, offered);
@@ -206,36 +187,28 @@ fn model(list: impl IntoIterator<Item = LayoutEntry>) -> ModelRc<LayoutEntry> {
     ModelRc::new(VecModel::from(list.into_iter().collect::<Vec<_>>()))
 }
 
-/// Fills the layout menu, its chooser and Settings › Appearance › Layouts from the saved
+/// Fills the layout menu and its chooser from the saved
 /// list and the layout showing. Call it whenever either changes.
 pub fn refresh(app: &AppWindow) {
     let current = app.get_layout();
     let list = load();
-    let mine = on_of(&list);
     let ui = app.global::<LayoutsUi>();
     ui.set_current(current);
     // The menu also shows the layout in use when it isn't one of the DJ's
     // (the tour, or a mapping that sets a layout by number), at the end.
-    let mut shown = mine.clone();
+    let mut shown = on_of(&list);
     if !shown.contains(&current) && ALL.iter().any(|&(n, _, _)| n == current) {
         shown.push(current);
     }
     ui.set_menu(model(shown.into_iter().map(|l| entry(l, true, false))));
-    ui.set_mine(model(mine.iter().map(|&l| entry(l, true, false))));
-    ui.set_more(model(
-        list.iter()
-            .filter(|t| !t.1)
-            .map(|&(l, _)| entry(l, false, false)),
-    ));
     ui.set_all(model(
         list.iter()
             .map(|&(l, on)| entry(l, on, locked(&list, l, current))),
     ));
 }
 
-/// Wires the menu's chooser, its Dark / Light / Auto row and Settings ›
-/// Layouts. `switch` changes the
-/// layout as the menu does.
+/// Wires the menu's chooser and its Dark / Light / Auto row. `switch`
+/// changes the layout as the menu does.
 pub fn install(app: &AppWindow, switch: impl Fn(i32) + 'static) {
     let ui = app.global::<LayoutsUi>();
     let weak = app.as_weak();
@@ -254,10 +227,6 @@ pub fn install(app: &AppWindow, switch: impl Fn(i32) + 'static) {
     };
     let change = std::rc::Rc::new(change);
     let c = change.clone();
-    ui.on_add(move |l| c(&|list, _| switched_on(list, l)));
-    let c = change.clone();
-    ui.on_remove(move |l| c(&|list, current| switched_off(list, l, current)));
-    let c = change.clone();
     ui.on_toggled(move |l| {
         c(&|list, current| {
             if list.iter().any(|&(x, on)| x == l && on) {
@@ -267,8 +236,6 @@ pub fn install(app: &AppWindow, switch: impl Fn(i32) + 'static) {
             }
         })
     });
-    let c = change.clone();
-    ui.on_move(move |l, by| c(&|list, _| moved_among_on(list, l, by)));
     let c = change.clone();
     ui.on_moved(move |l, by| c(&|list, _| moved(list, l, by)));
     let c = change.clone();
@@ -362,16 +329,6 @@ mod tests {
         assert_eq!(moved(&list, 0, -1), vec![(1, true), (0, true), (4, false)]);
         assert_eq!(moved(&list, 1, -1), list);
         assert_eq!(moved(&list, 1, 5), vec![(4, false), (0, true), (1, true)]);
-    }
-
-    #[test]
-    fn settings_arrows_skip_the_ones_off() {
-        let list = vec![(1, true), (4, false), (0, true)];
-        assert_eq!(
-            moved_among_on(&list, 0, -1),
-            vec![(0, true), (4, false), (1, true)]
-        );
-        assert_eq!(moved_among_on(&list, 1, -1), list);
     }
 
     #[test]
