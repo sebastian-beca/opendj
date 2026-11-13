@@ -107,6 +107,10 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 - [add-stem-fx-and-acapella](changes/add-stem-fx-and-acapella/proposal.md) (moved from v0.5 at the 0.5.0 release; rest moved to v0.8 2026-11-12)
 - [add-rekordbox-xml-export](changes/add-rekordbox-xml-export/proposal.md) (collection and lists out as rekordbox XML for rekordbox and library tools; 2026-11-02; moved from v0.5 at the 0.5.0 release, not started; rest moved to v0.8 2026-11-12)
 
+## v0.9 · In the club
+
+- [add-pro-dj-link](changes/add-pro-dj-link/proposal.md) (Pro DJ Link: watch CDJs, follow and lead their tempo, be seen by show tools, read a DJM; tested with Deckbench as there is no player to test on; serving the library to CDJs comes later; a user request after a protocol review, issue #674, 2026-11-13)
+
 ## v1.0 · Ready for any DJ switching over
 
 - [add-layout-customization](changes/add-layout-customization/proposal.md)
@@ -134,7 +138,7 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 ## Much later (no change yet)
 
 - DMX lighting from phrases and cues.
-- Pro DJ Link to CDJs and mixers.
+- Pro DJ Link library serving to CDJs (after add-pro-dj-link and a USB export tried on a player).
 
 ## Decided against, or dropped for now
 
