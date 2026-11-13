@@ -1327,7 +1327,11 @@ export component Header inherits Rectangle {
             HoverTip.shown = false;
         }
     }
-    height: compact ? 92px : 108px;
+    // The header's fixed height. A deck that hides the header sets its own
+    // height from this, never from preferred-height: that follows the
+    // overview image's pixel size, so the header grew with each render.
+    out property <length> fixed-height: compact ? 92px : 108px;
+    height: fixed-height;
     // Cover, title, info and overview share one black box.
     background: Theme.well;
 
@@ -5778,7 +5782,7 @@ export component Deck inherits Rectangle {
 
         // A Mixer deck gives the header's room to its strips: a slim title
         // row instead.
-        header := Header { deck: deck; info: info; overview: overview; mirrored: mirrored; group: group; visible: !mixer; height: mixer ? 0px : self.preferred-height; }
+        header := Header { deck: deck; info: info; overview: overview; mirrored: mirrored; group: group; visible: !mixer; height: mixer ? 0px : self.fixed-height; }
         if mixer: MixerTitle { deck: deck; in-view: root.mixer-keys || root.mixer-groove-shown; }
 
         Rectangle {
