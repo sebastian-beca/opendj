@@ -7041,7 +7041,8 @@ mod tests {
     fn mic_feed() -> (InputFeed, rtrb::Producer<f32>) {
         let (tx, rx) = rtrb::RingBuffer::new(48_000);
         let period = Arc::new(std::sync::atomic::AtomicUsize::new(512));
-        (InputFeed { rx, period }, tx)
+        let queued = Arc::default();
+        (InputFeed { rx, period, queued }, tx)
     }
 
     /// Runs the engine for `seconds` with `voice(frame)` coming into the

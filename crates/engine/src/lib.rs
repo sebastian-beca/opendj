@@ -697,6 +697,12 @@ impl AudioEngine {
         self.output.borrow().input_levels()
     }
 
+    /// How far behind each input is heard, in ms, by [`InputRole::index`]:
+    /// its queue plus one device callback; `None` while it isn't open.
+    pub fn input_delays(&self) -> Vec<Option<f64>> {
+        self.output.borrow().input_delays()
+    }
+
     /// Meters every channel of the input device called `device` (empty for
     /// the system default) while the input picker shows it, opening it if
     /// no input uses it; `None` once the picker closes.
