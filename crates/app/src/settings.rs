@@ -64,6 +64,20 @@ pub fn set_key_notation(n: Notation) {
     save(|v| v["key_notation"] = json!(n.id()));
 }
 
+/// The rail's sources after Collection, by name, in the DJ's order;
+/// `None` until one is dragged.
+pub fn rail_order() -> Option<Vec<String>> {
+    load()["rail_order"].as_array().map(|a| {
+        a.iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect()
+    })
+}
+
+pub fn set_rail_order(names: &[String]) {
+    save(|v| v["rail_order"] = json!(names));
+}
+
 /// The side panel's tabs in the DJ's order, by name, with whether each
 /// shows; `None` until a choice is saved.
 pub fn side_tabs() -> Option<Vec<(String, bool)>> {
