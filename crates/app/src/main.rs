@@ -86,6 +86,7 @@ mod osc_events;
 mod prefs;
 mod prep_click;
 mod presets;
+mod put_back;
 mod quality;
 mod quick_search;
 mod remote;
@@ -1434,6 +1435,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let prep_shown = Cell::new(false);
     // Prep's metronome, on while its grid is open.
     let prep_click = RefCell::new(prep_click::PrepClick::new(&registry, "[Channel1]"));
+    let put_back = Rc::new(RefCell::new(put_back::PutBack::new(&registry)));
+    {
+        let put_back = put_back.clone();
+        let engine = engine.clone();
+        app.global::<DeckActions>().on_put_back(move |deck| {
+            put_back
+                .borrow_mut()
+                .put_back(deck.max(0) as usize, &engine);
+        });
+    }
     // Switched off or on from the crossfader's menu, a controller or a
     // script: remembered for next time, as the Settings switch is.
     let xfader_enabled = registry.create(
@@ -1633,6 +1644,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 let tracks = loaded.read().unwrap().clone();
+                put_back.borrow_mut().tick(&app, &tracks);
                 let camelot = app.global::<KeyNotation>().get_camelot();
                 let mut b = browser.borrow_mut();
                 b.set_camelot(camelot);
