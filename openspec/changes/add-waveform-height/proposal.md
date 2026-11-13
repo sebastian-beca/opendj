@@ -8,12 +8,12 @@ The large scrolling waveforms have one fixed height per layout. On a big screen 
 
 ## What Changes
 
-- Four heights for the large waveforms: Small, Medium, Large and Extra large. Medium is today's height. Each waveform is 48, 72, 104 or 144 px in 2-Deck and 2-Deck Pro, 36, 52, 68 or 84 px in 4-Deck, and 120, 176, 240 or 320 px in Prep.
+- Ten heights for the large waveforms, 1 to 10, with 3 today's height (first shipped as four: Small, Medium, Large, Extra large; ten after trying it). Each waveform goes from 48 to 144 px in 2-Deck and 2-Deck Pro, 36 to 84 px in 4-Deck, and 120 to 320 px in Prep.
 - Each layout keeps its own height, saved.
-- The library keeps room for about five tracks: a height that doesn't fit shows the next smaller one that does, never below Medium unless the DJ chose less, and the chosen one comes back when the window has room. The deck rows never shrink.
-- A grip on the line under the waveforms: dragging snaps to the four heights, with a tick per height and "Height: Large" in the middle while dragging; double-click goes back to Medium.
-- A drop-down arrow on the right of the waveforms top-bar button, as on MIC, listing the four heights.
-- A height row in a large waveform's right-click menu, View › Taller Waveforms / Shorter Waveforms / Reset Waveform Height, ⌥⌘↑ / ⌥⌘↓, and controller controls `[Skin],waveform_height` (1 to 4), `waveform_height_up`, `waveform_height_down` and `waveform_height_set_default`.
+- The library keeps room for about five tracks: a height that doesn't fit shows the next smaller one that does, never below 3 unless the DJ chose less, and the chosen one comes back when the window has room. The deck rows never shrink.
+- A grip on the line under the waveforms: the waveforms stretch smoothly with the pointer and settle on the nearest height when it lets go, with the height's number in the middle; double-click goes back to 3.
+- A drop-down arrow on the right of the waveforms top-bar button, as on MIC, with the ten numbers.
+- − / + for the height in a large waveform's right-click menu, View › Taller Waveforms / Shorter Waveforms / Reset Waveform Height, ⌥⌘↑ / ⌥⌘↓, and controller controls `[Skin],waveform_height` (1 to 10), `waveform_height_up`, `waveform_height_down` and `waveform_height_set_default`.
 
 ## Capabilities
 
@@ -27,7 +27,6 @@ None.
 
 ## Out of Scope
 
-- Free heights between the four.
 - Changing the deck rows' height.
 - A default controller gesture on the bundled mappings.
 

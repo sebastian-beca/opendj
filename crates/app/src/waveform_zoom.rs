@@ -1,10 +1,12 @@
-//! The large waveforms' zoom: ten steps, shared by every large scrolling
+//! The large waveforms' zoom: twenty steps of 5%, shared by every large scrolling
 //! waveform in every layout, Prep's included, so beats sit the same
 //! distance apart on every deck and the zoom stays put when the layout
 //! changes. Deck overviews and mini waveforms keep showing the whole track.
 //!
 //! The steps are where the zoom stops, not how it moves: each change glides
-//! there over [`GLIDE`], the waveforms stretching as it goes. Every step
+//! there over [`GLIDE`], the waveforms stretching as it goes. The wheel,
+//! trackpad and the edge bar's drag move the zoom smoothly between steps
+//! ([`seek`]); once they stop for [`SETTLE`], it glides to the nearest step. Every step
 //! multiplies the width by the same [`STEP`], so each feels the same size;
 //! step [`DEFAULT_LEVEL`] shows [`DEFAULT_SECONDS`], as before there was a
 //! zoom.
@@ -12,7 +14,7 @@
 //! The mouse wheel or trackpad over a waveform, its edge bar, its right-click
 //! menu, ⌘= / ⌘− / ⌘0 and View all go through [`set`] (from main.slint's
 //! `WaveZoom`). Controllers use Mixxx's names on each deck's group:
-//! `waveform_zoom` (1 to 10, higher is tighter), `waveform_zoom_up`,
+//! `waveform_zoom` (1 to 20, higher is tighter), `waveform_zoom_up`,
 //! `waveform_zoom_down` and `waveform_zoom_set_default`. Every deck's
 //! controls set the one shared zoom.
 
@@ -24,18 +26,27 @@ use slint::ComponentHandle;
 
 use crate::{settings, AppWindow, WaveZoom, NUM_DECKS};
 
-/// The steps, 1 (widest) to `LEVELS` (tightest).
-pub const LEVELS: i32 = 10;
-/// The step it starts on, and goes back to on reset.
-pub const DEFAULT_LEVEL: i32 = 4;
+/// The steps, 1 (widest) to `LEVELS` (tightest), shown as 5% to 100%.
+pub const LEVELS: i32 = 20;
+/// The step it starts on, and goes back to on reset: 40%.
+pub const DEFAULT_LEVEL: i32 = 8;
 /// Track seconds across a large waveform at [`DEFAULT_LEVEL`].
 pub const DEFAULT_SECONDS: f64 = 10.0;
-/// How much wider each step out is: about 34 s across at step 1, under a
-/// second at step 10, tight enough to set a grid on a kick by eye.
-const STEP: f64 = 1.5;
+/// How much wider each step out is (the square root of 1.5, so two steps
+/// are the 1.5 of the first version's ten): about 34 s across at step 1,
+/// under a second at step 20, tight enough to set a grid on a kick by eye.
+const STEP: f64 = 1.224_744_871_391_589;
 /// How long the waveforms take to stretch to a new step.
 const GLIDE: Duration = Duration::from_millis(150);
-const SETTING: &str = "waveform_zoom";
+/// How quickly the zoom follows the wheel, trackpad or a drag: short, so it
+/// keeps up, but long enough to smooth out a wheel's notches.
+const FOLLOW: Duration = Duration::from_millis(90);
+/// How long the wheel, trackpad or a drag must rest before the zoom settles
+/// on the nearest step.
+const SETTLE: Duration = Duration::from_millis(180);
+const SETTING: &str = "waveform_zoom_steps";
+/// The first version's ten steps, each two of these.
+const OLD_SETTING: &str = "waveform_zoom";
 
 /// Track seconds across a large waveform at `level`, at normal speed;
 /// between steps while gliding.
@@ -51,6 +62,10 @@ struct Glide {
     from: f64,
     to: f64,
     start: Option<Instant>,
+    length: Duration,
+    /// When the wheel, trackpad or a drag last moved it, while it rests
+    /// between steps.
+    sought: Option<Instant>,
 }
 
 impl Glide {
@@ -59,13 +74,34 @@ impl Glide {
             from: level as f64,
             to: level as f64,
             start: None,
+            length: GLIDE,
+            sought: None,
         }
     }
 
     fn go(&mut self, level: i32, now: Instant) {
+        self.glide(level as f64, GLIDE, now);
+        self.sought = None;
+    }
+
+    /// Follows the wheel, trackpad or a drag to a point between steps.
+    fn seek(&mut self, level: f64, now: Instant) {
+        self.glide(level.clamp(1.0, LEVELS as f64), FOLLOW, now);
+        self.sought = Some(now);
+    }
+
+    fn glide(&mut self, to: f64, length: Duration, now: Instant) {
         self.from = self.at(now);
-        self.to = level as f64;
+        self.to = to;
         self.start = Some(now);
+        self.length = length;
+    }
+
+    /// The step to settle on, once the zoom has rested between steps for
+    /// [`SETTLE`].
+    fn settle(&self, now: Instant) -> Option<i32> {
+        let sought = self.sought?;
+        (now.saturating_duration_since(sought) >= SETTLE).then(|| self.to.round() as i32)
     }
 
     /// Where it is now: quick at first, settling into the step.
@@ -73,7 +109,7 @@ impl Glide {
         let Some(start) = self.start else {
             return self.to;
         };
-        let t = now.saturating_duration_since(start).as_secs_f64() / GLIDE.as_secs_f64();
+        let t = now.saturating_duration_since(start).as_secs_f64() / self.length.as_secs_f64();
         if t >= 1.0 {
             return self.to;
         }
@@ -82,8 +118,10 @@ impl Glide {
     }
 
     fn gliding(&self, now: Instant) -> bool {
-        self.start
-            .is_some_and(|s| now.saturating_duration_since(s) < GLIDE)
+        self.sought.is_some()
+            || self
+                .start
+                .is_some_and(|s| now.saturating_duration_since(s) < self.length)
     }
 }
 
@@ -148,7 +186,7 @@ pub fn create_controls(registry: &ControlRegistry) -> Vec<[ControlHandle; 4]> {
 /// Reads the saved step, shows it, and takes changes from the window and
 /// controllers. Keep the returned timer: it watches the controllers.
 pub fn install(app: &AppWindow, registry: &ControlRegistry) -> slint::Timer {
-    let level = clamp(settings::number(SETTING, DEFAULT_LEVEL as f64).round() as i32);
+    let level = clamp(saved(&settings::load()));
     ZOOM.with(|z| *z.borrow_mut() = Glide::new(level));
     let ui = app.global::<WaveZoom>();
     ui.set_steps(LEVELS);
@@ -177,14 +215,32 @@ pub fn install(app: &AppWindow, registry: &ControlRegistry) -> slint::Timer {
             set(&app, level);
         }
     });
+    let weak = app.as_weak();
+    ui.on_seek(move |level| {
+        if let Some(app) = weak.upgrade() {
+            seek(&app, level as f64);
+        }
+    });
+    let weak = app.as_weak();
+    ui.on_nudge(move |by| {
+        if let Some(app) = weak.upgrade() {
+            let to = ZOOM.with(|z| z.borrow().to);
+            seek(&app, to + by as f64);
+        }
+    });
     let timer = slint::Timer::default();
     let weak = app.as_weak();
     timer.start(
         slint::TimerMode::Repeated,
         Duration::from_millis(16),
         move || {
-            if let (Some(app), Some(level)) = (weak.upgrade(), from_controllers()) {
+            let Some(app) = weak.upgrade() else {
+                return;
+            };
+            if let Some(level) = from_controllers() {
                 set(&app, level);
+            } else if let Some(level) = ZOOM.with(|z| z.borrow().settle(Instant::now())) {
+                settle(&app, level);
             }
         },
     );
@@ -193,6 +249,17 @@ pub fn install(app: &AppWindow, registry: &ControlRegistry) -> slint::Timer {
 
 fn clamp(level: i32) -> i32 {
     level.clamp(1, LEVELS)
+}
+
+/// The saved step: the twenty-step one, else the first version's ten-step
+/// one doubled (its 40% is this one's 40%).
+fn saved(settings: &serde_json::Value) -> i32 {
+    if let Some(n) = settings[SETTING].as_f64() {
+        return n.round() as i32;
+    }
+    settings[OLD_SETTING]
+        .as_f64()
+        .map_or(DEFAULT_LEVEL, |n| n.round() as i32 * 2)
 }
 
 fn level() -> i32 {
@@ -227,9 +294,19 @@ fn from_controllers() -> Option<i32> {
 /// and tells controllers.
 pub fn set(app: &AppWindow, level: i32) {
     let level = clamp(level);
-    if level == self::level() {
+    let resting = ZOOM.with(|z| {
+        let z = z.borrow();
+        z.sought.is_none() && z.to == level as f64
+    });
+    if resting {
         return;
     }
+    settle(app, level);
+}
+
+/// Glides to `level` from wherever the zoom is, step or not, and shows,
+/// saves and passes on the step.
+fn settle(app: &AppWindow, level: i32) {
     ZOOM.with(|z| z.borrow_mut().go(level, Instant::now()));
     let ui = app.global::<WaveZoom>();
     ui.set_level(level);
@@ -241,6 +318,19 @@ pub fn set(app: &AppWindow, level: i32) {
             d.seen = d.versions();
         }
     });
+    app.window().request_redraw();
+}
+
+/// Follows the wheel, trackpad or a drag to `level`, which may fall between
+/// steps; the zoom settles on the nearest step once they stop.
+pub fn seek(app: &AppWindow, level: f64) {
+    ZOOM.with(|z| z.borrow_mut().seek(level, Instant::now()));
+    let ui = app.global::<WaveZoom>();
+    let shown = clamp(level.round() as i32);
+    if ui.get_level() != shown {
+        ui.set_level(shown);
+    }
+    ui.set_changes(ui.get_changes().wrapping_add(1));
     app.window().request_redraw();
 }
 
@@ -260,6 +350,29 @@ mod tests {
     #[test]
     fn the_default_step_shows_ten_seconds() {
         assert_eq!(seconds(DEFAULT_LEVEL as f64), 10.0);
+    }
+
+    #[test]
+    fn the_first_versions_zoom_keeps_its_width() {
+        assert_eq!(saved(&serde_json::json!({ "waveform_zoom": 6 })), 12);
+        assert_eq!(
+            saved(&serde_json::json!({ "waveform_zoom": 6, "waveform_zoom_steps": 9 })),
+            9
+        );
+        assert_eq!(saved(&serde_json::Value::Null), DEFAULT_LEVEL);
+    }
+
+    #[test]
+    fn a_seek_settles_on_the_nearest_step_once_it_rests() {
+        let t0 = Instant::now();
+        let mut g = Glide::new(8);
+        g.seek(9.4, t0);
+        assert!(g.gliding(t0 + SETTLE * 2));
+        assert_eq!(g.settle(t0 + SETTLE / 2), None);
+        assert_eq!(g.settle(t0 + SETTLE), Some(9));
+        g.go(9, t0 + SETTLE);
+        assert_eq!(g.settle(t0 + SETTLE * 3), None);
+        assert_eq!(g.at(t0 + SETTLE + GLIDE), 9.0);
     }
 
     #[test]
