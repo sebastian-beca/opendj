@@ -326,7 +326,13 @@ impl InputControls {
         let strip = AUXILIARIES.contains(&input) || input == MICROPHONE || input == INSTRUMENT;
         let pan = strip.then(|| reg.create(g, "pan", 0.0, -1.0, 1.0, Behavior::Linear));
         let solo = strip.then(|| reg.toggle(g, "solo"));
-        let fx = strip.then(|| reg.toggle(g, "fx"));
+        // On from the start: a strip sounds through its deck's effects as
+        // a track does, and FX off takes it out of them.
+        let fx = strip.then(|| {
+            let fx = reg.toggle(g, "fx");
+            fx.set_bool(true);
+            fx
+        });
         // The microphone and the instrument as strips of the Mixer too,
         // while a deck plays it: off by default, so each stays on its own
         // channel (or deck).

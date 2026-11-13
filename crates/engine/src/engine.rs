@@ -7252,10 +7252,12 @@ mod tests {
         let (reg, mut engine, _input) = setup();
         for n in 1..=NUM_AUXILIARIES {
             let g = format!("[Auxiliary{n}]");
-            for k in ["main_mix", "solo", "fx", "pan", "pfl", "mute"] {
+            for k in ["main_mix", "solo", "pan", "pfl", "mute"] {
                 let c = reg.get(&g, k).unwrap_or_else(|| panic!("{g},{k}"));
                 assert_eq!(c.get(), 0.0, "{g},{k} starts off");
             }
+            // Through the deck's effects, as a track is.
+            assert!(reg.get(&g, "fx").unwrap().get_bool(), "{g},fx starts on");
         }
         let aux = |k: &str| reg.get("[Auxiliary8]", k).unwrap();
         reg.get("[Channel1]", "live_input")
@@ -7429,6 +7431,40 @@ mod tests {
         // With FX off on both, the deck's echo hears nothing.
         let dry = mixer_echo_tail([false, false]);
         assert!(dry < 1e-4, "{dry}");
+    }
+
+    #[test]
+    fn a_mixer_channel_goes_through_the_decks_effects_by_default() {
+        // As the app does it: the Mixer on deck 1, a channel switched on,
+        // the deck's first effect (Reverb) ON with its D/W up; the channel's
+        // FX is left as it starts.
+        use crate::inputs::MIXER;
+        let (reg, mut engine, _input) = setup();
+        let c = |g: &str, k: &str| reg.get(g, k).unwrap();
+        let (feed, mut tx) = mic_feed();
+        engine.set_input(AUXILIARY, Some(feed));
+        c("[Channel1]", "live_input").set(MIXER as f64);
+        c("[Auxiliary1]", "main_mix").set_bool(true);
+        let slot = "[EffectRack1_EffectUnit1_Effect1]";
+        c(slot, "enabled").set_bool(true);
+        c(slot, "meta").set(0.8);
+        let a = sine(500.0, 0.4);
+        let mut out = Vec::new();
+        let mut buf = vec![0.0f32; 512 * 2];
+        let mut n = 0;
+        for _ in 0..(1.5 * SR / 512.0) as usize {
+            for _ in 0..512 {
+                let x = if n < 9_600 { a(n) } else { 0.0 };
+                for _ in 0..2 {
+                    let _ = tx.push(x);
+                }
+                n += 1;
+            }
+            engine.process(&mut buf, 2);
+            out.extend_from_slice(&buf);
+        }
+        let tail = peak(&out[(SR as usize / 2) * 2..]);
+        assert!(tail > 0.01, "the reverb rings on after the burst: {tail}");
     }
 
     #[test]
