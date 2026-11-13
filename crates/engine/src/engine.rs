@@ -3540,8 +3540,11 @@ impl Engine {
                 Routing::Deck
             } else if strips[i] {
                 Routing::Mixer { any_solo }
-            } else {
+            } else if i == MICROPHONE {
+                // The mic talks over the music with MIC, Mixer or not.
                 Routing::Main
+            } else {
+                Routing::Off
             };
             input.render(frames, &mut self.fx, input_target(i), dt as f32, routing);
         }
@@ -7220,8 +7223,12 @@ mod tests {
 
     #[test]
     fn the_auxiliary_input_joins_the_music() {
+        use crate::inputs::MIXER;
         let (reg, mut engine, _input) = setup();
         let aux = |k: &str| reg.get("[Auxiliary1]", k).unwrap();
+        reg.get("[Channel1]", "live_input")
+            .unwrap()
+            .set(MIXER as f64);
         // Off from the start, and under Mixxx 2.3's name too.
         assert!(!aux("main_mix").get_bool());
         assert!(!aux("master").get_bool());
@@ -7251,6 +7258,9 @@ mod tests {
             }
         }
         let aux = |k: &str| reg.get("[Auxiliary8]", k).unwrap();
+        reg.get("[Channel1]", "live_input")
+            .unwrap()
+            .set(crate::inputs::MIXER as f64);
         let (feed, mut tx) = mic_feed();
         engine.set_input(AUXILIARY_8, Some(feed));
         assert!(aux("input_configured").get_bool());
@@ -7356,15 +7366,13 @@ mod tests {
         two_strips(&mut engine, &mut tx, 0.1);
         let out = two_strips(&mut engine, &mut tx, 0.3);
         assert!(peak(&out[out.len() / 2..]) < 1e-3);
-        // Off the deck, the strips that are on join the music on their own.
+        // Off the deck, the strips that are on stay quiet: they are heard
+        // only through a deck playing the Mixer.
         ch("volume").set(1.0);
         ch("live_input").set(0.0);
         two_strips(&mut engine, &mut tx, 0.1);
-        let (a5, b5) = levels(&two_strips(&mut engine, &mut tx, 0.3));
-        assert!(
-            (a5 - 0.4).abs() < 0.03 && (b5 - 0.4).abs() < 0.03,
-            "{a5} {b5}"
-        );
+        let out = two_strips(&mut engine, &mut tx, 0.3);
+        assert!(peak(&out[out.len() / 2..]) < 1e-4);
     }
 
     /// The peak of deck 1 playing the Mixer well after a burst into
@@ -7502,6 +7510,27 @@ mod tests {
         talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
         assert!(engine.inputs[AUXILIARY].pfl);
         assert!(engine.inputs[AUXILIARY].in_mixer);
+    }
+
+    #[test]
+    fn an_aux_input_left_on_is_quiet_without_a_deck() {
+        use crate::inputs::MIXER;
+        let (reg, mut engine, _input) = setup();
+        let aux = |k: &str| reg.get("[Auxiliary1]", k).unwrap();
+        let (feed, mut tx) = mic_feed();
+        engine.set_input(AUXILIARY, Some(feed));
+        aux("main_mix").set_bool(true);
+        aux("pfl").set_bool(true);
+        // On, but no deck plays the Mixer or the input: not heard, not cued.
+        let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
+        assert!(peak(&out[out.len() / 2..]) < 1e-4);
+        assert!(!engine.inputs[AUXILIARY].pfl);
+        // A deck playing the Mixer brings it in.
+        reg.get("[Channel1]", "live_input")
+            .unwrap()
+            .set(MIXER as f64);
+        let out = talk(&mut engine, &mut tx, 0.3, sine(500.0, 0.4));
+        assert!(level_at(&out[out.len() / 2..], 500.0) > 0.1);
     }
 
     #[test]

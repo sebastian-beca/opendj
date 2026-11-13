@@ -74,6 +74,10 @@ pub(crate) enum Routing {
     /// for the deck to sum. A soloed strip plays whether on or off; while
     /// any strip of the Mixer is soloed (`any_solo`), only soloed ones do.
     Mixer { any_solo: bool },
+    /// Not heard: an aux input or the instrument that no deck plays, on
+    /// its own or in the Mixer. Its on switch is a Mixer strip's, so it
+    /// doesn't put it in the main mix by itself.
+    Off,
 }
 
 /// Knobs the instrument's plugin parameters show on:
@@ -635,7 +639,7 @@ impl Input {
         let on = self.c.on.get_bool();
         let (on, live) = match routing {
             Routing::Main => (on && !self.c.mute.get_bool(), on),
-            Routing::Deck => (false, false),
+            Routing::Deck | Routing::Off => (false, false),
             Routing::Mixer { any_solo } => {
                 let solo = self.c.solo.as_ref().is_some_and(|s| s.get_bool());
                 let heard = if any_solo { solo } else { on };
@@ -648,7 +652,8 @@ impl Input {
         self.level_ramp = (self.level, level);
         self.level = level;
         self.live = live && source;
-        self.pfl = self.c.pfl.get_bool() && routing != Routing::Deck;
+        self.pfl =
+            self.c.pfl.get_bool() && matches!(routing, Routing::Main | Routing::Mixer { .. });
         self.in_mixer = matches!(routing, Routing::Mixer { .. });
         let pre = (self.pregain, self.c.pregain.get() as f32);
         self.pregain = pre.1;
