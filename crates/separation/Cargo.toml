@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 demucs-core = { path = "../../third_party/demucs-core", features = ["ndarray", "wgpu", "fusion", "autotune"] }
-burn = { version = "0.20.1", default-features = false, features = ["std", "ndarray", "simd", "wgpu", "fusion", "autotune"] }
+burn = { version = "0.22.1", default-features = false, features = ["std", "ndarray", "simd", "wgpu", "fusion", "autotune"] }
 burn-ndarray = { version = "0.20.1", features = ["multi-threads"] }
 realfft = "3.5"
 matrixmultiply = { version = "0.3", features = ["std"] }
