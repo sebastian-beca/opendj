@@ -59,12 +59,12 @@ can be skipped.
    headphones, sync, bring the second track in with its fader and EQ, then a
    bass swap.
 
-**Settings → Help** runs the tour again, whole or one part. If you used openDJ
+**Help › Take the Tour** runs the tour again, and **Help › Tour Part** one part of it. If you used openDJ
 before the tour existed, it's offered once in a banner under the top bar.
 
 ## Tutorials
 
-**Settings → Help → Tutorials** has short hands-on lessons that work the
+**Help › Tutorials** has short hands-on lessons that work the
 same way, a few minutes each: **Looping**, **Using FX**, **Filtering
 tracks**, **Automix** and, with one plugged in, the **DDJ-FLX4**. Each rings
 the real controls and waits for you; the ✕ on the tip leaves at any step and

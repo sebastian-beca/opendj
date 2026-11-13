@@ -108,9 +108,8 @@ const FOLDERS_TAB: usize = 2;
 const BROADCAST: i32 = 11;
 /// Settings › Broadcast's tabs.
 const BROADCAST_TABS: [&str; 2] = ["Stations", "Now playing"];
-const FEEDBACK: i32 = 12;
 /// The page list's names, by page number.
-const PAGE_NAMES: [&str; 13] = [
+const PAGE_NAMES: [&str; 12] = [
     "Audio",
     "Mixer",
     "Decks",
@@ -123,7 +122,6 @@ const PAGE_NAMES: [&str; 13] = [
     "Player",
     "Plugins",
     "Broadcast",
-    "Help",
 ];
 
 /// Bitrates offered for a broadcast, in kb/s.
@@ -899,11 +897,8 @@ impl Prefs {
         if self.audio_plugins.borrow_mut().poll() && g.get_open() && g.get_page() == AUDIO_PLUGINS {
             self.refresh();
         }
-        // Help greys a controller's tutorial until it is plugged in.
-        if g.get_open()
-            && (g.get_page() == CONTROLLERS || g.get_page() == FEEDBACK)
-            && g.get_query().is_empty()
-        {
+        // The controller list follows what is plugged in.
+        if g.get_open() && g.get_page() == CONTROLLERS && g.get_query().is_empty() {
             let ports = self
                 .controllers
                 .as_ref()
@@ -1218,47 +1213,45 @@ impl Prefs {
             AUDIO => {
                 let mut items = Vec::new();
                 if shows(0) {
-                    items.push(
-                {
-                    // Sample rate and buffer show as columns of the outputs
-                    // table; their notes go under it.
-                    let rate = self.sample_rate_item();
-                    let buffer = self.buffer_item();
-                    let g = app.global::<AudioSettings>();
-                    g.set_rates(rate.choices.clone());
-                    g.set_rate(rate.chosen);
-                    g.set_buffers(buffer.choices.clone());
-                    g.set_buffer(buffer.chosen);
-                    item(
-                        "outputs",
-                        OUTPUTS,
-                        "Outputs",
-                        &format!("{} {}", rate.detail, self.audio_health()),
-                    )
-                },
-                    );
+                    items.push({
+                        // Sample rate and buffer show as columns of the outputs
+                        // table; their notes go under it.
+                        let rate = self.sample_rate_item();
+                        let buffer = self.buffer_item();
+                        let g = app.global::<AudioSettings>();
+                        g.set_rates(rate.choices.clone());
+                        g.set_rate(rate.chosen);
+                        g.set_buffers(buffer.choices.clone());
+                        g.set_buffer(buffer.chosen);
+                        item(
+                            "outputs",
+                            OUTPUTS,
+                            "Outputs",
+                            &format!("{} {}", rate.detail, self.audio_health()),
+                        )
+                    });
                     items.extend(deck_output_items());
                     items.extend([item("inputs", HEADING, "INPUTS", ""), self.inputs_item()]);
                 }
                 if shows(1) {
                     items.extend([
                         record_source_item(),
-                {
-                    let r = settings::recording();
-                    PrefItem {
-                        choices: strings(&RECORD_FORMATS.map(|f| f.2)),
-                        chosen: RECORD_FORMATS
-                            .iter()
-                            .position(|f| (f.0, f.1) == (r.format, r.bits))
-                            .unwrap_or(0) as i32,
-                        ..item(
-                            "recording_format",
-                            MENU,
-                            "Format",
-                            "FLAC is lossless and about half the size of WAV.",
-                        )
-                    }
-                },
+                        {
+                            let r = settings::recording();
+                            PrefItem {
+                                choices: strings(&RECORD_FORMATS.map(|f| f.2)),
+                                chosen: RECORD_FORMATS
+                                    .iter()
+                                    .position(|f| (f.0, f.1) == (r.format, r.bits))
+                                    .unwrap_or(0) as i32,
+                                ..item(
+                                    "recording_format",
+                                    MENU,
+                                    "Format",
+                                    "FLAC is lossless and about half the size of WAV.",
+                                )
+                            }
+                        },
                         air_ceiling_item(),
                     ]);
                 }
@@ -1530,14 +1523,12 @@ impl Prefs {
             LAYOUTS => {
                 let mut items = Vec::new();
                 if shows(0) {
-                    items.push(
-                        item(
-                            "layouts",
-                            LAYOUTS_ROW,
-                            "Your layouts",
-                            "The layouts the layout menu offers: add, remove and reorder them.",
-                        ),
-                    );
+                    items.push(item(
+                        "layouts",
+                        LAYOUTS_ROW,
+                        "Your layouts",
+                        "The layouts the layout menu offers: add, remove and reorder them.",
+                    ));
                 }
                 if shows(1) {
                     items.extend([
@@ -1571,15 +1562,15 @@ impl Prefs {
                     ]);
                     if crate::wave_look::color() == 1 {
                         items.push(PrefItem {
-                    choices: strings(&crate::wave_look::PALETTE_LABELS),
-                    chosen: crate::wave_look::palette_index() as i32,
-                    ..item(
-                        crate::wave_look::PALETTE_KEY,
-                        MENU,
-                        "Palette",
-                        "3-Band's colors for the bass, mids and highs.",
-                    )
-                });
+                            choices: strings(&crate::wave_look::PALETTE_LABELS),
+                            chosen: crate::wave_look::palette_index() as i32,
+                            ..item(
+                                crate::wave_look::PALETTE_KEY,
+                                MENU,
+                                "Palette",
+                                "3-Band's colors for the bass, mids and highs.",
+                            )
+                        });
                     }
                     items.extend([
                         PrefItem {
@@ -1625,109 +1616,8 @@ impl Prefs {
                 }
                 items
             }
-            FEEDBACK => vec![
-                item("", HEADING, "GUIDED TOUR", ""),
-                PrefItem {
-                    action: "Start".into(),
-                    ..item(
-                        "tour_start:-1",
-                        BUTTON,
-                        "Take the tour",
-                        "Sets up your sound, controller and music, then mixes two tracks with \
-                         you, step by step.",
-                    )
-                },
-                PrefItem {
-                    choices: strings(&crate::tour::PART_NAMES),
-                    value: "Choose…".into(),
-                    ..item(
-                        "tour_part",
-                        MENU,
-                        "Just one part",
-                        "Run one part of the tour again.",
-                    )
-                },
-            ]
-            .into_iter()
-            .chain(self.tutorial_items())
-            .chain([
-                item("", HEADING, "FEEDBACK", ""),
-                item(
-                    "",
-                    NOTE,
-                    "",
-                    &format!(
-                        "openDJ {} is a beta. Problems, ideas and comments all help; \
-                         each link opens a form on GitHub with your version filled in.",
-                        crate::diagnostics::VERSION
-                    ),
-                ),
-                PrefItem {
-                    action: "Report…".into(),
-                    ..item(
-                        "report_bug",
-                        BUTTON,
-                        "Report a problem",
-                        "Something broke, crashed or didn't do what you expected.",
-                    )
-                },
-                PrefItem {
-                    action: "Suggest…".into(),
-                    ..item(
-                        "suggest_feature",
-                        BUTTON,
-                        "Suggest a feature",
-                        "Something you'd like openDJ to do, or do differently.",
-                    )
-                },
-                switch(
-                    "update_check",
-                    "Check for updates",
-                    "Looks for a new version on GitHub when openDJ starts. Nothing is sent but the request.",
-                    settings::flag("update_check", true),
-                ),
-                PrefItem {
-                    action: "Show".into(),
-                    ..item(
-                        "show_logs",
-                        BUTTON,
-                        "Logs and crash reports",
-                        "Attach these to a problem report. They stay on your computer unless you do.",
-                    )
-                },
-            ])
-            .collect(),
             _ => Vec::new(),
         }
-    }
-
-    /// Help's tutorials: Start for each, ✓ once done, and a controller
-    /// tutorial greyed until its controller is plugged in.
-    fn tutorial_items(&self) -> Vec<PrefItem> {
-        let ports: Vec<String> = self
-            .controllers
-            .as_ref()
-            .map(|c| c.ports().into_iter().map(|p| p.name).collect())
-            .unwrap_or_default();
-        std::iter::once(item("", HEADING, "TUTORIALS", ""))
-            .chain(crate::tutorials::TUTORIALS.iter().map(|t| {
-                let plugged = t
-                    .controller
-                    .is_none_or(|name| ports.iter().any(|p| p.contains(name)));
-                let done = crate::tutorials::done(t.id);
-                let title = format!("{}{}", t.name, if done { "  ✓" } else { "" });
-                let detail = format!("{} About {} minutes.", t.about, t.minutes);
-                PrefItem {
-                    action: if plugged { "Start" } else { "" }.into(),
-                    value: match t.controller {
-                        Some(name) if !plugged => format!("Plug in a {name} to start"),
-                        _ => String::new(),
-                    }
-                    .into(),
-                    ..item(&format!("tutorial_start:{}", t.id), BUTTON, &title, &detail)
-                }
-            }))
-            .collect()
     }
 
     fn mixer_general(&self) -> Vec<PrefItem> {

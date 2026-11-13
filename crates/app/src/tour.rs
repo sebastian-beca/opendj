@@ -7,7 +7,7 @@
 //! advanced tutorials ([`crate::tutorials`]), are more of the same. The
 //! setup dialog shows the
 //! Settings pages' own rows ([`Prefs::tour_items`]), so they work as they
-//! do there. Settings › Help runs the tour again, whole or a part.
+//! do there. Help › Take the Tour runs the tour again, or Help › Tour Part one part.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -28,7 +28,7 @@ use crate::{
     TourSetup,
 };
 
-/// A part of the tour, which Settings › Help can run on its own.
+/// A part of the tour, which Help › Tour Part can run on its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Part {
     Audio,
@@ -231,7 +231,7 @@ pub const FIRST_MIX: Lesson = Lesson {
             target: "",
             title: "That's a mix!",
             body: "You went from one track to the next, in time and without a bump. Try it with \
-                   your own music next. Settings › Help runs this tour again.",
+                   your own music next. Help › Take the Tour runs it again.",
             wait: Wait::Next,
             action: None,
         },
@@ -505,7 +505,7 @@ impl Tour {
         }
     }
 
-    /// Starts a tutorial from Settings › Help, if what it needs is there.
+    /// Starts a tutorial from Help › Tutorials, if what it needs is there.
     pub fn start_tutorial(&mut self, id: &str) {
         let Some(tutorial) = tutorials::find(id) else {
             return;
@@ -905,8 +905,8 @@ fn page_words(page: Page, controllers: &[String]) -> (String, String) {
     let (title, body) = match page {
         Page::Welcome => (
             "Welcome to openDJ",
-            "A few quick steps to get you set up. Skip any of them; Settings › Help has the \
-             tour again."
+            "A few quick steps to get you set up. Skip any of them; Help › Take the Tour \
+             runs it again."
                 .to_string(),
         ),
         Page::Part(Part::Audio) => ("Sound", "Where the master and headphones play.".to_string()),

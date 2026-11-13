@@ -885,6 +885,11 @@ export component PrefRow inherits Rectangle {
     in property <bool> searching;
     // Larger, lighter words, for the tour's setup dialog.
     in property <bool> bright;
+    // A switch's, menu's or choice's help longer than its one line holds
+    // goes in an ⓘ beside the name instead of being cut short (not in the
+    // tour's dialog).
+    property <bool> info: !bright && item.detail.character-count > 64
+        && (item.kind == 0 || item.kind == 1 || item.kind == 8);
     min-height: item.kind == 7 ? 34px : item.kind == 12 ? 30px : item.kind == 16 || item.kind == 17 ? 44px : 52px;
     // A source with settings opens and closes with a click on its row;
     // its switch, drawn over this, still works.
@@ -1135,9 +1140,15 @@ export component PrefRow inherits Rectangle {
                 alignment: center;
                 spacing: 3px;
                 if searching: Text { text: item.page-name; color: Theme.lilac-text; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
-                if item.title != "": Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; overflow: elide; }
+                if item.title != "" && !info: Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; overflow: elide; }
+                if item.title != "" && info: HorizontalLayout {
+                    alignment: start;
+                    spacing: 6px;
+                    Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; overflow: elide; vertical-alignment: center; }
+                    VerticalLayout { alignment: center; InfoButton { text: item.detail; } }
+                }
                 // Add-on pages (notes and text fields) wrap: their help is longer.
-                if item.detail != "" && item.kind != 6 && item.kind != 9: Text { text: item.detail; color: bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; overflow: elide; }
+                if item.detail != "" && !info && item.kind != 6 && item.kind != 9: Text { text: item.detail; color: bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; overflow: elide; }
                 if item.detail != "" && (item.kind == 6 || item.kind == 9): Text { text: item.detail; color: bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; wrap: word-wrap; }
             }
             if item.kind == 0: VerticalLayout {
