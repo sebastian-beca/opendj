@@ -690,6 +690,7 @@ fn strips(status: &[String], names: &[String], clock: &str) -> Vec<MixerStripInf
                 badge: (n + 1).to_string().into(),
                 on_key: "main_mix".into(),
                 aux: true,
+                view: if groove { 2 } else { 0 },
                 problem: if route.is_empty() {
                     status.as_str()
                 } else {

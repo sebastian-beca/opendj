@@ -48,6 +48,9 @@ export struct MixerStripInfo {
     // An aux input: its input can be picked and it can be renamed. The
     // mic and the instrument are removed from the Mixer instead.
     aux: bool,
+    // The panel its button opens on the Mixer deck (see mixer-view): 0
+    // none, 1 the instrument's (keys), 2 the Groove Box's.
+    view: int,
 }
 
 export struct LiveItem {
@@ -216,8 +219,12 @@ export global InstrumentsUi {
     // The picker's strip plays the Mixer deck's Groove Box; picking it.
     in property <bool> picker-groove;
     callback pick-groove();
-    // A Mixer channel plays the Mixer deck's Groove Box: GROOVE shows it.
+    // A Mixer channel plays the Mixer deck's Groove Box.
     in property <bool> mixer-groove;
+    // What the Mixer deck shows: 0 its channels, 1 the instrument's panel,
+    // 2 the Groove Box's. A channel's view button opens one; the Mixer's
+    // title bar stays, with CHANNELS to come back.
+    in-out property <int> mixer-view;
 
     // Each ticked plugin's own image, in the picker's order, and each
     // input's (microphone, aux 1, aux 2, aux 3, Mixer), with whether there is one:
@@ -255,14 +262,14 @@ export global InstrumentsUi {
     public pure function instrument-strip(tick: int) -> MixerStripInfo {
         {
             number: 9, name: "Instrument", channels: "", stereo: true, own-clock: false,
-            group: "[Instrument1]", badge: "INST", on-key: "main_mix", aux: false,
+            group: "[Instrument1]", badge: "INST", on-key: "main_mix", aux: false, view: 1,
             problem: Controls.value(Controls.resolve("[Instrument1]", "input_configured"), tick) > 0 ? "" : "No plugin",
         }
     }
     public pure function mic-strip() -> MixerStripInfo {
         {
             number: 10, name: "Mic", channels: "", stereo: false, own-clock: false,
-            group: "[Microphone]", badge: "MIC", on-key: "talkover", aux: false, problem: "",
+            group: "[Microphone]", badge: "MIC", on-key: "talkover", aux: false, problem: "", view: 0,
         }
     }
     public pure function in-mixer(group: string, tick: int) -> bool {
