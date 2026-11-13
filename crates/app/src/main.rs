@@ -497,9 +497,9 @@ const PLAYER_LAYOUT: i32 = 1;
 /// Behind the Player bar's overview: the bar's own colour (Theme.panel),
 /// so the waveform sits on the bar rather than in a black box.
 const PLAYER_OVERVIEW_BACKGROUND: [f32; 4] = [0.102, 0.102, 0.110, 1.0];
-/// Whether the Prep layout is offered (Settings › Layouts, the Cues and
-/// Checklist tabs, the checklist settings). Offered from v0.6, under More
-/// layouts: the DJ adds it to the layout menu.
+/// Whether the Prep layout is offered (the layout menu's chooser, the Cues and
+/// Checklist tabs, the checklist settings). Offered from v0.6, switched off at
+/// first: the DJ switches it on in the layout menu.
 pub(crate) const PREP_OFFERED: bool = true;
 /// 2-Deck Basic, the lighter two-deck layout (lite.slint): no jogs or tempo
 /// faders, the pads and loop in a bar under the decks.
@@ -860,7 +860,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    // The layout menu's chooser and Settings › Layouts.
+    // The layout menu's chooser.
     {
         let app_weak = app.as_weak();
         layouts::install(&app, move |layout| {
@@ -2695,7 +2695,7 @@ impl Gpu {
         tracks: &[Option<Arc<Track>>; NUM_DECKS],
         visual: &VisualPositions,
     ) {
-        // Settings › Decks › Waveform color and Overview, when they change.
+        // Settings › Appearance › Waveform color and Overview, when they change.
         if self.look != wave_look::version() {
             self.look = wave_look::version();
             let (style, palette, half) =

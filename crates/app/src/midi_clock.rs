@@ -127,7 +127,7 @@ pub fn items() -> Vec<PrefItem> {
     }
     let labels: Vec<String> = ports.iter().map(|p| port_label(p)).collect();
     let offset_names: Vec<String> = offsets().into_iter().map(offset_name).collect();
-    let mut items = vec![row("midi_clock", 7, "MIDI CLOCK", "")];
+    let mut items = Vec::new();
     for (i, o) in outputs.iter().enumerate() {
         let missing = open.iter().any(|s| s.port == o.port && !s.open);
         items.push(PrefItem {

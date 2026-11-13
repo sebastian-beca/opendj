@@ -35,10 +35,53 @@ pub enum Action {
     TallerWaveforms,
     ShorterWaveforms,
     ResetWaveformHeight,
+    /// The whole guided tour.
+    Tour,
+    /// One part of the tour, by its place in tour::PART_NAMES.
+    TourPart0,
+    TourPart1,
+    TourPart2,
+    TourPart3,
+    /// A tutorial, by its place in tutorials::TUTORIALS.
+    Tutorial0,
+    Tutorial1,
+    Tutorial2,
+    Tutorial3,
+    Tutorial4,
+    UserGuide,
+    ReportProblem,
+    SuggestFeature,
+    ShowLogs,
+    /// Looks for a new version when openDJ starts; a tick.
+    CheckForUpdates,
 }
 
+/// The tour's parts and the tutorials, in Help's order.
+const TOUR_PARTS: [Action; 4] = [
+    Action::TourPart0,
+    Action::TourPart1,
+    Action::TourPart2,
+    Action::TourPart3,
+];
+const TUTORIALS: [Action; 5] = [
+    Action::Tutorial0,
+    Action::Tutorial1,
+    Action::Tutorial2,
+    Action::Tutorial3,
+    Action::Tutorial4,
+];
+// One menu item for each part and tutorial.
+const _: () = assert!(TOUR_PARTS.len() == crate::tour::PART_NAMES.len());
+const _: () = assert!(TUTORIALS.len() == crate::tutorials::TUTORIALS.len());
+
+/// The setting Check for Updates ticks.
+const UPDATE_CHECK: &str = "update_check";
+
+/// Where the user guide is.
+const USER_GUIDE: &str = "https://opendj.app/docs";
+
 impl Action {
-    const ALL: [Action; 17] = [
+    const ALL: [Action; 32] = [
         Action::Settings,
         Action::Quit,
         Action::Undo,
@@ -56,6 +99,21 @@ impl Action {
         Action::TallerWaveforms,
         Action::ShorterWaveforms,
         Action::ResetWaveformHeight,
+        Action::Tour,
+        Action::TourPart0,
+        Action::TourPart1,
+        Action::TourPart2,
+        Action::TourPart3,
+        Action::Tutorial0,
+        Action::Tutorial1,
+        Action::Tutorial2,
+        Action::Tutorial3,
+        Action::Tutorial4,
+        Action::UserGuide,
+        Action::ReportProblem,
+        Action::SuggestFeature,
+        Action::ShowLogs,
+        Action::CheckForUpdates,
     ];
 
     /// Its number, as the ☰ menu and the macOS menu items carry it.
@@ -77,6 +135,21 @@ impl Action {
             Action::Settings
                 | Action::Quit
                 | Action::Find
+                | Action::Tour
+                | Action::TourPart0
+                | Action::TourPart1
+                | Action::TourPart2
+                | Action::TourPart3
+                | Action::Tutorial0
+                | Action::Tutorial1
+                | Action::Tutorial2
+                | Action::Tutorial3
+                | Action::Tutorial4
+                | Action::UserGuide
+                | Action::ReportProblem
+                | Action::SuggestFeature
+                | Action::ShowLogs
+                | Action::CheckForUpdates
                 | Action::RecordMix
                 | Action::MiniPlayer
                 | Action::ZoomIn
@@ -218,6 +291,92 @@ pub const MENUS: &[Menu] = &[
             },
         ],
     },
+    Menu {
+        title: "Help",
+        entries: &[
+            Entry::Item {
+                action: Action::Tour,
+                title: "Take the Tour",
+                key: None,
+            },
+            Entry::Submenu {
+                title: "Tour Part",
+                entries: &[
+                    Entry::Item {
+                        action: Action::TourPart0,
+                        title: crate::tour::PART_NAMES[0],
+                        key: None,
+                    },
+                    Entry::Item {
+                        action: Action::TourPart1,
+                        title: crate::tour::PART_NAMES[1],
+                        key: None,
+                    },
+                    Entry::Item {
+                        action: Action::TourPart2,
+                        title: crate::tour::PART_NAMES[2],
+                        key: None,
+                    },
+                    Entry::Item {
+                        action: Action::TourPart3,
+                        title: crate::tour::PART_NAMES[3],
+                        key: None,
+                    },
+                ],
+            },
+            Entry::Submenu {
+                title: "Tutorials",
+                entries: &[
+                    Entry::Item {
+                        action: Action::Tutorial0,
+                        title: crate::tutorials::TUTORIALS[0].name,
+                        key: None,
+                    },
+                    Entry::Item {
+                        action: Action::Tutorial1,
+                        title: crate::tutorials::TUTORIALS[1].name,
+                        key: None,
+                    },
+                    Entry::Item {
+                        action: Action::Tutorial2,
+                        title: crate::tutorials::TUTORIALS[2].name,
+                        key: None,
+                    },
+                    Entry::Item {
+                        action: Action::Tutorial3,
+                        title: crate::tutorials::TUTORIALS[3].name,
+                        key: None,
+                    },
+                    Entry::Item {
+                        action: Action::Tutorial4,
+                        title: crate::tutorials::TUTORIALS[4].name,
+                        key: None,
+                    },
+                ],
+            },
+            Entry::Item {
+                action: Action::UserGuide,
+                title: "User Guide",
+                key: None,
+            },
+            Entry::Separator,
+            Entry::Item {
+                action: Action::ReportProblem,
+                title: "Report a Problem…",
+                key: None,
+            },
+            Entry::Item {
+                action: Action::SuggestFeature,
+                title: "Suggest a Feature…",
+                key: None,
+            },
+            Entry::Item {
+                action: Action::ShowLogs,
+                title: "Show Logs and Crash Reports",
+                key: None,
+            },
+        ],
+    },
 ];
 
 /// The app's own items, outside File and Edit: in macOS's app menu
@@ -228,6 +387,11 @@ pub const APP_ITEMS: &[Entry] = &[
         action: Action::Settings,
         title: "Settings…",
         key: Some(","),
+    },
+    Entry::Item {
+        action: Action::CheckForUpdates,
+        title: "Check for Updates Automatically",
+        key: None,
     },
     Entry::Item {
         action: Action::Quit,
@@ -284,7 +448,14 @@ pub fn entries() -> Vec<MenuEntry> {
                     line.kind = 0;
                     line.action = action.id();
                     line.text = title.into();
-                    line.hint = key.map(shortcut_text).unwrap_or_default().into();
+                    line.hint = match (checked(*action), tutorial(*action)) {
+                        // A tick shows where a shortcut would.
+                        (Some(on), _) => if on { "✓" } else { "" }.into(),
+                        // A tutorial: ticked once done, else how long it takes.
+                        (_, Some(t)) if crate::tutorials::done(t.id) => "✓".into(),
+                        (_, Some(t)) => format!("{} min", t.minutes).into(),
+                        _ => key.map(shortcut_text).unwrap_or_default().into(),
+                    };
                     line.enabled = enabled;
                     out.push(line);
                     top += LINE_HEIGHT;
@@ -416,12 +587,79 @@ pub fn run(app: &AppWindow, action: Action) {
         Action::TallerWaveforms => crate::waveform_height::step(app, 1),
         Action::ShorterWaveforms => crate::waveform_height::step(app, -1),
         Action::ResetWaveformHeight => crate::waveform_height::reset(app),
+        Action::Tour => app.global::<crate::Tour>().invoke_start(-1),
+        Action::TourPart0 | Action::TourPart1 | Action::TourPart2 | Action::TourPart3 => {
+            let part = TOUR_PARTS.iter().position(|a| *a == action).unwrap_or(0);
+            app.global::<crate::Tour>().invoke_start(part as i32);
+        }
+        Action::Tutorial0
+        | Action::Tutorial1
+        | Action::Tutorial2
+        | Action::Tutorial3
+        | Action::Tutorial4 => {
+            if let Some(t) = tutorial(action) {
+                app.global::<crate::Tour>()
+                    .invoke_start_tutorial(t.id.into());
+            }
+        }
+        Action::UserGuide => {
+            crate::spotify::open_in_browser(USER_GUIDE);
+        }
+        Action::ReportProblem => {
+            crate::spotify::open_in_browser(&crate::diagnostics::issue_url("bug_report.yml"));
+        }
+        Action::SuggestFeature => {
+            crate::spotify::open_in_browser(&crate::diagnostics::issue_url("feature_request.yml"));
+        }
+        Action::ShowLogs => {
+            if let Some(dir) = crate::diagnostics::logs_dir() {
+                let _ = std::fs::create_dir_all(&dir);
+                crate::files::reveal(&dir);
+            }
+        }
+        Action::CheckForUpdates => {
+            let on = !crate::settings::flag(UPDATE_CHECK, true);
+            crate::settings::set(UPDATE_CHECK, serde_json::json!(on));
+            set_checked(action, on);
+        }
         Action::RecordMix => {
             let controls = app.global::<crate::Controls>();
             let index = controls.invoke_resolve("[Recording]".into(), "toggle_recording".into());
             controls.invoke_set_value(index, 1.0);
         }
     }
+}
+
+/// The tutorial an item starts.
+fn tutorial(action: Action) -> Option<&'static crate::tutorials::Tutorial> {
+    TUTORIALS
+        .iter()
+        .position(|a| *a == action)
+        .map(|i| &crate::tutorials::TUTORIALS[i])
+}
+
+/// Whether an item that is a tick is on; None for other items.
+pub fn checked(action: Action) -> Option<bool> {
+    (action == Action::CheckForUpdates).then(|| crate::settings::flag(UPDATE_CHECK, true))
+}
+
+/// Ticks an item, or takes its tick off, in whichever menus this platform
+/// shows.
+fn set_checked(action: Action, on: bool) {
+    LINES.with(|l| {
+        if let Some(lines) = l.borrow().as_ref() {
+            for i in 0..lines.row_count() {
+                if let Some(mut line) = lines.row_data(i) {
+                    if line.kind == 0 && line.action == action.id() {
+                        line.hint = if on { "✓" } else { "" }.into();
+                        lines.set_row_data(i, line);
+                    }
+                }
+            }
+        }
+    });
+    #[cfg(target_os = "macos")]
+    crate::mac_menu::set_checked(action, on);
 }
 
 /// Renames an item, or greys it out, in whichever menus this platform

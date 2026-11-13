@@ -11,7 +11,7 @@ interface.
 
 ## Set it up
 
-1. Open **Settings › Audio** and set **Mixer** to **External**.
+1. Open **Settings › Mixer** and set **Mixer** to **External**.
 2. The outputs change to a row for each deck, the headphones and the sampler.
    Pick the interface for **Deck 1** and **Deck 2** (and Deck 3 and 4 for a
    four-channel mixer), each on its own channels, for example Deck 1 on

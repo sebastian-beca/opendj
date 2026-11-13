@@ -473,7 +473,7 @@ export component MasterPanel inherits PopupWindow {
             text: "Audio Settings…";
             clicked => {
                 root.close();
-                Preferences.show(0);
+                Preferences.show(Preferences.audio-page);
             }
         }
     }
@@ -564,7 +564,7 @@ export component MicPanel inherits PopupWindow {
             text: "Audio Settings…";
             clicked => {
                 root.close();
-                Preferences.show(0);
+                Preferences.show(Preferences.audio-page);
             }
         }
     }
@@ -701,7 +701,7 @@ export component OnAirPanel inherits PopupWindow {
             text: "Broadcast Settings…";
             clicked => {
                 root.close();
-                Preferences.show(8);
+                Preferences.show(Preferences.broadcast-page);
             }
         }
     }

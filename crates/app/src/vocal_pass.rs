@@ -1,4 +1,4 @@
-//! The vocal pass behind Settings › Decks › Show vocals: for each file
+//! The vocal pass behind Settings › Appearance › Show vocals: for each file
 //! loaded on a deck, the levels of [`opendj_engine::vocals`], read from the
 //! cache or worked out on one background thread, a file at a time. The
 //! renderer asks with [`levels`] every frame and uploads them with the

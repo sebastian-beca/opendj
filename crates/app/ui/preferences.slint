@@ -4,7 +4,6 @@
 // box above them finds an option on any page. Changes apply and are saved at
 // once: there is no OK or Apply.
 import { Theme, CloseIcon } from "theme.slint";
-import { LayoutsPage } from "layouts.slint";
 import { ControlKnob } from "controls.slint";
 import { AudioSettings, MenuField, OutputsTable, ExternalOutputsTable, InputsTable } from "mixer.slint";
 
@@ -67,12 +66,17 @@ export global Preferences {
     in-out property <bool> open;
     in-out property <int> page;
     in-out property <string> query;
-    // The page's tabs (Library has General, Stages, Tags and Import);
-    // most pages have none.
+    // The page's tabs (Collection has General, Stages, Tags, Import,
+    // Health and Storage); some pages have none.
     in property <[string]> tabs;
     in-out property <int> tab;
     in property <[PrefItem]> items;
-    in-out property <[string]> pages: ["Audio", "Controllers", "Collection", "Analysis", "Decks", "Mixer", "Sources", "Plugins", "Broadcast", "Keyboard", "Layouts", "Help"];
+    // The page list, filled by the app (PAGE_NAMES in prefs.rs).
+    in-out property <[string]> pages;
+    // Pages opened from elsewhere, by their number in `pages`.
+    in property <int> audio-page;
+    in property <int> plugins-page;
+    in property <int> broadcast-page;
     // The page or the search changed: the app fills `items` again.
     callback changed();
     callback toggled(id: string, on: bool);
@@ -148,7 +152,7 @@ export struct StoragePart {
     tint: color,
 }
 
-// Settings › Collection › General › Storage: how the disk with the music is
+// Settings › Collection › Storage: how the disk with the music is
 // used, and the Manage menu's clean-ups. Picking one asks first: `confirm`
 // is its question, `warning` what it costs, `confirm-label` its button.
 // The menu picks "storage_manage"; the buttons press "storage_confirm" and
@@ -880,6 +884,11 @@ export component PrefRow inherits Rectangle {
     in property <bool> searching;
     // Larger, lighter words, for the tour's setup dialog.
     in property <bool> bright;
+    // A switch's, menu's or choice's help longer than its one line holds
+    // goes in an ⓘ beside the name instead of being cut short (not in the
+    // tour's dialog).
+    property <bool> info: !bright && item.detail.character-count > 64
+        && (item.kind == 0 || item.kind == 1 || item.kind == 8);
     min-height: item.kind == 7 ? 34px : item.kind == 12 ? 30px : item.kind == 16 || item.kind == 17 ? 44px : 52px;
     // A source with settings opens and closes with a click on its row;
     // its switch, drawn over this, still works.
@@ -1087,8 +1096,6 @@ export component PrefRow inherits Rectangle {
             }
         }
         if item.kind == 21: FolderList { item: item; bright: bright; }
-        // Settings › Layouts (layouts.slint).
-        if item.kind == 24: LayoutsPage {}
         if item.kind == 23: StorageView { item: item; searching: searching; }
         if item.kind == 22: VerticalLayout {
             spacing: 8px;
@@ -1130,9 +1137,15 @@ export component PrefRow inherits Rectangle {
                 alignment: center;
                 spacing: 3px;
                 if searching: Text { text: item.page-name; color: Theme.lilac-text; font-size: 10px; font-weight: 600; letter-spacing: 0.4px; }
-                if item.title != "": Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; overflow: elide; }
+                if item.title != "" && !info: Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; overflow: elide; }
+                if item.title != "" && info: HorizontalLayout {
+                    alignment: start;
+                    spacing: 6px;
+                    Text { text: item.title; color: Theme.text; font-size: 14px; font-weight: 500; overflow: elide; vertical-alignment: center; }
+                    VerticalLayout { alignment: center; InfoButton { text: item.detail; } }
+                }
                 // Add-on pages (notes and text fields) wrap: their help is longer.
-                if item.detail != "" && item.kind != 6 && item.kind != 9: Text { text: item.detail; color: bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; overflow: elide; }
+                if item.detail != "" && !info && item.kind != 6 && item.kind != 9: Text { text: item.detail; color: bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; overflow: elide; }
                 if item.detail != "" && (item.kind == 6 || item.kind == 9): Text { text: item.detail; color: bright ? Theme.n-c8c8cd : Theme.text-dim; font-size: bright ? 13px : 12px; wrap: word-wrap; }
             }
             if item.kind == 0: VerticalLayout {

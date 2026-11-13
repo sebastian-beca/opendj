@@ -162,6 +162,9 @@ export global InstrumentsUi {
     pure callback item(data: data-transfer) -> int;
     // Opens Settings on page `page`, tab `tab` (Plugins or Audio).
     callback open-settings(page: int, tab: int);
+    // Settings' Audio and Plugins pages, set by the app.
+    in property <int> audio-page;
+    in property <int> plugins-page;
     // The MIDI keyboard that played the instrument last, set by the app;
     // empty before any has.
     in property <string> playing-from;

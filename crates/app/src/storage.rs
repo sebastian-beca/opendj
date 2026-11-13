@@ -1,4 +1,4 @@
-//! Settings › Collection › General › Storage: how much of the disk holding
+//! Settings › Collection › Storage: how much of the disk holding
 //! the music is the music, openDJ's caches and everything else, drawn as
 //! macOS draws its storage bar.
 //!

@@ -1,9 +1,9 @@
-//! Settings › Collection › General: the storage bar and its Manage menu.
+//! Settings › Collection › Storage: the storage bar and its Manage menu.
 
 use super::*;
 
 impl Prefs {
-    /// Settings › Collection › General › Storage: fills StorageUi with the
+    /// Settings › Collection › Storage: fills StorageUi with the
     /// disk's parts and returns the row that shows them.
     pub(super) fn storage_item(&self) -> PrefItem {
         let mut folders = settings::music_folders();

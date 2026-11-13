@@ -1,5 +1,6 @@
 //! The app's menus ([`crate::app_menu::MENUS`]) in the macOS menu bar:
-//! Settings… (⌘,) in the app menu, then File, Edit… after it.
+//! Settings… (⌘,) and Check for Updates Automatically in the app menu,
+//! then File, Edit, View and Help after it.
 //! Slint builds the app menu itself (About, Services, Hide, Quit) with no
 //! way to add to it, so the items are added to the native menu once it
 //! exists. Slint gives each window a menu bar of its own and swaps it in
@@ -11,10 +12,12 @@ use std::cell::RefCell;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{define_class, msg_send, sel, MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{NSApplication, NSEventType, NSMenu, NSMenuItem};
+use objc2_app_kit::{
+    NSApplication, NSControlStateValueOff, NSControlStateValueOn, NSEventType, NSMenu, NSMenuItem,
+};
 use objc2_foundation::{NSObject, NSString};
 
-use crate::app_menu::{shown, state, Action, Entry, MENUS};
+use crate::app_menu::{checked, shown, state, Action, Entry, MENUS};
 
 thread_local! {
     /// What a picked item does, and the object the items call.
@@ -86,6 +89,13 @@ fn new_item(
     };
     unsafe { item.setTarget(Some(target)) };
     item.setTag(action.id() as isize);
+    if let Some(on) = checked(action) {
+        item.setState(if on {
+            NSControlStateValueOn
+        } else {
+            NSControlStateValueOff
+        });
+    }
     ITEMS.with(|i| i.borrow_mut().push((action, item.clone())));
     item
 }
@@ -151,11 +161,20 @@ pub fn install() {
             })
             .clone()
     });
-    // About, then a line, then Settings… and a line, as in other Mac apps.
+    // About, then a line, then Settings… and the update tick and a line, as
+    // in other Mac apps.
     let settings = new_item(mtm, &target, Action::Settings, "Settings…", ",");
+    let updates = new_item(
+        mtm,
+        &target,
+        Action::CheckForUpdates,
+        "Check for Updates Automatically",
+        "",
+    );
     let at = 2.min(app_menu.numberOfItems());
     app_menu.insertItem_atIndex(&settings, at);
-    app_menu.insertItem_atIndex(&NSMenuItem::separatorItem(mtm), at + 1);
+    app_menu.insertItem_atIndex(&updates, at + 1);
+    app_menu.insertItem_atIndex(&NSMenuItem::separatorItem(mtm), at + 2);
     // File, Edit… after the app menu, in order.
     let mut at = 1.min(main.numberOfItems());
     for m in MENUS {
@@ -180,6 +199,21 @@ pub fn set_item(action: Action, title: &str, enabled: bool) {
             if *a == action {
                 item.setTitle(&NSString::from_str(title));
                 item.setEnabled(enabled);
+            }
+        }
+    });
+}
+
+/// Ticks an item or takes its tick off.
+pub fn set_checked(action: Action, on: bool) {
+    ITEMS.with(|items| {
+        for (a, item) in items.borrow().iter() {
+            if *a == action {
+                item.setState(if on {
+                    NSControlStateValueOn
+                } else {
+                    NSControlStateValueOff
+                });
             }
         }
     });

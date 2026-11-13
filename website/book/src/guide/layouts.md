@@ -78,7 +78,7 @@ The menu at the top left of the window switches layouts:
   macOS, the media overlay on Windows, the desktop's media controls on
   Linux) work Player as its buttons do, and show the track with its art.
   The DJ layouts leave them alone unless **Media keys in every layout** is
-  on in **Settings › Keyboard**, so a headphone button can't stop a deck
+  on in **Settings › Player**, so a headphone button can't stop a deck
   in the middle of a set.
   The top bar keeps to search. The search box (**⌘F**) is Player's only
   search box: it filters the track list and shows the best matches as you
@@ -128,10 +128,7 @@ library rail's choosers have:
 - Drag a row by its grip (the six dots at its left) to move it up or down the menu.
 - **Reset to default** goes back to Player, 2-Deck, 4-Deck and Prep.
 
-Click the lit pencil to go back to the menu. **Settings › Layouts** shows
-the same list with a small drawing of each layout: **↑** and **↓** move
-one of your layouts, **−** takes it out, and **+ Add** puts one of the
-others back.
+Click the lit pencil to go back to the menu.
 
 A controller's VIEW button (on the DDJ-FLX4, **SHIFT** + right **LOAD**)
 goes to the next of your layouts, and from the last back to the first.
@@ -142,7 +139,7 @@ called 2-Deck. Your layouts carry over.
 
 ## Appearance
 
-**Settings › Layouts › Appearance** picks **Dark**, **Light** or **Match
+**Settings › Appearance** picks **Dark**, **Light** or **Match
 system**, and so does the row at the foot of the layout menu (**Auto**
 there is Match system). Dark is the default. Light is easier to read in daylight and at
 outdoor gigs: panels, the library, buttons and Settings turn light, while

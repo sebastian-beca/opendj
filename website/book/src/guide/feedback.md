@@ -2,9 +2,10 @@
 
 openDJ is in beta, and feedback of any kind helps.
 
-In the app, **Settings → Help** has links to report a problem or suggest a
-feature with your version already filled in. It also opens the folder with your
-logs, so you can attach them.
+In the app, the **Help** menu (☰ on Windows and Linux) has **Report a
+Problem…** and **Suggest a Feature…**, with your version already filled in.
+**Show Logs and Crash Reports** opens the folder with your logs, so you can
+attach them.
 
 You can also [open an issue](https://github.com/openwave-studio/opendj/issues/new/choose)
 directly, or give a 👍 to the

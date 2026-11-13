@@ -1,4 +1,4 @@
-//! The advanced tutorials in Settings › Help: hands-on lessons for looping,
+//! The advanced tutorials in Help › Tutorials: hands-on lessons for looping,
 //! effects, filtering the list, Automix and the DDJ-FLX4, on the guided
 //! tour's engine ([`crate::tour`]). Each points at the real control, waits
 //! until the DJ has used it (on screen or on a controller) and ends with a
@@ -12,14 +12,13 @@ use crate::settings;
 use crate::tour::{Action, Lesson, Step, Wait};
 use crate::{AppWindow, FilterUi, StoreUi};
 
-/// A tutorial, as Settings › Help lists it.
+/// A tutorial, as Help › Tutorials lists it.
 #[derive(Debug)]
 pub struct Tutorial {
-    /// Its id in settings and in Help's buttons.
+    /// Its id in settings.
     pub id: &'static str,
     pub name: &'static str,
-    /// What it covers, for Help's row.
-    pub about: &'static str,
+    /// About how long it takes, shown beside it in Help › Tutorials.
     pub minutes: u32,
     /// A controller it needs plugged in, by a word of its port name.
     pub controller: Option<&'static str>,
@@ -30,7 +29,6 @@ pub const TUTORIALS: [Tutorial; 5] = [
     Tutorial {
         id: "looping",
         name: "Looping",
-        about: "Auto loops, halve and double, IN and OUT, saving a loop on a pad, loop rolls.",
         minutes: 3,
         controller: None,
         lesson: &LOOPING,
@@ -38,7 +36,6 @@ pub const TUTORIALS: [Tutorial; 5] = [
     Tutorial {
         id: "fx",
         name: "Using FX",
-        about: "The FX bar, deck effects, Beat FX and the Color FX on the filter knob.",
         minutes: 3,
         controller: None,
         lesson: &USING_FX,
@@ -46,7 +43,6 @@ pub const TUTORIALS: [Tutorial; 5] = [
     Tutorial {
         id: "filtering",
         name: "Filtering tracks",
-        about: "Search, BPM and key match, filter chips and smart playlists.",
         minutes: 3,
         controller: None,
         lesson: &FILTERING,
@@ -54,7 +50,6 @@ pub const TUTORIALS: [Tutorial; 5] = [
     Tutorial {
         id: "automix",
         name: "Automix",
-        about: "A queue, the mix length and style, Mix now, and taking over.",
         minutes: 3,
         controller: None,
         lesson: &AUTOMIX,
@@ -62,8 +57,6 @@ pub const TUTORIALS: [Tutorial; 5] = [
     Tutorial {
         id: "ddj-flx4",
         name: "DDJ-FLX4",
-        about: "A mix on the controller: load, play and cue, jog, sync, EQ and CFX, the pad \
-                modes and Beat FX.",
         minutes: 5,
         controller: Some("DDJ-FLX4"),
         lesson: &DDJ_FLX4,
