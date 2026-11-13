@@ -4291,6 +4291,16 @@ component TrackList inherits Rectangle {
             took-focus();
         }
     }
+    // How far the list is scrolled, for coming back to it later.
+    out property <length> scroll-y: -lv.content-y;
+    // Back on a list seen before: `row` current (or none, -1) at `offset`
+    // from the top of the view, or else the list scrolled down `y`, kept
+    // within the list. The browser picks the row itself.
+    public function show-at(row: int, offset: length, y: length) {
+        lv.content-y = max(min(0px, lv.visible-height - rows.length * row-height), min(0px, row >= 0 ? offset - row * row-height : -y));
+        anchor = row;
+        current = row;
+    }
     // Keep the selection in view when a controller moves it.
     changed current => {
         // Moved some other way than a click (arrows, a controller, a new
@@ -6106,6 +6116,10 @@ export component Browser inherits HorizontalLayout {
     in property <int> sort-column;
     in property <bool> ascending;
     in-out property <int> current-row <=> list.current;
+    out property <length> list-scroll-y: list.scroll-y;
+    public function show-list-at(row: int, offset: length, y: length) {
+        list.show-at(row, offset, y);
+    }
     // The rows picked in the track list, for keyboard shortcuts.
     out property <int> first-picked: list.first-picked;
     out property <int> last-picked: list.last-picked;

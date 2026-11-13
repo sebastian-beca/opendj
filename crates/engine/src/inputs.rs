@@ -74,6 +74,10 @@ pub(crate) enum Routing {
     /// for the deck to sum. A soloed strip plays whether on or off; while
     /// any strip of the Mixer is soloed (`any_solo`), only soloed ones do.
     Mixer { any_solo: bool },
+    /// Not heard: an aux input or the instrument that no deck plays, on
+    /// its own or in the Mixer. Its on switch is a Mixer strip's, so it
+    /// doesn't put it in the main mix by itself.
+    Off,
 }
 
 /// Knobs the instrument's plugin parameters show on:
@@ -107,6 +111,9 @@ pub(crate) struct InputFeed {
     pub(crate) rx: rtrb::Consumer<f32>,
     /// Frames the device delivered in its last callback.
     pub(crate) period: Arc<AtomicUsize>,
+    /// Frames left waiting in the queue after the engine's last read: with
+    /// `period`, how far behind the input is heard.
+    pub(crate) queued: Arc<AtomicUsize>,
 }
 
 /// `[Master],talkover_ducking`, as in Mixxx: off, ducking while the
@@ -322,7 +329,13 @@ impl InputControls {
         let strip = AUXILIARIES.contains(&input) || input == MICROPHONE || input == INSTRUMENT;
         let pan = strip.then(|| reg.create(g, "pan", 0.0, -1.0, 1.0, Behavior::Linear));
         let solo = strip.then(|| reg.toggle(g, "solo"));
-        let fx = strip.then(|| reg.toggle(g, "fx"));
+        // On from the start: a strip sounds through its deck's effects as
+        // a track does, and FX off takes it out of them.
+        let fx = strip.then(|| {
+            let fx = reg.toggle(g, "fx");
+            fx.set_bool(true);
+            fx
+        });
         // The microphone and the instrument as strips of the Mixer too,
         // while a deck plays it: off by default, so each stays on its own
         // channel (or deck).
@@ -635,7 +648,7 @@ impl Input {
         let on = self.c.on.get_bool();
         let (on, live) = match routing {
             Routing::Main => (on && !self.c.mute.get_bool(), on),
-            Routing::Deck => (false, false),
+            Routing::Deck | Routing::Off => (false, false),
             Routing::Mixer { any_solo } => {
                 let solo = self.c.solo.as_ref().is_some_and(|s| s.get_bool());
                 let heard = if any_solo { solo } else { on };
@@ -648,7 +661,8 @@ impl Input {
         self.level_ramp = (self.level, level);
         self.level = level;
         self.live = live && source;
-        self.pfl = self.c.pfl.get_bool() && routing != Routing::Deck;
+        self.pfl =
+            self.c.pfl.get_bool() && matches!(routing, Routing::Main | Routing::Mixer { .. });
         self.in_mixer = matches!(routing, Routing::Mixer { .. });
         let pre = (self.pregain, self.c.pregain.get() as f32);
         self.pregain = pre.1;
@@ -776,6 +790,12 @@ fn skip(feed: &mut InputFeed, frames: usize) {
 /// needed, the queue's low point less [`QUEUE_SLACK`]. A device running
 /// ahead is cut back at once.
 fn pull(feed: &mut InputFeed, q: &mut Queue, out: &mut [[f32; 2]]) -> usize {
+    let n = pull_inner(feed, q, out);
+    feed.queued.store(feed.rx.slots() / 2, Ordering::Relaxed);
+    n
+}
+
+fn pull_inner(feed: &mut InputFeed, q: &mut Queue, out: &mut [[f32; 2]]) -> usize {
     let frames = out.len();
     let enough = feed.period.load(Ordering::Relaxed).max(frames);
     let queued = feed.rx.slots() / 2;
@@ -925,7 +945,8 @@ mod tests {
     fn feed(period: usize) -> (InputFeed, rtrb::Producer<f32>) {
         let (tx, rx) = rtrb::RingBuffer::new(16_384);
         let period = Arc::new(AtomicUsize::new(period));
-        (InputFeed { rx, period }, tx)
+        let queued = Arc::default();
+        (InputFeed { rx, period, queued }, tx)
     }
 
     fn push(tx: &mut rtrb::Producer<f32>, frames: usize, v: f32) {

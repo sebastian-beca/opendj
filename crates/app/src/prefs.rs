@@ -80,8 +80,6 @@ const BROADCAST: i32 = 8;
 const KEYBOARD: i32 = 9;
 /// Your layouts and the others (layouts.rs).
 const LAYOUTS: i32 = 10;
-/// Settings › Layouts, for the layout menu's cog.
-pub const LAYOUTS_PAGE: i32 = LAYOUTS;
 const FEEDBACK: i32 = 11;
 
 /// Bitrates offered for a broadcast, in kb/s.

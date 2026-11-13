@@ -15,7 +15,7 @@ use opendj_engine::inputs::GROOVE_BOX;
 use opendj_engine::{
     channel_names, input_devices, AudioEngine, AudioSetup, InputRole, InputRoute, Role,
 };
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use crate::prefs::channel_choices;
 use crate::{instruments, settings, AppWindow, InstrumentsUi, PickerRow};
@@ -75,7 +75,7 @@ pub fn install(app: &AppWindow, engine: Rc<AudioEngine>) {
             if p.watching {
                 engine.watch_input(Some(&p.device));
             }
-            show(&app, &p, &setup, &engine.status());
+            show(&app, &p, &setup, &engine.status(), delay(&engine, p.strip));
         });
     }
     {
@@ -95,7 +95,13 @@ pub fn install(app: &AppWindow, engine: Rc<AudioEngine>) {
                 let now = peaks.get(c).copied().map_or(0.0, meter);
                 *m = now.max(*m - fall);
             }
-            show(&app, &p, &settings::audio_setup(), &engine.status());
+            show(
+                &app,
+                &p,
+                &settings::audio_setup(),
+                &engine.status(),
+                delay(&engine, p.strip),
+            );
         });
     }
     {
@@ -170,7 +176,7 @@ pub fn install(app: &AppWindow, engine: Rc<AudioEngine>) {
 /// with its meters, the strip's own choice marked. The header names the
 /// interface, and says when it runs on its own clock: not the main
 /// output's (`clock`, the engine's status).
-fn show(app: &AppWindow, p: &Picker, setup: &AudioSetup, clock: &str) {
+fn show(app: &AppWindow, p: &Picker, setup: &AudioSetup, clock: &str, delay: Option<f64>) {
     let role = InputRole::AUXILIARIES[p.strip - 1];
     let saved = setup
         .inputs
@@ -199,16 +205,39 @@ fn show(app: &AppWindow, p: &Picker, setup: &AudioSetup, clock: &str) {
             .iter()
             .any(|r| r.role == role && r.device == GROOVE_BOX),
     );
-    ui.set_picker_device(if p.device.is_empty() && p.choices.is_empty() {
-        "No input device".into()
+    let header = if p.device.is_empty() && p.choices.is_empty() {
+        "No input device".to_string()
     } else if p.device.is_empty() {
-        "System default".into()
+        "System default".to_string()
     } else if own_clock(&p.device, clock) {
-        format!("{} · own clock, may drift", p.device).into()
+        format!("{} · own clock, may drift", p.device)
     } else {
-        p.device.as_str().into()
+        p.device.clone()
+    };
+    // How far behind the strip's input is heard, while it is open.
+    ui.set_picker_device(match delay {
+        Some(ms) => format!("{header} · {ms:.0} ms behind").into(),
+        None => header.into(),
     });
-    ui.set_picker_rows(ModelRc::new(VecModel::from(rows)));
+    // Fresh meters arrive 20 times a second: the rows change in place, so
+    // the one under the pointer keeps its hover and a click lands on it.
+    let model = ui.get_picker_rows();
+    match model.as_any().downcast_ref::<VecModel<PickerRow>>() {
+        Some(m) if m.row_count() == rows.len() => {
+            for (i, row) in rows.into_iter().enumerate() {
+                if m.row_data(i).as_ref() != Some(&row) {
+                    m.set_row_data(i, row);
+                }
+            }
+        }
+        _ => ui.set_picker_rows(ModelRc::new(VecModel::from(rows))),
+    }
+}
+
+/// How far behind strip `strip`'s input (from 1) is heard, in ms.
+fn delay(engine: &AudioEngine, strip: usize) -> Option<f64> {
+    let role = InputRole::AUXILIARIES.get(strip.checked_sub(1)?)?;
+    engine.input_delays().get(role.index()).copied().flatten()
 }
 
 /// `device` is another interface than the main output's, as the engine's

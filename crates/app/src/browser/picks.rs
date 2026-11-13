@@ -174,6 +174,13 @@ impl Browser {
         self.show_picks();
     }
 
+    /// Picks just this row, or nothing for a negative one.
+    pub(super) fn pick_only(&mut self, row: i32) {
+        let len = self.rows.len();
+        self.picks.range(row, row, false, len);
+        self.show_picks();
+    }
+
     /// Drops every pick (the list shows something else).
     pub(super) fn clear_picks(&mut self) {
         self.picks.rows.clear();

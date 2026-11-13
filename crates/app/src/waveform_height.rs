@@ -1,14 +1,14 @@
-//! How tall the large scrolling waveforms are: four sizes, Small to Extra
-//! large, with Medium the height they always had. Each layout keeps its own
-//! size (a tall 2-Deck doesn't make 4-Deck taller), saved as one list by
+//! How tall the large scrolling waveforms are: ten steps, 1 to 10, with 3
+//! the height they always had. Each layout keeps its own step (tall
+//! waveforms in 2-Deck don't make 4-Deck taller), saved as one list by
 //! layout number.
 //!
-//! The window works out the heights each size means in each layout, and
-//! shows a smaller size while the chosen one would leave the library too
+//! The window works out the heights each step means in each layout, and
+//! shows a lower step while the chosen one would leave the library too
 //! little room (main.slint). Here is only the choice: from the grip under
 //! the waveforms, the waveforms button's menu, a waveform's right-click
 //! menu, ⌥⌘↑ / ⌥⌘↓, View, and controllers through `[Skin],waveform_height`
-//! (1 to 4), `waveform_height_up`, `waveform_height_down` and
+//! (1 to 10), `waveform_height_up`, `waveform_height_down` and
 //! `waveform_height_set_default`, which act on the layout showing.
 
 use std::cell::{Cell, RefCell};
@@ -21,20 +21,41 @@ use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use crate::{settings, AppWindow, WaveHeight};
 
-/// The sizes, 1 (Small) to `LEVELS` (Extra large).
-pub const LEVELS: i32 = 4;
-/// Medium: the height the waveforms had before they could change.
-pub const DEFAULT_LEVEL: i32 = 2;
+/// The steps, 1 (lowest) to `LEVELS` (tallest).
+pub const LEVELS: i32 = 10;
+/// The height the waveforms had before they could change.
+pub const DEFAULT_LEVEL: i32 = 3;
 /// Layout numbers 0 to 4 (main.slint's `layout`); Player (1) has no large
 /// waveforms but keeps its place in the list.
 const LAYOUTS: usize = 5;
-const SETTING: &str = "waveform_height";
+const SETTING: &str = "waveform_height_steps";
+/// The first version's four sizes (Small, Medium, Large, Extra large), and
+/// the steps they became.
+const OLD_SETTING: &str = "waveform_height";
+const OLD_SIZES: [i32; 4] = [1, 3, 6, 10];
 
 fn clamp(level: i32) -> i32 {
     level.clamp(1, LEVELS)
 }
 
-/// Each layout's size from the saved list; Medium where it has none.
+/// Each layout's step from the saved settings: the ten-step list, else the
+/// first version's four sizes moved to their steps.
+fn saved(settings: &Value) -> [i32; LAYOUTS] {
+    if settings[SETTING].is_array() {
+        return parse(&settings[SETTING]);
+    }
+    let mut levels = [DEFAULT_LEVEL; LAYOUTS];
+    if let Some(list) = settings[OLD_SETTING].as_array() {
+        for (slot, v) in levels.iter_mut().zip(list) {
+            if let Some(n) = v.as_f64() {
+                *slot = OLD_SIZES[(n.round() as i32).clamp(1, 4) as usize - 1];
+            }
+        }
+    }
+    levels
+}
+
+/// Each layout's step from the saved list; 3 where it has none.
 fn parse(saved: &Value) -> [i32; LAYOUTS] {
     let mut levels = [DEFAULT_LEVEL; LAYOUTS];
     if let Some(list) = saved.as_array() {
@@ -72,7 +93,7 @@ thread_local! {
 /// Reads the saved sizes, shows them, and takes changes from the window
 /// and controllers. Keep the returned timer: it watches the controllers.
 pub fn install(app: &AppWindow, registry: &ControlRegistry) -> slint::Timer {
-    let levels = parse(&settings::load()[SETTING]);
+    let levels = saved(&settings::load());
     let ui = app.global::<WaveHeight>();
     ui.set_steps(LEVELS);
     ui.set_default_level(DEFAULT_LEVEL);
@@ -134,7 +155,7 @@ pub fn install(app: &AppWindow, registry: &ControlRegistry) -> slint::Timer {
     timer
 }
 
-/// The size `layout` has now.
+/// The step `layout` has now.
 fn level(app: &AppWindow, layout: i32) -> i32 {
     let levels = app.global::<WaveHeight>().get_levels();
     usize::try_from(layout)
@@ -143,7 +164,7 @@ fn level(app: &AppWindow, layout: i32) -> i32 {
         .unwrap_or(DEFAULT_LEVEL)
 }
 
-/// Sets `layout`'s size: shows it, saves it and tells controllers.
+/// Sets `layout`'s step: shows it, saves it and tells controllers.
 pub fn set(app: &AppWindow, layout: i32, level: i32) {
     let level = clamp(level);
     let Ok(index) = usize::try_from(layout) else {
@@ -167,13 +188,13 @@ pub fn set(app: &AppWindow, layout: i32, level: i32) {
     }
 }
 
-/// One size taller (1) or shorter (-1) in the layout showing.
+/// One step taller (1) or shorter (-1) in the layout showing.
 pub fn step(app: &AppWindow, by: i32) {
     let layout = app.global::<WaveHeight>().get_layout();
     set(app, layout, level(app, layout) + by);
 }
 
-/// Back to Medium in the layout showing.
+/// Back to step 3 in the layout showing.
 pub fn reset(app: &AppWindow) {
     let layout = app.global::<WaveHeight>().get_layout();
     set(app, layout, DEFAULT_LEVEL);
@@ -189,14 +210,29 @@ mod tests {
     }
 
     #[test]
-    fn saved_sizes_come_back_by_layout() {
-        let saved = serde_json::json!([4, 2, 1, 3, 3]);
-        assert_eq!(parse(&saved), [4, 2, 1, 3, 3]);
+    fn saved_steps_come_back_by_layout() {
+        let saved = serde_json::json!([10, 3, 1, 7, 5]);
+        assert_eq!(parse(&saved), [10, 3, 1, 7, 5]);
     }
 
     #[test]
     fn odd_saved_values_are_kept_in_range() {
-        let saved = serde_json::json!([9, -1, "big", 2.6]);
-        assert_eq!(parse(&saved), [4, 1, DEFAULT_LEVEL, 3, DEFAULT_LEVEL]);
+        let saved = serde_json::json!([19, -1, "big", 2.6]);
+        assert_eq!(parse(&saved), [10, 1, DEFAULT_LEVEL, 3, DEFAULT_LEVEL]);
+    }
+
+    #[test]
+    fn the_four_sizes_move_to_their_steps() {
+        let settings = serde_json::json!({ "waveform_height": [4, 2, 1, 3, 2] });
+        assert_eq!(saved(&settings), [10, 3, 1, 6, 3]);
+    }
+
+    #[test]
+    fn the_ten_steps_win_over_the_four_sizes() {
+        let settings = serde_json::json!({
+            "waveform_height": [4, 4, 4, 4, 4],
+            "waveform_height_steps": [8, 3, 3, 3, 3],
+        });
+        assert_eq!(saved(&settings), [8, 3, 3, 3, 3]);
     }
 }

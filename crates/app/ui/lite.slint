@@ -1,10 +1,10 @@
-// 2-Deck: the lighter two-deck layout. No jogs and no tempo faders: each
+// 2-Deck Basic: the lighter two-deck layout. No jogs and no tempo faders: each
 // deck is its header over one row with SYNC, the tempo, PLAY and CUE,
 // beside a slim mixer. The pads and the loop sit in a bar under the decks
 // that the PADS button shows (PadBarHalf), with the mixer running down
 // between its halves. A deck holding a Groove Box or an
 // instrument shows the full deck instead (see main.slint), as in
-// 2-Deck Pro.
+// 2-Deck.
 import { Theme } from "theme.slint";
 import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter, SyncButton } from "controls.slint";
 import { DeckInfo, Header, Jog, LoopSection, Pads, PlayButton, TempoStep } from "deck.slint";
@@ -21,7 +21,7 @@ export global LiteUi {
     in-out property <bool> jogs: false;
 }
 
-// The BPM's menu in 2-Deck: a short tempo slider with fine − and +, key
+// The BPM's menu in 2-Deck Basic: a short tempo slider with fine − and +, key
 // lock, quantize and reset, then Edit BPM (halve, double, tap) for a track
 // whose BPM was read wrong.
 component LiteTempoMenu inherits Rectangle {
@@ -246,7 +246,7 @@ component LiteChannel inherits VerticalLayout {
 }
 
 // The four knobs down one side (EQ, stems or sculpt), smaller than in
-// 2-Deck Pro.
+// 2-Deck.
 component LiteSide inherits VerticalLayout {
     in property <int> deck;
     in property <length> size: 16px;
@@ -257,7 +257,7 @@ component LiteSide inherits VerticalLayout {
 
 // The slim mixer: the knobs down the outsides, gain over each fader on the
 // inner side, the headphone buttons and the knob mode over the meters, and
-// the crossfader along the bottom. As wide as 2-Deck Pro's, so the Beat FX
+// the crossfader along the bottom. As wide as 2-Deck's, so the Beat FX
 // under it lines up. Tall when the pads show: it then runs down between the
 // two halves of the pad bar, with bigger knobs and longer faders.
 export component LiteMixer inherits Rectangle {
