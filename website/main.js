@@ -86,3 +86,55 @@
     })
     .catch(function () {});
 })();
+
+// Screenshot viewer: a click on a screenshot opens it large in a dialog,
+// with arrows, keys (← → Esc) and swipes to move through the gallery.
+// Without JS, or without <dialog>, the links open the image itself.
+(function () {
+  var links = Array.prototype.slice.call(document.querySelectorAll(".gal a"));
+  if (!links.length || typeof HTMLDialogElement !== "function") return;
+  var shots = links.map(function (a) {
+    var cap = a.parentNode.querySelector("figcaption");
+    return { src: a.getAttribute("href"), alt: a.querySelector("img").alt, cap: cap ? cap.textContent : "" };
+  });
+  var box = document.createElement("dialog");
+  box.className = "viewer";
+  box.innerHTML =
+    '<figure><img alt=""><figcaption><span class="viewer-cap"></span> <span class="viewer-count"></span></figcaption></figure>' +
+    '<button class="viewer-prev" aria-label="Previous screenshot">‹</button>' +
+    '<button class="viewer-next" aria-label="Next screenshot">›</button>' +
+    '<button class="viewer-close" aria-label="Close">×</button>';
+  document.body.appendChild(box);
+  var img = box.querySelector("img"), cap = box.querySelector(".viewer-cap"), count = box.querySelector(".viewer-count");
+  var at = 0;
+  function show(i) {
+    at = (i + shots.length) % shots.length;
+    img.src = shots[at].src;
+    img.alt = shots[at].alt;
+    cap.textContent = shots[at].cap;
+    count.textContent = (at + 1) + " / " + shots.length;
+    new Image().src = shots[(at + 1) % shots.length].src;
+  }
+  function open(i) { show(i); if (!box.open) box.showModal(); }
+  links.forEach(function (a, i) {
+    a.addEventListener("click", function (e) { e.preventDefault(); open(i); });
+  });
+  var intro = document.querySelector(".intro-shot");
+  if (intro) intro.addEventListener("click", function (e) { e.preventDefault(); open(0); });
+  box.querySelector(".viewer-prev").addEventListener("click", function () { show(at - 1); });
+  box.querySelector(".viewer-next").addEventListener("click", function () { show(at + 1); });
+  box.querySelector(".viewer-close").addEventListener("click", function () { box.close(); });
+  box.addEventListener("click", function (e) { if (e.target === box) box.close(); });
+  box.addEventListener("keydown", function (e) {
+    if (e.key === "ArrowLeft") show(at - 1);
+    if (e.key === "ArrowRight") show(at + 1);
+  });
+  var x0 = null;
+  box.addEventListener("touchstart", function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+  box.addEventListener("touchend", function (e) {
+    if (x0 === null) return;
+    var dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 40) show(dx < 0 ? at + 1 : at - 1);
+    x0 = null;
+  });
+})();

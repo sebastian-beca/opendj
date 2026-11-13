@@ -143,6 +143,15 @@ export global ColumnUi {
     callback set-color-mode(mode: int);
 }
 
+// The order of the rail's sources after Collection, by source number:
+// openDJ's own, then the services and add-ons. Dragged in the "•••" menu.
+export global RailOrder {
+    in property <[int]> built-in: [1, 9, 10, 12];
+    in property <[int]> external: [2, 3, 4, 8, 11];
+    // Moves source `source` this many places along its section.
+    callback moved(source: int, steps: int);
+}
+
 // One side panel tab in the chooser that its titles' right-click opens.
 export struct SideTab {
     name: string,
@@ -2099,6 +2108,21 @@ component RefreshButton inherits Rectangle {
     }
 }
 
+// A drag handle: two columns of three dots, as in macOS lists.
+export component DragGrip inherits Rectangle {
+    in property <color> dot-color: Theme.text-dim;
+    width: 8px;
+    height: 13px;
+    for k in 6: Rectangle {
+        x: mod(k, 2) * 5px;
+        y: floor(k / 2) * 5px;
+        width: 3px;
+        height: 3px;
+        border-radius: 1.5px;
+        background: root.dot-color;
+    }
+}
+
 // An on/off switch, as in macOS.
 component Switch inherits Rectangle {
     in property <bool> on;
@@ -2131,23 +2155,106 @@ component SourceMenuTitle inherits Rectangle {
     }
 }
 
-// One source in the rail's "..." menu, with its switch.
-component SourceMenuRow inherits HorizontalLayout {
+// A source's icon in the rail and its menu: openDJ's own drawing, or an
+// add-on's picture (sources numbered from `built-ins`).
+component RailIcon inherits Rectangle {
     in property <int> kind;
-    in property <string> name;
-    in property <bool> on;
-    callback toggled();
-    height: 40px;
-    padding-left: 6px;
-    padding-right: 6px;
-    spacing: 10px;
-    VerticalLayout { alignment: center; SourceIcon { kind: root.kind; } }
-    Text { text: root.name; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
-    VerticalLayout {
-        alignment: center;
-        Switch {
-            on: root.on;
-            toggled => { root.toggled(); }
+    in property <int> built-ins;
+    width: 30px;
+    height: 30px;
+    if kind < built-ins: SourceIcon { kind: root.kind; }
+    if kind >= built-ins: Image { width: 30px; height: 30px; source: SourceUi.sources[root.kind - root.built-ins].icon; }
+}
+
+// One section of the rail's "•••" menu: a row per source with a grip to
+// drag it up or down and a switch to show it.
+component SourceDragList inherits Rectangle {
+    in property <[int]> items;
+    in property <[string]> names;
+    in property <[bool]> shown;
+    callback toggled(source: int);
+    property <length> row-h: 40px;
+    property <int> drag-from: -1;
+    property <length> drag-dy;
+    property <length> drag-start;
+    property <int> drag-to: drag-from < 0 ? -1 : max(0, min(items.length - 1, drag-from + round(drag-dy / row-h)));
+    property <int> drag-kind;
+    function name-of(i: int) -> string {
+        i < names.length ? names[i] : SourceUi.sources[i - names.length].name
+    }
+    height: items.length * row-h;
+    for i[pos] in items: Rectangle {
+        // Rows between where the dragged one was and where it would go
+        // step aside for it.
+        property <length> shift: drag-from < 0 || pos == drag-from ? 0px
+            : drag-from < drag-to && pos > drag-from && pos <= drag-to ? -row-h
+            : drag-from > drag-to && pos < drag-from && pos >= drag-to ? row-h : 0px;
+        // The dragged row stays put, unseen, so its grip keeps the mouse.
+        opacity: pos == drag-from ? 0 : 1;
+        x: 0;
+        y: pos * row-h + shift;
+        width: parent.width;
+        height: row-h;
+        animate y { duration: 100ms; }
+        HorizontalLayout {
+            padding-left: 2px;
+            padding-right: 6px;
+            spacing: 8px;
+            Rectangle {
+                width: 14px;
+                DragGrip { dot-color: grip.has-hover ? Theme.text : Theme.text-dim; }
+                grip := TouchArea {
+                    mouse-cursor: drag-from >= 0 ? MouseCursor.grabbing : MouseCursor.grab;
+                    pointer-event(e) => {
+                        if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                            drag-from = pos;
+                            drag-kind = i;
+                            drag-start = self.absolute-position.y + self.mouse-y;
+                            drag-dy = 0px;
+                        }
+                        if e.button == PointerEventButton.left && e.kind == PointerEventKind.up && drag-from >= 0 {
+                            if drag-to != drag-from {
+                                RailOrder.moved(i, drag-to - drag-from);
+                            }
+                            drag-from = -1;
+                            drag-dy = 0px;
+                        }
+                    }
+                    moved => {
+                        if drag-from >= 0 {
+                            drag-dy = self.absolute-position.y + self.mouse-y - drag-start;
+                        }
+                    }
+                }
+            }
+            VerticalLayout { alignment: center; RailIcon { kind: i; built-ins: names.length; } }
+            Text { text: name-of(i); color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
+            VerticalLayout {
+                alignment: center;
+                Switch {
+                    on: shown[i];
+                    toggled => { root.toggled(i); }
+                }
+            }
+        }
+    }
+    // The row being dragged, over the others.
+    if drag-from >= 0: Rectangle {
+        y: max(0px, min(parent.height - row-h, drag-from * row-h + drag-dy));
+        width: parent.width;
+        height: row-h;
+        border-radius: 8px;
+        background: Theme.n-36363b;
+        drop-shadow-blur: 10px;
+        drop-shadow-color: Theme.s-00000080;
+        HorizontalLayout {
+            padding-left: 2px;
+            padding-right: 6px;
+            spacing: 8px;
+            Rectangle { width: 14px; DragGrip { dot-color: Theme.text; } }
+            VerticalLayout { alignment: center; RailIcon { kind: drag-kind; built-ins: names.length; } }
+            Text { text: name-of(drag-kind); color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
+            VerticalLayout { alignment: center; Switch { on: shown[drag-kind]; } }
         }
     }
 }
@@ -2161,15 +2268,10 @@ component SourceRail inherits Rectangle {
     callback health-picked();
     callback shown-changed(source: int, on: bool);
     property <[string]> names: ["Collection", "Files", "Spotify", "TIDAL", "Apple Music", "Bandcamp", "Beatport", "OneLibrary", "SoundCloud", "Albums", "Recordings", "Mixcloud", "Jam"];
-    // The order the rail shows them in: the built-in sources (Albums,
-    // Recordings and Jam after Files), then the external ones. OneLibrary (7) isn't a source: openDJ writes it when
-    // exporting to a USB stick. Bandcamp (5) and Beatport (6) wait for the
-    // stores, later.
-    property <[int]> order: [0, 1, 9, 10, 12, 2, 3, 4, 8, 11];
-    // The "..." menu splits them the same way, under a title each: openDJ's
-    // own sources, then the services, servers and add-ons outside it.
-    property <[int]> built-in: [1, 9, 10, 12];
-    property <[int]> external: [2, 3, 4, 8, 11];
+    // The rail shows Collection, then RailOrder's sections in the DJ's
+    // order. OneLibrary (7) isn't a source: openDJ writes it when exporting
+    // to a USB stick. Bandcamp (5) and Beatport (6) wait for the stores.
+
     // What each source is, for its tooltip.
     property <[string]> tips: [
         "Every track in your library.",
@@ -2205,18 +2307,18 @@ component SourceRail inherits Rectangle {
                 // Hidden sources fold to nothing; each shown one carries its own gap.
                 // Collection Health sits under the collection, with how many checks
                 // find something.
-                for i in order: Rectangle {
-                    height: shown[i] ? (i == 0 && HealthUi.rail-shown ? 96px : 48px) : 0px;
-                    visible: shown[i];
+                // Collection, always first, with Collection Health under it.
+                Rectangle {
+                    height: HealthUi.rail-shown ? 96px : 48px;
                     RailButton {
                         y: 0;
-                        selected: i == source && !(i == 0 && HealthUi.view);
-                        tip: names[i];
-                        tip-body: tips[i];
-                        SourceIcon { kind: i; }
-                        clicked => { source = i; picked(i); }
+                        selected: 0 == source && !HealthUi.view;
+                        tip: names[0];
+                        tip-body: tips[0];
+                        SourceIcon { kind: 0; }
+                        clicked => { source = 0; picked(0); }
                     }
-                    if i == 0 && HealthUi.rail-shown: RailButton {
+                    if HealthUi.rail-shown: RailButton {
                         y: 48px;
                         selected: source == 0 && HealthUi.view;
                         tip: "Collection Health";
@@ -2225,17 +2327,29 @@ component SourceRail inherits Rectangle {
                         clicked => { source = 0; health-picked(); }
                     }
                 }
-                // Sources from add-ons, numbered on from the built-in ones.
-                for p[j] in SourceUi.sources: Rectangle {
-                    property <int> i: names.length + j;
+                // The rest in the DJ's order; add-ons' sources are numbered
+                // on from the built-in ones.
+                for i in RailOrder.built-in: Rectangle {
                     height: shown[i] ? 48px : 0px;
                     visible: shown[i];
                     RailButton {
                         y: 0;
                         selected: i == source;
-                        tip: p.name;
-                        tip-body: "From an add-on.";
-                        Image { width: 30px; height: 30px; source: p.icon; }
+                        tip: i < names.length ? names[i] : SourceUi.sources[i - names.length].name;
+                        tip-body: i < names.length ? tips[i] : "From an add-on.";
+                        RailIcon { kind: i; built-ins: names.length; }
+                        clicked => { source = i; picked(i); }
+                    }
+                }
+                for i in RailOrder.external: Rectangle {
+                    height: shown[i] ? 48px : 0px;
+                    visible: shown[i];
+                    RailButton {
+                        y: 0;
+                        selected: i == source;
+                        tip: i < names.length ? names[i] : SourceUi.sources[i - names.length].name;
+                        tip-body: i < names.length ? tips[i] : "From an add-on.";
+                        RailIcon { kind: i; built-ins: names.length; }
                         clicked => { source = i; picked(i); }
                     }
                 }
@@ -2252,7 +2366,7 @@ component SourceRail inherits Rectangle {
     menu := PopupWindow {
         x: root.width + 4px;
         y: max(4px, column.y + more.y + more.height - self.height);
-        width: 240px;
+        width: 264px;
         height: list.preferred-height;
         close-policy: close-on-click-outside;
         Rectangle {
@@ -2267,12 +2381,13 @@ component SourceRail inherits Rectangle {
             padding: 8px;
             spacing: 2px;
             SourceMenuTitle { text: "Built-in"; }
-            // Collection Health, which sits under the collection.
+            // Collection Health, which sits under the collection and stays
+            // there: no grip, its icon lined up with the rows below.
             HorizontalLayout {
                 height: 40px;
-                padding-left: 6px;
+                padding-left: 24px;
                 padding-right: 6px;
-                spacing: 10px;
+                spacing: 8px;
                 VerticalLayout { alignment: center; HealthIcon {} }
                 Text { text: "Collection Health"; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
                 VerticalLayout {
@@ -2286,42 +2401,23 @@ component SourceRail inherits Rectangle {
                     }
                 }
             }
-            for i in built-in: SourceMenuRow {
-                kind: i;
-                name: names[i];
-                on: shown[i];
-                toggled => {
+            SourceDragList {
+                items: RailOrder.built-in;
+                names: names;
+                shown: shown;
+                toggled(i) => {
                     shown[i] = !shown[i];
                     shown-changed(i, shown[i]);
                 }
             }
             SourceMenuTitle { text: "External"; }
-            for i in external: SourceMenuRow {
-                kind: i;
-                name: names[i];
-                on: shown[i];
-                toggled => {
+            SourceDragList {
+                items: RailOrder.external;
+                names: names;
+                shown: shown;
+                toggled(i) => {
                     shown[i] = !shown[i];
                     shown-changed(i, shown[i]);
-                }
-            }
-            for p[j] in SourceUi.sources: HorizontalLayout {
-                property <int> i: names.length + j;
-                height: 40px;
-                padding-left: 6px;
-                padding-right: 6px;
-                spacing: 10px;
-                VerticalLayout { alignment: center; Image { width: 30px; height: 30px; source: p.icon; } }
-                Text { text: p.name; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
-                VerticalLayout {
-                    alignment: center;
-                    Switch {
-                        on: shown[i];
-                        toggled => {
-                            shown[i] = !shown[i];
-                            shown-changed(i, shown[i]);
-                        }
-                    }
                 }
             }
         }
@@ -5635,7 +5731,7 @@ component SidePanel inherits Rectangle {
                         spacing: 8px;
                         Rectangle {
                             width: 16px;
-                            Text { text: "⋮⋮"; color: grip.has-hover ? Theme.text : Theme.text-dim; font-size: 13px; }
+                            DragGrip { dot-color: grip.has-hover ? Theme.text : Theme.text-dim; }
                             grip := TouchArea {
                                 mouse-cursor: drag-from >= 0 ? MouseCursor.grabbing : MouseCursor.grab;
                                 pointer-event(e) => {
@@ -5692,7 +5788,7 @@ component SidePanel inherits Rectangle {
                         spacing: 8px;
                         Rectangle {
                             width: 16px;
-                            Text { text: "⋮⋮"; color: Theme.text; font-size: 13px; }
+                            DragGrip { dot-color: Theme.text; }
                         }
                         Text { text: drag-name; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
                         VerticalLayout { alignment: center; Switch { on: drag-on; } }
