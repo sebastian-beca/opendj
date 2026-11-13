@@ -68,8 +68,8 @@ From `add-addon-repositories` (full note `notes/addon-repositories.md` in projec
 
 - Partner API v4: OAuth PKCE with a loopback callback, catalogue lookup by ISRC, cart add (up to 100), checkout opens beatport.com, and library downloads into the inbox. Built only once access is granted; until then step 7 stays open.
 
-## Open questions
+## Decisions (2026-11-13)
 
-- Bandcamp sync format default: FLAC (smaller lossless, tags) or the DJ's choice of FLAC, AIFF or WAV? Proposed: FLAC, with AIFF as an option for players that need it.
-- Bandcamp sync built in beside Bandcamp search (proposed, since both use the same endpoints and the inbox is core) or as a separate add-on as first planned?
-- Should Buy… from a streaming list add the track to Wanted visibly, or keep a hidden pending row? Proposed: visibly, so unfinished purchases are not lost.
+- Bandcamp sync downloads FLAC by default, with AIFF as an option for players that need it.
+- Bandcamp sync is built into openDJ beside Bandcamp search, not a separate add-on: both use the same endpoints and the purchase inbox is core.
+- Buy… from a streaming list or placeholder adds the track to Wanted visibly, marked as being bought, so unfinished purchases are not lost.

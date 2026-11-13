@@ -69,14 +69,6 @@ Released so far: v0.1.0 and v0.2.0 (2026-10-15, 2026-10-20) and v0.3.0 (prepared
 
 ## v0.7 · Your library, everywhere
 
-- [add-settings-table](changes/add-settings-table/proposal.md) (first step of add-settings-layers: one option table, Show modified, reset on each row, search words, help in ⓘ; issue #364, split 2026-11-05; moved from v0.6 at the 0.6.0 release)
-- [add-prepare-list](changes/add-prepare-list/proposal.md)
-- [add-synced-lyrics](changes/add-synced-lyrics/proposal.md) (lyrics from .lrc files and tags in a Lyrics tab and Player mode, LRCLIB lookup off at first, fixing and syncing; moved from v1.x 2026-11-06 after the lyrics and karaoke research)
-- [add-addon-repositories](changes/add-addon-repositories/proposal.md) (moved from v0.6 at the 0.6.0 release)
-- [enable-stores-and-purchase-inbox](changes/enable-stores-and-purchase-inbox/proposal.md) (moved from v0.6 at the 0.6.0 release)
-- [add-bandcamp-collection-sync](changes/add-bandcamp-collection-sync/proposal.md) (moved from v0.6 at the 0.6.0 release)
-- [add-find-and-buy](changes/add-find-and-buy/proposal.md) (moved from v0.6 at the 0.6.0 release)
-- [add-artist-direct-stores](changes/add-artist-direct-stores/proposal.md) (moved from v0.6 at the 0.6.0 release)
 - [add-karaoke-screen](changes/add-karaoke-screen/proposal.md) (the words of the track playing on a second display with the word being sung filling, a count-in and a guide vocal slider, then a /karaoke page on the local web server; split from the lyrics and karaoke research 2026-11-06)
 - [add-waveform-lyrics](changes/add-waveform-lyrics/proposal.md) (timed lyrics along the bottom of each deck's big waveform, sung part lilac; user request 2026-11-09)
 - [add-whisper-word-timing](changes/add-whisper-word-timing/proposal.md) (Time Words: Whisper large-v3-turbo hears the vocal stem and the lyrics get a time for each word, then transcription of tracks with no lyrics; user request 2026-11-09)
