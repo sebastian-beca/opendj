@@ -43,6 +43,15 @@ pub const DEFAULTS: &[Shortcut] = &[
         key: "g",
         script: "edit_grid",
     },
+    // Unload deck 1 or 2, as Serato's keys.
+    Shortcut {
+        key: "alt+shift+left",
+        script: "deck 1 eject",
+    },
+    Shortcut {
+        key: "alt+shift+right",
+        script: "deck 2 eject",
+    },
 ];
 
 /// Modifiers in the order keys are written.

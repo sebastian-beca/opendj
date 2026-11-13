@@ -447,6 +447,10 @@ export component Cover inherits Rectangle {
     in property <int> live: 0;
     // Its menu opens leftward, for a cover on the deck's right.
     in property <bool> menu-left: false;
+    // The deck holds something (a track, a Groove Box, a Looper or a live
+    // input), so its menu offers Unload deck; not while it plays.
+    in property <bool> occupied: false;
+    in property <bool> playing: false;
     property <bool> live-art: live > 0 && InstrumentsUi.has-art(live);
     width: size;
     height: size;
@@ -463,7 +467,7 @@ export component Cover inherits Rectangle {
         source: InstrumentsUi.art(live);
         image-fit: cover;
     }
-    if live > 0: TouchArea {
+    if occupied && !info.loaded: TouchArea {
         pointer-event(e) => {
             if e.kind == PointerEventKind.down && e.button == PointerEventButton.right {
                 art-menu.show();
@@ -474,11 +478,20 @@ export component Cover inherits Rectangle {
         x: menu-left ? root.width - self.width : 0;
         y: root.height + 2px;
         width: 200px;
-        height: (InstrumentsUi.own-art(live) ? 2 : 1) * 36px + 8px;
+        height: (occupied ? (playing ? 36px : 24px) : 0px) + (live > 0 ? (InstrumentsUi.own-art(live) ? 2 : 1) * 36px : 0px) + 8px;
         GrooveMenuBackground { }
         VerticalLayout {
             padding: 4px;
-            GrooveMenuItem {
+            if occupied: GrooveMenuItem {
+                text: "Unload deck";
+                detail: playing ? "Pause the deck first" : "";
+                clicked => {
+                    if !playing {
+                        DeckActions.eject(deck);
+                    }
+                }
+            }
+            if live > 0: GrooveMenuItem {
                 text: "Choose image…";
                 detail: "Or drop one on the deck";
                 clicked => { InstrumentsUi.choose-art(live, InstrumentsUi.instrument()); }
@@ -500,7 +513,82 @@ export component Cover inherits Rectangle {
         data: TrackDrag.deck-payload(deck);
         allow-copy: true;
         changed dragging => { TrackDrag.active = self.dragging; }
-        TouchArea { mouse-cursor: grab; }
+        TouchArea {
+            mouse-cursor: grab;
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down && e.button == PointerEventButton.right {
+                    art-menu.show();
+                }
+            }
+        }
+    }
+}
+
+// The eject mark: a triangle over a bar, in a 12 by 12 box.
+component EjectMark inherits Path {
+    viewbox-width: 12;
+    viewbox-height: 12;
+    commands: "M 6 1.5 L 11 7 L 1 7 Z M 1 8.5 L 11 8.5 L 11 10.5 L 1 10.5 Z";
+}
+
+// A deck's cover with ⏏ on its outer corner while the pointer is on it and
+// the deck holds something that isn't playing: a click unloads the deck,
+// whatever it holds.
+component DeckCover inherits TouchArea {
+    in property <int> deck;
+    in property <color> tint;
+    in property <DeckInfo> info;
+    in property <int> live;
+    in property <bool> mirrored;
+    in property <bool> compact;
+    in property <bool> occupied;
+    in property <bool> playing;
+    width: compact ? 40px : 96px;
+    height: self.width;
+    property <bool> badge: occupied && !playing && root.has-hover;
+    // The badge's tooltip is up: it goes with the badge, however that goes.
+    property <bool> tip-mine;
+    changed badge => {
+        if !badge && tip-mine {
+            tip-mine = false;
+            HoverTip.shown = false;
+        }
+    }
+    Cover { deck: deck; tint: tint; info: info; live: live; menu-left: mirrored; size: root.width; occupied: occupied; playing: playing; }
+    if badge: Rectangle {
+        property <length> inset: compact ? 2px : 4px;
+        property <length> size: compact ? 16px : 22px;
+        x: mirrored ? parent.width - self.width - inset : inset;
+        y: inset;
+        width: size;
+        height: size;
+        border-radius: size / 2;
+        border-width: 1px;
+        border-color: eta.has-hover ? Theme.accent : #ffffff40;
+        background: eta.has-hover ? Theme.accent : #000000b0;
+        EjectMark { width: size * 0.55; height: size * 0.55; fill: eta.has-hover ? Theme.on-selection : #ffffff; }
+        eta := TouchArea {
+            mouse-cursor: pointer;
+            changed has-hover => {
+                if self.has-hover {
+                    HoverTip.title = "Unload deck";
+                    HoverTip.body = "";
+                    HoverTip.right-aligned = mirrored;
+                    HoverTip.x = mirrored ? self.absolute-position.x + self.width : self.absolute-position.x;
+                    HoverTip.y = self.absolute-position.y + self.height + 4px;
+                    HoverTip.shown = true;
+                    tip-mine = true;
+                } else {
+                    tip-mine = false;
+                    HoverTip.shown = false;
+                }
+            }
+            clicked => {
+                tip-mine = false;
+                HoverTip.shown = false;
+                DeckActions.eject(deck);
+            }
+        }
     }
 }
 
@@ -1187,6 +1275,10 @@ export component Header inherits Rectangle {
     // microphone, 2 the aux input, 3 the instrument plugin, 4 and 5 aux
     // inputs 2 and 3.
     property <int> live: info.loaded || groove || looper ? 0 : InstrumentsUi.live(deck);
+    // Something is on the deck, which ⏏ on the cover unloads.
+    property <bool> occupied: info.loaded || groove || looper || live > 0;
+    // On an empty deck: what it held before it was unloaded, to put back.
+    property <string> put-back: occupied ? "" : DeckActions.put-back-names[deck];
     property <int> instrument: InstrumentsUi.instrument();
     property <bool> instrument-ready: Controls.value(Controls.resolve("[Instrument1]", "input_configured"), Controls.tick) > 0;
     property <string> live-name: InstrumentsUi.live-name(live,
@@ -1257,7 +1349,7 @@ export component Header inherits Rectangle {
         }
         if !mirrored: VerticalLayout {
             alignment: start;
-            Cover { deck: deck; tint: tint; info: info; live: live; menu-left: mirrored; size: compact ? 40px : 96px; }
+            DeckCover { deck: deck; tint: tint; info: info; live: live; mirrored: mirrored; compact: compact; occupied: occupied; playing: playing; }
         }
         VerticalLayout {
             spacing: 4px;
@@ -1276,7 +1368,31 @@ export component Header inherits Rectangle {
                         alignment: start;
                         FormatChip { text: InstrumentsUi.format(); tint: tint; compact: compact; }
                     }
-                    if live != 3: Text {
+                    if put-back != "": HorizontalLayout {
+                        alignment: start;
+                        spacing: 6px;
+                        if !compact: Text {
+                            text: "Drop a track here  ·";
+                            color: Theme.text-dim;
+                            font-size: 13px;
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            pbt := Text {
+                                width: parent.width;
+                                text: "↺ Put back " + put-back;
+                                color: pba.has-hover ? Theme.text : Theme.lilac-text;
+                                font-size: compact ? 11px : 13px;
+                                font-weight: 600;
+                                overflow: elide;
+                            }
+                            pba := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { DeckActions.put-back(deck); }
+                            }
+                        }
+                    }
+                    if live != 3 && put-back == "": Text {
                         text: groove ? GrooveUi.kits[groove-kit].name + " kit   |   " + round(groove-bpm * 10) / 10 + (groove-following ? " BPM, in time with the mix" : " BPM")
                             : looper ? round(looper-bpm * 10) / 10 + (looper-following ? " BPM, in time with the mix" : " BPM, its own tempo")
                             : live > 0 ? (InstrumentsUi.route(live) != "" ? InstrumentsUi.route(live) : "Live input")
@@ -1463,7 +1579,7 @@ export component Header inherits Rectangle {
         }
         if mirrored: VerticalLayout {
             alignment: start;
-            Cover { deck: deck; tint: tint; info: info; live: live; menu-left: mirrored; size: compact ? 40px : 96px; }
+            DeckCover { deck: deck; tint: tint; info: info; live: live; mirrored: mirrored; compact: compact; occupied: occupied; playing: playing; }
         }
     }
 }
@@ -1496,6 +1612,16 @@ export global DeckActions {
     // Prepares high-quality stems for the track on `deck` in the
     // background; they take over from the quick ones when ready.
     callback prepare-hq-stems(deck: int);
+    // What each deck held before it was last unloaded, offered on the
+    // empty deck as Put back ("" for nothing); see put_back.rs.
+    in property <[string]> put-back-names;
+    callback put-back(deck: int);
+    // Unloads `deck`, as its eject button: the engine leaves a playing deck
+    // alone.
+    public function eject(deck: int) {
+        Controls.set-value(Controls.resolve("[Channel" + (deck + 1) + "]", "eject"), 1);
+        Controls.set-value(Controls.resolve("[Channel" + (deck + 1) + "]", "eject"), 0);
+    }
 }
 
 // A line of the effect menu: an effect (`index` into EffectList.names,
@@ -3740,6 +3866,18 @@ component GrooveBox inherits Rectangle {
     in property <int> deck;
     in property <string> group;
     in property <color> tint;
+    // The Groove Box is the deck (not a Mixer channel's), so it covers the
+    // header and its cover's ⏏: one at the end of its bottom bar instead.
+    in property <bool> ejectable;
+    property <bool> playing: Controls.value(Controls.resolve(group, "play"), Controls.tick) > 0;
+    // The ⏏'s tooltip is up: it goes when the ⏏ does.
+    property <bool> eject-tip;
+    changed playing => {
+        if playing && eject-tip {
+            eject-tip = false;
+            HoverTip.shown = false;
+        }
+    }
     property <string> g: "[Groove" + (deck + 1) + "]";
     property <int> tab: 0;
     property <bool> four: false;
@@ -3953,7 +4091,42 @@ component GrooveBox inherits Rectangle {
                 }
             }
         }
-        GrooveFillBar { g: g; tint: tint; four <=> four; }
+        HorizontalLayout {
+            spacing: 4px;
+            GrooveFillBar { g: g; tint: tint; four <=> four; horizontal-stretch: 1; }
+            // Unload the deck; not while the Groove Box plays.
+            if ejectable && !playing: Rectangle {
+                width: 30px;
+                height: 26px;
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: geta.has-hover ? Theme.accent : Theme.border;
+                background: geta.pressed ? Theme.control-pressed : Theme.control;
+                EjectMark { width: 12px; height: 12px; fill: geta.has-hover ? Theme.lilac-text : Theme.text; }
+                geta := TouchArea {
+                    mouse-cursor: pointer;
+                    changed has-hover => {
+                        if self.has-hover {
+                            HoverTip.title = "Unload deck";
+                            HoverTip.body = "";
+                            HoverTip.right-aligned = true;
+                            HoverTip.x = self.absolute-position.x + self.width;
+                            HoverTip.y = self.absolute-position.y - 34px;
+                            HoverTip.shown = true;
+                            eject-tip = true;
+                        } else {
+                            eject-tip = false;
+                            HoverTip.shown = false;
+                        }
+                    }
+                    clicked => {
+                        eject-tip = false;
+                        HoverTip.shown = false;
+                        DeckActions.eject(deck);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -5132,11 +5305,10 @@ component TitleButton inherits Rectangle {
 }
 
 // A Mixer deck's slim title in place of the deck header: MIXER with its
-// interfaces and count on the left; CLEAR SOLO, + and the Audio settings
-// cog on the right.
+// interfaces and count on the left; CLEAR SOLO, +, the Audio settings
+// cog and ⏏ (unload the deck) on the right.
 component MixerTitle inherits Rectangle {
-    // The deck shows the instrument plugin's panel (its knobs and
-    // keyboard) in place of the strips: KEYS, while it is a strip.
+    in property <int> deck;
     // Showing a channel's panel (see InstrumentsUi.mixer-view): CHANNELS
     // comes back to the strips.
     in property <bool> in-view;
@@ -5180,6 +5352,14 @@ component MixerTitle inherits Rectangle {
             TitleButton {
                 icon: "M 12 8 A 4 4 0 0 1 12 16 A 4 4 0 0 1 12 8 Z M 12 2 L 12 5 M 12 19 L 12 22 M 2 12 L 5 12 M 19 12 L 22 12 M 5 5 L 7 7 M 17 17 L 19 19 M 5 19 L 7 17 M 17 7 L 19 5";
                 clicked => { InstrumentsUi.open-settings(0, 0); }
+            }
+        }
+        // Last, where the cover's ⏏ would be: the Mixer has no cover.
+        VerticalLayout {
+            alignment: center;
+            TitleButton {
+                icon: "M 5 13 L 12 5 L 19 13 Z M 5 18.5 L 19 18.5";
+                clicked => { DeckActions.eject(root.deck); }
             }
         }
     }
@@ -5537,6 +5717,13 @@ export component Deck inherits Rectangle {
     property <string> group: "[Channel" + (deck + 1) + "]";
     property <color> tint: Theme.deck-color(deck);
     property <bool> groove: Controls.value(Controls.resolve("[Groove" + (deck + 1) + "]", "enabled"), Controls.tick) > 0;
+    // The Groove Box's ⏏ goes with it, however it was unloaded: so does
+    // its tooltip.
+    changed groove => {
+        if !groove && HoverTip.title == "Unload deck" {
+            HoverTip.shown = false;
+        }
+    }
     property <bool> looper: !info.loaded && Controls.value(Controls.resolve("[Looper" + (deck + 1) + "]", "enabled"), Controls.tick) > 0;
     property <int> live: info.loaded || groove || looper ? 0 : InstrumentsUi.live(deck);
     property <bool> mixer: live == InstrumentsUi.mixer-live;
@@ -5579,7 +5766,7 @@ export component Deck inherits Rectangle {
         // A Mixer deck gives the header's room to its strips: a slim title
         // row instead.
         header := Header { deck: deck; info: info; overview: overview; mirrored: mirrored; group: group; visible: !mixer; height: mixer ? 0px : self.preferred-height; }
-        if mixer: MixerTitle { in-view: root.mixer-keys || root.mixer-groove-shown; }
+        if mixer: MixerTitle { deck: deck; in-view: root.mixer-keys || root.mixer-groove-shown; }
 
         Rectangle {
             background: Theme.panel;
@@ -5612,7 +5799,7 @@ export component Deck inherits Rectangle {
     }
 
     // A Groove Box has no waveform or jog: it takes the whole deck.
-    if groove: GrooveBox { width: parent.width; height: parent.height; deck: deck; group: group; tint: tint; }
+    if groove: GrooveBox { width: parent.width; height: parent.height; deck: deck; group: group; tint: tint; ejectable: true; }
 
     // Drop target for tracks dragged from the browser. While any drag is in
     if TrackDrag.active || InstrumentsUi.dragging || TrackDrag.files-over || drop.has-drag: Rectangle {
