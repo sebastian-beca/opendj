@@ -45,13 +45,13 @@ component SmallButton inherits Rectangle {
     callback clicked();
     height: 24px;
     border-radius: Theme.radius;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2a2e : Theme.control;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-2a2a2e : Theme.control;
     border-width: 1px;
     border-color: lit ? Theme.accent : Theme.border;
     HorizontalLayout {
         padding-left: 9px;
         padding-right: 9px;
-        Text { text: root.text; color: lit ? Theme.accent : Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center; }
+        Text { text: root.text; color: lit ? Theme.lilac-text : Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center; }
     }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
@@ -167,7 +167,7 @@ export component CuesPanel inherits Rectangle {
                 for cue[i] in CueList.rows: Rectangle {
                     height: 40px;
                     border-radius: Theme.radius;
-                    background: row-ta.has-hover ? #ffffff08 : transparent;
+                    background: row-ta.has-hover ? Theme.n-ffffff08 : transparent;
                     row-ta := TouchArea { }
                     HorizontalLayout {
                         padding-left: 4px;
@@ -189,7 +189,7 @@ export component CuesPanel inherits Rectangle {
                             go-ta := TouchArea { mouse-cursor: pointer; clicked => { CueList.go(i); } }
                             VerticalLayout {
                                 alignment: center;
-                                Text { text: cue.time; color: go-ta.has-hover ? Theme.accent : Theme.text; font-family: "Inter Tabular"; font-size: 12px; font-weight: 600; }
+                                Text { text: cue.time; color: go-ta.has-hover ? Theme.lilac-text : Theme.text; font-family: "Inter Tabular"; font-size: 12px; font-weight: 600; }
                                 Text { text: (cue.is-loop ? "Loop · " : "") + cue.detail; color: Theme.text-dim; font-size: 10px; }
                             }
                         }
@@ -220,7 +220,7 @@ export component CuesPanel inherits Rectangle {
                                 width: 22px;
                                 height: 22px;
                                 border-radius: Theme.radius;
-                                background: x-ta.has-hover ? #2a2a2e : transparent;
+                                background: x-ta.has-hover ? Theme.n-2a2a2e : transparent;
                                 CloseIcon { width: 10px; height: 10px; }
                                 x-ta := TouchArea { mouse-cursor: pointer; clicked => { CueList.remove(i); } }
                             }
@@ -245,7 +245,7 @@ export component CuesPanel inherits Rectangle {
         border-width: 1px;
         border-color: Theme.border;
         drop-shadow-blur: 12px;
-        drop-shadow-color: #00000080;
+        drop-shadow-color: Theme.s-00000080;
         VerticalLayout {
             padding: 6px;
             spacing: 4px;

@@ -320,6 +320,64 @@ fn xone_k2_two_decks() {
     assert_eq!(c.errors(), Vec::<String>::new());
 }
 
+/// openDJ's K2 mapping for the Mixer deck: a column a channel.
+#[test]
+fn xone_k2_mixer() {
+    const K2: &str = "Allen and Heath Xone K2 - Mixer.opendj-mapping";
+    let (reg, mut c) = load(K2);
+    let press = |c: &mut Controller, note: u8| {
+        c.receive(&[0x9E, note, 0x7F]);
+        c.receive(&[0x8E, note, 0x7F]);
+    };
+
+    // The third fader is Ch 3's volume (it picks up from where it is).
+    for v in (0..=0x7F).chain((0x40..0x7F).rev()) {
+        c.receive(&[0xBE, 0x12, v]);
+    }
+    let vol = reg.get("[Auxiliary3]", "volume").unwrap().get_parameter();
+    assert!((vol - 0x40 as f64 / 127.0).abs() < 0.01, "volume {vol}");
+
+    // The top encoder trims a step a click; pressing it goes back to 0 dB.
+    let trim = |r: &ControlRegistry| r.get("[Auxiliary2]", "pregain").unwrap().get_parameter();
+    let before = trim(&reg);
+    c.receive(&[0xBE, 0x01, 0x01]);
+    assert!(trim(&reg) > before);
+    press(&mut c, 0x35);
+    assert_eq!(get(&reg, "[Auxiliary2]", "pregain"), 1.0);
+
+    // The first knob is PAN, picked up as it passes the centre.
+    for v in (0x30..=0x50).chain((0..0x50).rev()) {
+        c.receive(&[0xBE, 0x04, v]);
+    }
+    assert_eq!(get(&reg, "[Auxiliary1]", "pan"), -1.0);
+
+    // The knob buttons are FX, S and cue; the first matrix row is on/off.
+    press(&mut c, 0x33);
+    press(&mut c, 0x2F);
+    press(&mut c, 0x2B);
+    assert_eq!(get(&reg, "[Auxiliary4]", "fx"), 1.0);
+    assert_eq!(get(&reg, "[Auxiliary4]", "solo"), 1.0);
+    assert_eq!(get(&reg, "[Auxiliary4]", "pfl"), 1.0);
+    let on = get(&reg, "[Auxiliary1]", "main_mix");
+    press(&mut c, 0x24);
+    assert_eq!(get(&reg, "[Auxiliary1]", "main_mix"), 1.0 - on);
+
+    // Lights: Ch 4's S amber, its cue green; Ch 1's meter while it plays.
+    reg.get("[Auxiliary1]", "vu_meter").unwrap().set(0.6);
+    c.take_output();
+    settle(&mut c, 100);
+    let out = c.take_output();
+    let sent = |m: [u8; 3]| out.iter().any(|o| o.as_slice() == m);
+    assert!(sent([0x9E, 0x2F + 36, 0x7F]), "S amber: {out:02X?}");
+    assert!(sent([0x9E, 0x2B + 72, 0x7F]), "cue green");
+    assert!(
+        sent([0x9E, 0x18 + 72, 0x7F]) && sent([0x9E, 0x1C + 72, 0x7F]),
+        "meter"
+    );
+    assert!(!sent([0x9E, 0x20 + 36, 0x7F]), "no amber below 80%");
+    assert_eq!(c.errors(), Vec::<String>::new());
+}
+
 #[test]
 fn every_bundled_mapping_loads_and_takes_its_messages() {
     let dir = default_mappings_dir().unwrap();

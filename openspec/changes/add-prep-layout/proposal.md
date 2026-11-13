@@ -2,6 +2,8 @@
 
 Planned for: **v0.6 · Buy it from the artist** (issue #292; follows improve-beatgrids, issue #134). Steps 1-3 were built in v0.5 behind a switch (`PREP_OFFERED` in `crates/app/src/main.rs`), hidden to leave time to test it.
 
+The tasks still open moved to **v0.8 · From the booth to the studio** on 2026-11-12, so v0.7 ships with what is built.
+
 ## Why
 
 Tracks wait in In Prep until their grid, cues and tags are right, but there is no place built for that work: grid tools sit in a jog menu, hot cues on pads sized for performing, and the stage move in the track menu. rekordbox (EXPORT mode), Serato, Traktor, Engine DJ, VirtualDJ and djay Pro all prepare tracks on one deck with a large waveform, grid tools on one side and cue pads on the other, browser below. None ties preparation to a stage, so openDJ can make getting a track from In Prep to Play Ready one short, keyboard-driven pass of 15 to 60 seconds.
@@ -34,7 +36,7 @@ None.
 ## Out of Scope
 
 - Preparing on a headphone-only deck while a set plays.
-- Prepare lists for a gig (add-prepare-list).
+- Prepare lists for a gig (dropped 2026-11-12; the In Prep stage and Automix lists cover it).
 - Writing cues or grids into file tags.
 
 ## Impact

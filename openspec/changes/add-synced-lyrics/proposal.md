@@ -2,6 +2,8 @@
 
 Planned for: **v0.7 · Your library, everywhere** (moved from v1.x on 2026-11-06 after the lyrics and karaoke research; the karaoke screen follows as its own change)
 
+The tasks still open moved to **v0.8 · From the booth to the studio** on 2026-11-12, so v0.7 ships with what is built.
+
 ## Why
 
 VirtualDJ shows lyrics next to the waveforms and on its video output, and rekordbox has line- and word-synced lyrics on its video decks; Apple Music and Spotify made lyrics something listeners expect. Many DJs already have lyrics: `.lrc` files from tools such as LRCGET, and lyrics in tags written by MusicBee, foobar2000 or Mp3tag. openDJ reads none of them. Lyrics also lead to a karaoke screen with the instrumental from the vocal stem, which is the next change.

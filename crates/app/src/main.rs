@@ -37,6 +37,7 @@ slint::include_modules!();
 
 mod analysis_queue;
 mod app_menu;
+mod appearance;
 mod apple_music;
 mod art;
 mod audio_plugins;
@@ -85,6 +86,7 @@ mod osc_events;
 mod prefs;
 mod prep_click;
 mod presets;
+mod put_back;
 mod quality;
 mod quick_search;
 mod remote;
@@ -636,8 +638,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // An image dropped on a deck playing an instrument becomes its art.
         let dropped = file_drop.files();
         instrument_art::install(&app, move || std::mem::take(&mut *dropped.borrow_mut()));
+        // Dark, Light or Match system, as last picked.
+        appearance::install(&app);
+        let theme_app = app.as_weak();
         app.window().on_winit_window_event(move |window, event| {
             file_drop.window_event(window, event);
+            if let slint::winit_030::winit::event::WindowEvent::ThemeChanged(theme) = event {
+                if let Some(app) = theme_app.upgrade() {
+                    appearance::system_changed(&app, *theme);
+                }
+            }
             // The traffic lights, centred in the top bar after anything that
             // might have moved them back.
             #[cfg(target_os = "macos")]
@@ -1425,6 +1435,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let prep_shown = Cell::new(false);
     // Prep's metronome, on while its grid is open.
     let prep_click = RefCell::new(prep_click::PrepClick::new(&registry, "[Channel1]"));
+    let put_back = Rc::new(RefCell::new(put_back::PutBack::new(&registry)));
+    {
+        let put_back = put_back.clone();
+        let engine = engine.clone();
+        app.global::<DeckActions>().on_put_back(move |deck| {
+            put_back
+                .borrow_mut()
+                .put_back(deck.max(0) as usize, &engine);
+        });
+    }
     // Switched off or on from the crossfader's menu, a controller or a
     // script: remembered for next time, as the Settings switch is.
     let xfader_enabled = registry.create(
@@ -1624,6 +1644,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 let tracks = loaded.read().unwrap().clone();
+                put_back.borrow_mut().tick(&app, &tracks);
                 let camelot = app.global::<KeyNotation>().get_camelot();
                 let mut b = browser.borrow_mut();
                 b.set_camelot(camelot);

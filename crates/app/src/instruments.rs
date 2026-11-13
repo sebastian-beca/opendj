@@ -641,6 +641,11 @@ pub fn show_routes(app: &AppWindow, status: &[String], clock: &str) {
         &settings::mixer_names(),
         clock_device(clock),
     ))));
+    ui.set_mixer_groove(
+        inputs::AUXILIARIES
+            .iter()
+            .any(|&i| status.get(i).is_some_and(|s| s == inputs::GROOVE_BOX)),
+    );
     STATE.with_borrow_mut(|s| s.routes = routes);
     refresh(app);
 }
@@ -659,17 +664,33 @@ fn strips(status: &[String], names: &[String], clock: &str) -> Vec<MixerStripInf
             let mut parts = route.split(" · ");
             let device = parts.next().unwrap_or_default();
             let channels = parts.next().map(channels).unwrap_or_default();
+            // The Mixer deck's own Groove Box: no interface, no clock.
+            let groove = device == inputs::GROOVE_BOX;
             Some(MixerStripInfo {
                 number: n as i32 + 1,
                 name: names
                     .get(n)
                     .map(|s| s.trim())
                     .filter(|s| !s.is_empty())
-                    .map_or_else(|| format!("Ch {}", n + 1), String::from)
+                    .map_or_else(
+                        || {
+                            if groove {
+                                "Groove".to_string()
+                            } else {
+                                format!("Ch {}", n + 1)
+                            }
+                        },
+                        String::from,
+                    )
                     .into(),
                 channels: channels.as_str().into(),
                 stereo: channels.contains('/'),
-                own_clock: !route.is_empty() && !clock.is_empty() && device != clock,
+                own_clock: !groove && !route.is_empty() && !clock.is_empty() && device != clock,
+                group: format!("[Auxiliary{}]", n + 1).into(),
+                badge: (n + 1).to_string().into(),
+                on_key: "main_mix".into(),
+                aux: true,
+                view: if groove { 2 } else { 0 },
                 problem: if route.is_empty() {
                     status.as_str()
                 } else {
@@ -719,6 +740,9 @@ pub fn clock_device(status: &str) -> &str {
 /// "M4 · In 3" from an open input's state; "" from anything else (not set
 /// up, or an error).
 fn route(status: &str) -> String {
+    if status == inputs::GROOVE_BOX {
+        return status.to_string();
+    }
     let parts: Vec<&str> = status.split(" · ").collect();
     match parts.iter().position(|p| p.ends_with(" kHz")) {
         Some(k) if k > 0 => parts[..k].join(" · "),
@@ -843,6 +867,7 @@ mod tests {
         status[inputs::AUXILIARIES[4]] = "M4 · In 3 · 48 kHz".into();
         status[inputs::AUXILIARIES[7]] = "iPhone is not connected".into();
         status[inputs::AUXILIARIES[2]] = "iPhone · In 1 · 48 kHz".into();
+        status[inputs::AUXILIARIES[5]] = inputs::GROOVE_BOX.into();
         let mut names = vec![String::new(); 8];
         names[4] = "Vocals".into();
         let clock = clock_device("M4 · 48 kHz · 256 samples (5.3 ms)");
@@ -860,6 +885,8 @@ mod tests {
                 (1, "Ch 1".into(), "1/2".into(), false, "".into()),
                 (3, "Ch 3".into(), "1".into(), true, "".into()),
                 (5, "Vocals".into(), "3".into(), false, "".into()),
+                // The Mixer deck's Groove Box: no channels, no clock.
+                (6, "Groove".into(), "".into(), false, "".into()),
                 (
                     8,
                     "Ch 8".into(),

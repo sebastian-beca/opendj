@@ -164,7 +164,7 @@ export component WaveHeightGrip inherits Rectangle {
             width: 24px;
             height: 16px;
             border-radius: 4px;
-            background: i + 1 == shown ? Theme.accent : #000000c0;
+            background: i + 1 == shown ? Theme.accent : Theme.s-000000c0;
             Text {
                 text: WaveHeight.short(i + 1);
                 color: i + 1 == shown ? #000000 : Theme.text;
@@ -180,7 +180,7 @@ export component WaveHeightGrip inherits Rectangle {
         width: name.preferred-width + 18px;
         height: 22px;
         border-radius: 11px;
-        background: #000000c0;
+        background: Theme.s-000000c0;
         border-width: 1px;
         border-color: dragging ? Theme.accent : Theme.border;
         opacity: dragging || flash ? 1 : 0;

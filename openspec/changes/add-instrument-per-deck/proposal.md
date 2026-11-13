@@ -2,6 +2,8 @@
 
 Planned for: **v0.7**, after `rework-instruments` (issue #523)
 
+The tasks still open moved to **v0.8 · From the booth to the studio** on 2026-11-12, so v0.7 ships with what is built.
+
 ## Why
 
 openDJ plays one instrument plugin at a time: the Instruments browser can put a synth on deck 3, but loading a second synth for deck 4 replaces the first and cold-starts its helper. Playing a bass on one deck and a pad on another, each from its own keyboard or sequencer track, is the natural next step for live playing over the mix.

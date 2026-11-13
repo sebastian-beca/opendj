@@ -2,6 +2,8 @@
 
 Planned for: **v0.6** (issue #468; design mockups chose option A with a finder)
 
+The tasks still open moved to **v0.8 · From the booth to the studio** on 2026-11-12, so v0.7 ships with what is built.
+
 ## Why
 
 The filter bar (chips per field, BPM and Key matching the playing deck) works, but it slows down as the library grows. Each chip counts its values over the whole list and ignores the other chips, so a combination can leave nothing. Long tag groups are sorted A–Z, so the tag on 40 tracks sits below one on a single track. Chips can't be moved, removing one means opening it and switching off "Keep on the bar", and every field shows up flat in "+" and in the column header menu.

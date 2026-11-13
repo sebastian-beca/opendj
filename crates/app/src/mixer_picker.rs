@@ -11,6 +11,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use opendj_engine::inputs::GROOVE_BOX;
 use opendj_engine::{
     channel_names, input_devices, AudioEngine, AudioSetup, InputRole, InputRoute, Role,
 };
@@ -47,6 +48,8 @@ pub fn install(app: &AppWindow, engine: Rc<AudioEngine>) {
         let (picker, engine, weak) = (picker.clone(), engine.clone(), app.as_weak());
         ui.on_open_picker(move |strip| {
             let Some(app) = weak.upgrade() else { return };
+            // + also offers the instrument plugin and the mic.
+            app.global::<InstrumentsUi>().set_picker_adding(strip == 0);
             let setup = settings::audio_setup();
             let strip = match usize::try_from(strip) {
                 Ok(n) if (1..=InputRole::AUXILIARIES.len()).contains(&n) => n,
@@ -120,6 +123,22 @@ pub fn install(app: &AppWindow, engine: Rc<AudioEngine>) {
         });
     }
     {
+        let (picker, engine, weak) = (picker.clone(), engine.clone(), app.as_weak());
+        ui.on_pick_groove(move || {
+            let mut setup = settings::audio_setup();
+            let p = picker.borrow();
+            if !(1..=InputRole::AUXILIARIES.len()).contains(&p.strip) {
+                return;
+            }
+            set_groove(&mut setup, p.strip);
+            settings::set_audio_setup(&setup);
+            engine.set_inputs(&setup);
+            if let Some(app) = weak.upgrade() {
+                instruments::show_routes(&app, &engine.input_status(), &engine.status());
+            }
+        });
+    }
+    {
         let (engine, weak) = (engine.clone(), app.as_weak());
         ui.on_rename_strip(move |number, name| {
             let Some(n) = usize::try_from(number).ok().filter(|n| (1..=8).contains(n)) else {
@@ -174,6 +193,12 @@ fn show(app: &AppWindow, p: &Picker, setup: &AudioSetup, clock: &str) {
         .collect();
     let ui = app.global::<InstrumentsUi>();
     ui.set_picker_strip(p.strip as i32);
+    ui.set_picker_groove(
+        setup
+            .inputs
+            .iter()
+            .any(|r| r.role == role && r.device == GROOVE_BOX),
+    );
     ui.set_picker_device(if p.device.is_empty() && p.choices.is_empty() {
         "No input device".into()
     } else if p.device.is_empty() {
@@ -224,13 +249,33 @@ fn next_free(setup: &AudioSetup) -> Option<usize> {
         .map(|i| i + 1)
 }
 
+/// Strip `strip` (from 1) plays the Mixer deck's Groove Box: one strip
+/// at a time, so another strip playing it goes back to having no input.
+fn set_groove(setup: &mut AudioSetup, strip: usize) {
+    let role = InputRole::AUXILIARIES[strip - 1];
+    setup
+        .inputs
+        .retain(|r| r.role != role && r.device != GROOVE_BOX);
+    setup.inputs.push(InputRoute {
+        role,
+        device: GROOVE_BOX.to_string(),
+        channel: 0,
+        mono: false,
+    });
+}
+
 /// The interface the picker lists for `strip`: its own, else the one the
 /// other strips use, else the main output's when it has inputs, else the
 /// first input device.
 fn device_for(setup: &AudioSetup, strip: usize, devices: &[String]) -> String {
     let role = InputRole::AUXILIARIES[strip - 1];
     let has = |name: &str| devices.iter().any(|d| d == name);
-    if let Some(r) = setup.inputs.iter().find(|r| r.role == role) {
+    // A strip playing the Groove Box lists the interface the others use.
+    if let Some(r) = setup
+        .inputs
+        .iter()
+        .find(|r| r.role == role && r.device != GROOVE_BOX)
+    {
         return r.device.clone();
     }
     let others = setup
@@ -308,6 +353,28 @@ mod tests {
             setup.inputs.push(aux(n, "M4"));
         }
         assert_eq!(next_free(&setup), None);
+    }
+
+    #[test]
+    fn one_strip_at_a_time_plays_the_groove_box() {
+        let devices = ["M4".to_string()];
+        let mut setup = AudioSetup::default();
+        setup.inputs.push(aux(1, "M4"));
+        setup.inputs.push(aux(2, "M4"));
+        set_groove(&mut setup, 2);
+        assert_eq!(setup.inputs.len(), 2);
+        // Its picker still lists the interface, to go back to it.
+        assert_eq!(device_for(&setup, 2, &devices), "M4");
+        // Moved to a new strip, the old one has no input again.
+        set_groove(&mut setup, 3);
+        let grooves: Vec<_> = setup
+            .inputs
+            .iter()
+            .filter(|r| r.device == GROOVE_BOX)
+            .map(|r| r.role)
+            .collect();
+        assert_eq!(grooves, [InputRole::AUXILIARIES[2]]);
+        assert_eq!(next_free(&setup), Some(2));
     }
 
     #[test]

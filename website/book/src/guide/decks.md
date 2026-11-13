@@ -27,6 +27,14 @@ left and the track's tempo and key, with the overview waveform of the whole
 track. Click the overview to jump; dragging it moves without playing what it
 passes.
 
+To empty a deck, point at its cover and click the small **⏏** in the
+corner (the Mixer has it at the end of its title bar instead). It works on
+whatever the deck holds: a track, the Groove Box, the Looper, an input or
+the Mixer. It only shows while the deck isn't playing. Right-clicking the
+cover has **Unload deck** too, and <kbd>⇧</kbd> <kbd>⌥</kbd> <kbd>←</kbd> /
+<kbd>→</kbd> unload decks 1 and 2. If it was a mistake, click
+**↺ Put back** on the empty deck: a track comes back where it was.
+
 ### Waveform colors
 
 **Settings › Decks › Waveform color** picks how the waveforms are colored:
