@@ -261,8 +261,7 @@ component LiteSide inherits VerticalLayout {
 // under it lines up. Tall when the pads show: it then runs down between the
 // two halves of the pad bar, with bigger knobs and longer faders.
 export component LiteMixer inherits Rectangle {
-    in property <bool> tall;
-    property <length> knob: tall ? 22px : 16px;
+    property <length> knob: 16px;
     background: Theme.panel;
     width: 254px;
     VerticalLayout {
