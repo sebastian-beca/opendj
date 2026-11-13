@@ -489,6 +489,33 @@ impl Browser {
         std::mem::take(&mut self.pages.plays)
     }
 
+    /// The Player search box's track: opens its album's page and plays
+    /// from it to the album's end, as streaming players do. A track with
+    /// no album (or not on its album's page) plays alone.
+    pub fn play_from_album(&mut self, id: usize) {
+        let Some(&index) = self.index_of.get(&id) else {
+            return;
+        };
+        let t = self.library[index].clone();
+        if self.go_to_page(&t, true) {
+            if let Some(at) = self.pages.tracks.iter().position(|&i| i == index) {
+                self.play_page_track(at);
+                return;
+            }
+        }
+        self.queue_page_play(vec![index]);
+    }
+
+    /// The Player search box's album: its page, by name and artist.
+    pub fn open_album_named(&mut self, album: &str, artist: &str) {
+        if self.in_player() && !album.trim().is_empty() {
+            self.open_page(Page::Album(
+                album.trim().to_string(),
+                main_artist(artist).to_string(),
+            ));
+        }
+    }
+
     /// Whether Go to Artist / Go to Album should open a page (Player).
     pub(super) fn go_to_page(&mut self, t: &Track, album: bool) -> bool {
         if !self.in_player() {
