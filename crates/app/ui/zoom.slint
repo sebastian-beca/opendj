@@ -1,24 +1,36 @@
-// The large waveforms' zoom: ten steps, shared by every large waveform in
-// every layout (Prep's included), set from the mouse wheel or trackpad over
-// a waveform, the bar at a waveform's left edge, ⌘= / ⌘− / ⌘0, the View menu
-// and controllers. The app keeps the step (waveform_zoom.rs) and glides the
-// waveforms to it.
+// The large waveforms' zoom: twenty steps of 5%, shared by every large
+// waveform in every layout (Prep's included), set from the mouse wheel or
+// trackpad over a waveform, the bar at the outer edge of the waveform under
+// the pointer, ⌘= / ⌘− / ⌘0, the View menu and controllers. The app keeps
+// the step (waveform_zoom.rs) and glides the waveforms to it; the wheel,
+// trackpad and the bar's drag move it smoothly, settling on the nearest
+// step when they stop.
 import { Theme } from "theme.slint";
 
 export global WaveZoom {
-    // The step, 1 (widest) to `steps` (tightest), shown as 10% to 100%.
-    in property <int> level: 4;
-    in property <int> steps: 10;
+    // The step, 1 (widest) to `steps` (tightest), shown as 5% to 100%.
+    in property <int> level: 8;
+    in property <int> steps: 20;
     // The step it starts on, and goes back to with ⌘0.
-    in property <int> default-level: 4;
+    in property <int> default-level: 8;
     // Track seconds across a large waveform now, at normal speed; it moves
     // through the steps in between as the zoom glides.
     in property <float> seconds: 10;
-    // Counts each change, so the waveforms can show the new step a moment.
+    // Where the zoom is now, as a step that can fall between two (10 s
+    // across is the default step; each step is √1.5 tighter).
+    out property <float> position: clamp(default-level + log(10 / max(seconds, 0.01), 1.224744871), 1, steps);
+    // Counts each change, so the step can show a moment.
     in property <int> changes;
+    // The deck group whose large waveform the pointer is over, or "": the
+    // zoom's bar and step show on that one only.
+    in-out property <string> hovered;
     // Asks the app for a step; it keeps it in range, saves it and tells
     // controllers.
     callback set-level(level: int);
+    // Moves the zoom smoothly to a point between steps, or by some steps;
+    // it settles on the nearest step once these stop coming.
+    callback seek(level: float);
+    callback nudge(by: float);
 
     public function step(by: int) {
         set-level(clamp(level + by, 1, steps));
@@ -27,62 +39,69 @@ export global WaveZoom {
         set-level(default-level);
     }
     public pure function percent(level: int) -> string {
-        level * 10 + "%"
+        level * 5 + "%"
     }
 }
 
-// The zoom's slim bar at a waveform's left edge: a notch for each step,
-// widest at the top, the step lit. Clicking or dragging along it sets the
-// step. It shows while the pointer is over the waveform (`shown`), or a
-// moment after the zoom changes.
+// The zoom's bar at a waveform's outer edge, away from its grid pencil: a
+// light grey track, widest at the top, with a lilac marker where the zoom
+// is. Clicking the track moves the marker there; dragging moves the zoom
+// gently, a step for every 8 px whatever the bar's length, settling on the
+// nearest step on letting go.
+// It shows while the pointer is over the waveform (`shown`).
 export component ZoomBar inherits Rectangle {
     in property <bool> shown;
-    property <length> track-top: 8px;
-    property <length> track-height: self.height - 16px;
-    property <float> notch: track-height / 1px / max(WaveZoom.steps - 1, 1);
-    // The step at a point along the bar.
-    pure function at(y: length) -> int {
-        clamp(round((y - track-top) / 1px / notch) + 1, 1, WaveZoom.steps)
+    // Whether the pointer is on the bar or dragging it.
+    out property <bool> active: bar.has-hover || bar.pressed;
+    property <length> track-top: 9px;
+    property <length> track-height: max(1px, self.height - 18px);
+    // The step at a point along the track.
+    pure function at(y: length) -> float {
+        clamp(1 + (y - track-top) / track-height * (WaveZoom.steps - 1), 1, WaveZoom.steps)
     }
-    width: 22px;
-    opacity: shown || bar.has-hover || bar.pressed ? 1 : 0;
+    // Where a drag started: the pointer, and the zoom then.
+    property <length> press-y;
+    property <float> press-level;
+    width: 24px;
+    opacity: shown || active ? 1 : 0;
     animate opacity { duration: 180ms; }
+    // The track.
     Rectangle {
-        x: 6px;
-        y: track-top - 4px;
-        width: 10px;
-        height: track-height + 8px;
-        border-radius: 5px;
-        background: Theme.s-000000a0;
-        border-width: 1px;
-        border-color: bar.has-hover || bar.pressed ? Theme.text-dim : Theme.border;
-    }
-    for i in WaveZoom.steps: Rectangle {
         x: 9px;
-        y: track-top + i * notch * 1px - 0.5px;
-        width: 4px;
-        height: 1px;
-        background: Theme.text-dim;
-    }
-    Rectangle {
-        x: 7px;
-        y: track-top + (WaveZoom.level - 1) * notch * 1px - 3px;
-        animate y { duration: 150ms; easing: ease-out; }
-        width: 8px;
-        height: 6px;
+        y: track-top - 3px;
+        width: 6px;
+        height: track-height + 6px;
         border-radius: 3px;
+        background: active ? #d4d4d8 : #b8b8bec0;
+        drop-shadow-blur: 4px;
+        drop-shadow-color: #00000080;
+    }
+    // The marker.
+    Rectangle {
+        x: 5px;
+        y: track-top + (WaveZoom.position - 1) / (WaveZoom.steps - 1) * track-height - self.height / 2;
+        width: 14px;
+        height: 14px;
+        border-radius: 7px;
         background: Theme.accent;
+        border-width: 2px;
+        border-color: #ffffff;
     }
     bar := TouchArea {
-        mouse-cursor: pointer;
+        mouse-cursor: bar.pressed ? MouseCursor.grabbing : MouseCursor.grab;
         pointer-event(e) => {
             if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
-                WaveZoom.set-level(at(self.mouse-y));
+                // On the marker, drag it from where it is; elsewhere on
+                // the track, the marker jumps there first.
+                let marker = track-top + (WaveZoom.position - 1) / (WaveZoom.steps - 1) * track-height;
+                press-level = abs(self.mouse-y - marker) <= 9px ? WaveZoom.position : at(self.mouse-y);
+                press-y = self.mouse-y;
+                WaveZoom.seek(press-level);
             }
         }
         moved => {
-            if self.pressed && at(self.mouse-y) != WaveZoom.level {
-                WaveZoom.set-level(at(self.mouse-y));
+            if self.pressed {
+                WaveZoom.seek(clamp(press-level + (self.mouse-y - press-y) / 8px, 1, WaveZoom.steps));
             }
         }
     }

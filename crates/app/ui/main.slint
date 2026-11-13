@@ -139,12 +139,12 @@ component Waveform inherits Rectangle {
     // The track seconds the waveform shows across its width: the shared
     // zoom's, more when the deck plays faster (as the app draws it).
     property <float> visible-seconds: WaveZoom.seconds * (1 + Controls.value(rate-index, Controls.tick) * Controls.value(range-index, Controls.tick));
-    // The wheel or trackpad's scroll not yet taken as a zoom step: a mouse
-    // wheel's notch is a step, a trackpad needs a swipe as long as one.
-    // Scroll that comes within a moment of a step is let go, as a notch can
-    // arrive as more than one event and a swipe runs on after its step.
-    property <length> wheel;
-    property <duration> wheel-stepped: -1s;
+    // The top large waveform of the layout: the zoom's step shows on it
+    // after a change from the keys, menus or a controller.
+    in property <bool> first;
+    // When the last mouse wheel notch came, so a notch's second event
+    // isn't taken as another step.
+    property <duration> wheel-notched: -1s;
     // The zoom's step shows a moment after it changes.
     property <int> zoom-changes: WaveZoom.changes;
     property <bool> zoom-flash;
@@ -195,23 +195,21 @@ component Waveform inherits Rectangle {
     property <length> menu-y;
     wave-touch := TouchArea {
         mouse-cursor: Controls.value(duration-index, Controls.tick) > 0 ? ew-resize : default;
-        // Up zooms in, down out, on every large waveform at once.
+        // Up zooms in, down out, on every large waveform at once: smoothly,
+        // settling on the nearest step once the wheel or trackpad stops. A
+        // trackpad moves a step per 40 px of swipe; a mouse wheel's notch
+        // (a big jump of scroll, which can come as two events) one step.
         scroll-event(e) => {
             if e.delta-y == 0 {
                 return reject;
             }
-            if (wheel > 0 && e.delta-y < 0) || (wheel < 0 && e.delta-y > 0) {
-                wheel = 0;
+            if abs(e.delta-y) >= 40px {
+                if animation-tick() - wheel-notched < 70ms {
+                    return accept;
+                }
+                wheel-notched = animation-tick();
             }
-            if animation-tick() - wheel-stepped < 90ms {
-                return accept;
-            }
-            wheel += e.delta-y;
-            if wheel >= 40px || wheel <= -40px {
-                WaveZoom.step(wheel > 0 ? 1 : -1);
-                wheel = 0;
-                wheel-stepped = animation-tick();
-            }
+            WaveZoom.nudge(clamp(e.delta-y / 40px, -1, 1));
             accept
         }
         pointer-event(e) => {
@@ -280,19 +278,30 @@ component Waveform inherits Rectangle {
         now: WaveLyrics.now(lyrics-deck);
         visible-seconds: root.visible-seconds;
     }
-    // The zoom's bar at the left edge, while the pointer is over the
-    // waveform, and its step a moment after it changes.
-    ZoomBar {
-        x: 0;
+    // The zoom's bar at the left edge while the pointer is over this
+    // waveform, and its step a moment after it changes: on this waveform
+    // when the pointer is on it, else on the layout's top one, so it shows
+    // once whatever the number of decks.
+    property <bool> pointer-here: wave-touch.has-hover || zoom-bar.active;
+    changed pointer-here => {
+        if pointer-here {
+            WaveZoom.hovered = group;
+        } else if WaveZoom.hovered == group {
+            WaveZoom.hovered = "";
+        }
+    }
+    // At the outer edge away from the grid pencil, so it has the whole
+    // height even on short waveforms.
+    zoom-bar := ZoomBar {
+        x: pencil-right ? 0 : parent.width - self.width;
         y: 0;
-        // Above the grid pencil, where it sits in this corner.
-        height: parent.height - (loaded && !pencil-right ? 28px : 0px);
-        shown: wave-touch.has-hover || zoom-flash;
+        height: parent.height;
+        shown: wave-touch.has-hover;
     }
     ZoomReadout {
-        x: 26px;
+        x: 28px;
         y: 6px;
-        shown: zoom-flash;
+        shown: zoom-flash && (WaveZoom.hovered == group || (WaveZoom.hovered == "" && first));
     }
     // Right-click: show or hide the phrase flags on every scrolling
     // waveform, and zoom them all.
@@ -376,28 +385,27 @@ component Waveform inherits Rectangle {
                     vertical-alignment: center;
                 }
             }
+            // − step +, as the zoom steps are in Prep.
             HorizontalLayout {
                 height: 26px;
-                spacing: 2px;
-                padding-left: 4px;
-                padding-right: 4px;
+                spacing: 4px;
+                padding-left: 6px;
+                padding-right: 6px;
                 padding-bottom: 2px;
-                for i in WaveHeight.steps: Rectangle {
+                for b in [{ text: "−", by: -1 }, { text: "", by: 0 }, { text: "+", by: 1 }]: Rectangle {
+                    property <bool> enabled: b.by < 0 ? WaveHeight.level > 1 : b.by > 0 ? WaveHeight.level < WaveHeight.steps : false;
                     border-radius: 4px;
-                    background: WaveHeight.level == i + 1 ? Theme.accent.with-alpha(0.3) : hta.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.panel-raised.brighter(0.12);
-                    border-width: 1px;
-                    border-color: WaveHeight.level == i + 1 ? Theme.accent : transparent;
+                    background: b.by == 0 ? transparent : hta.has-hover && enabled ? Theme.panel-raised.brighter(0.3) : Theme.panel-raised.brighter(0.12);
                     Text {
-                        text: WaveHeight.short(i + 1);
-                        color: WaveHeight.level == i + 1 ? Theme.text : Theme.text-dim;
-                        font-size: 11px;
-                        font-weight: 600;
+                        text: b.by == 0 ? WaveHeight.level : b.text;
+                        color: b.by == 0 || enabled ? Theme.text : Theme.text-dim;
+                        font-family: "Inter Tabular";
+                        font-size: b.by == 0 ? 12px : 14px;
+                        font-weight: b.by == 0 ? 700 : 500;
                     }
                     hta := TouchArea {
-                        clicked => {
-                            WaveHeight.pick(i + 1);
-                            wave-menu.close();
-                        }
+                        enabled: enabled;
+                        clicked => { WaveHeight.step(b.by); }
                     }
                 }
             }
@@ -1206,8 +1214,8 @@ component LayoutPill inherits Rectangle {
 // The arrow at its right end, as on MIC, opens their heights.
 component WaveformsButton inherits Rectangle {
     in-out property <bool> on;
-    // The largest height the window has room for now.
-    in property <int> fits: 4;
+    // The highest step the window has room for now.
+    in property <int> fits: 10;
     callback changed-to(on: bool);
     background: on ? Theme.accent.with-alpha(0.18) : Theme.panel-raised;
     border-radius: 10px;
@@ -1264,7 +1272,7 @@ component WaveformsButton inherits Rectangle {
     sizes := PopupWindow {
         x: 0px;
         y: root.height + 6px;
-        width: 190px;
+        width: 270px;
         close-policy: close-on-click-outside;
         Rectangle {
             background: Theme.panel-raised;
@@ -1539,11 +1547,11 @@ export component AppWindow inherits Window {
     // Two waveforms, or four in 4-Deck, share the room between the lines.
     out property <length> waveform-height: max(1px, (waveforms.height - (wave-rows + 1) * 1px - (prep ? 24px : 0px)) / wave-rows);
     property <int> wave-rows: four ? 4 : prep ? 1 : 2;
-    // The waveforms' strip at each of the four heights (wave_height.slint),
-    // Small first, Medium being the height it always had: each waveform
-    // 48, 72, 104 or 144 px in 2-Deck Basic and 2-Deck, 36 to 84 px in 4-Deck,
+    // The waveforms' strip at each of the ten height steps
+    // (wave_height.slint), 1 first, 3 being the height it always had: each
+    // waveform 48 to 144 px in 2-Deck Basic and 2-Deck, 36 to 84 px in 4-Deck,
     // 120 to 320 px in Prep, with the lines between (and Prep's key hints).
-    property <[length]> strip-heights: four ? [149px, 213px, 277px, 341px] : prep ? [146px, 200px, 266px, 346px] : [99px, 144px, 211px, 291px];
+    property <[length]> strip-heights: four ? [149px, 181px, 213px, 233px, 249px, 269px, 285px, 305px, 321px, 341px] : prep ? [146px, 173px, 200px, 221px, 242px, 263px, 283px, 304px, 325px, 346px] : [99px, 123px, 144px, 167px, 189px, 209px, 229px, 249px, 271px, 291px];
     // Everything else down the window but the library, which is as tall as
     // this layout makes it whatever the waveforms' height: the top bar, the
     // decks, the FX bar and the footer, with the lines between.
@@ -1553,18 +1561,24 @@ export component AppWindow inherits Window {
         : prep ? 280px : 0px;
     property <length> other-rows: 52px + 1px + 1px + deck-rows + 1px + (fx-bar-visible && !prep ? (four ? 96px : 68px) + 1px : 0px) + 1px + 36px;
     // The library keeps room for about five tracks under its header: a
-    // height with less shows the next smaller one that fits, but never
-    // less than Medium unless the DJ chose less. The chosen one comes back
+    // step with less shows the highest one that fits, but never below 3
+    // unless the DJ chose less. The chosen one comes back
     // when the window has room again.
     property <length> library-floor: 230px;
     // The window's height as `changed height` passes it on: reading
     // root.height here would tie the window's own size to the waveforms'.
     property <length> strip-room: LibraryEdit.window-height - other-rows - library-floor;
-    property <int> wave-fits: strip-heights[3] <= strip-room ? 4 : strip-heights[2] <= strip-room ? 3 : strip-heights[1] <= strip-room ? 2 : 1;
-    property <int> wave-level: min(WaveHeight.level, max(wave-fits, min(WaveHeight.level, 2)));
+    property <int> wave-fits: strip-heights[9] <= strip-room ? 10 : strip-heights[8] <= strip-room ? 9 : strip-heights[7] <= strip-room ? 8 : strip-heights[6] <= strip-room ? 7 : strip-heights[5] <= strip-room ? 6 : strip-heights[4] <= strip-room ? 5 : strip-heights[3] <= strip-room ? 4 : strip-heights[2] <= strip-room ? 3 : strip-heights[1] <= strip-room ? 2 : 1;
+    property <int> wave-level: min(WaveHeight.level, max(wave-fits, min(WaveHeight.level, WaveHeight.default-level)));
     // From whichever layout's deck A is showing.
-    out property <length> overview-width: player ? 1px : four ? strip-1.overview-width : compact ? player-a.overview-width : prep ? prep-deck.overview-width : lite ? lite-a.overview-width : deck-a.overview-width;
-    out property <length> overview-height: player ? 1px : four ? strip-1.overview-height : compact ? player-a.overview-height : prep ? prep-deck.overview-height : lite ? lite-a.overview-height : deck-a.overview-height;
+    // 2-Deck measures the overviews on deck 1, or on deck 2 while deck 1
+    // is a Mixer deck: that has no overview, and its zero height would draw
+    // every overview as only its phrase bar, stretched to fill.
+    property <bool> pro-overview-b: deck-a.overview-height < 1px && deck-b.overview-height >= 1px;
+    property <length> pro-overview-width: pro-overview-b ? deck-b.overview-width : deck-a.overview-width;
+    property <length> pro-overview-height: pro-overview-b ? deck-b.overview-height : deck-a.overview-height;
+    out property <length> overview-width: player ? 1px : four ? strip-1.overview-width : compact ? player-a.overview-width : prep ? prep-deck.overview-width : lite ? lite-a.overview-width : pro-overview-width;
+    out property <length> overview-height: player ? 1px : four ? strip-1.overview-height : compact ? player-a.overview-height : prep ? prep-deck.overview-height : lite ? lite-a.overview-height : pro-overview-height;
     property <bool> four: layout == 2 && !library-expanded;
     // 2-Deck Basic, the lighter two-deck layout (lite.slint). A deck there holding
     // a Groove Box or an instrument shows the full deck, and the row is as
@@ -1988,8 +2002,10 @@ export component AppWindow inherits Window {
                     // menu bar).
                     if AppMenu.shown: AppMenuButton { }
                     LayoutPill { layout <=> root.layout; changed-to(l) => { layout-changed(l); } }
-                    if !player: WaveformsButton { on <=> root.waveforms-visible; fits: wave-fits; changed-to(on) => { waveforms-visible-changed(on); } }
-                    if !player: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
+                    // Prep always shows its waveform and never the FX bar,
+                    // so neither button is offered there.
+                    if !player && layout != 3: WaveformsButton { on <=> root.waveforms-visible; fits: wave-fits; changed-to(on) => { waveforms-visible-changed(on); } }
+                    if !player && layout != 3: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
                     if layout == 2 || layout == 4: PadsButton { on <=> root.pads-visible; changed-to(on) => { pads-visible-changed(on); } }
                     if layout == 4: JogsButton { on <=> root.jogs-visible; changed-to(on) => { jogs-visible-changed(on); } }
                     if !player: Rectangle { horizontal-stretch: 1; }
@@ -2027,15 +2043,16 @@ export component AppWindow inherits Window {
             waveforms := Rectangle {
                 // Not rounded or clipped: that renders into a cached layer, which
                 // would freeze the GPU-updated waveform images. Folded away while
-                // the library is expanded or the top bar button hides them.
-                height: library-expanded || !waveforms-visible || player ? 0px : strip-heights[wave-level - 1];
-                visible: !library-expanded && waveforms-visible && !player;
+                // the library is expanded or the top bar button hides them
+                // (Prep has no such button: its waveform always shows).
+                height: library-expanded || !(waveforms-visible || prep) || player ? 0px : wave-grip.dragging ? wave-grip.drag-height : strip-heights[wave-level - 1];
+                visible: !library-expanded && (waveforms-visible || prep) && !player;
                 background: Theme.well;
                 // Thin grey lines above, between and below the waveforms.
                 if prep: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; info: decks[0]; vertical-stretch: 1; lyrics-deck: 0; drag-grid: true; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; info: decks[0]; vertical-stretch: 1; lyrics-deck: 0; drag-grid: true; first: true; }
                     // The quick review keys, and how long this track has taken.
                     Rectangle {
                         height: 24px;
@@ -2067,7 +2084,7 @@ export component AppWindow inherits Window {
                 if !four && !prep: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; info: decks[0]; deck: 0; vertical-stretch: 1; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; info: decks[0]; deck: 0; vertical-stretch: 1; first: true; }
                     Rectangle { height: 1px; background: Theme.border; }
                     Waveform { source: waveform-2; group: "[Channel2]"; info: decks[1]; deck: 1; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
@@ -2075,7 +2092,7 @@ export component AppWindow inherits Window {
                 if four: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-3; group: "[Channel3]"; info: decks[2]; vertical-stretch: 1; lyrics-deck: 2; }
+                    Waveform { source: waveform-3; group: "[Channel3]"; info: decks[2]; vertical-stretch: 1; lyrics-deck: 2; first: true; }
                     Rectangle { height: 1px; background: Theme.border; }
                     Waveform { source: waveform-1; group: "[Channel1]"; info: decks[0]; vertical-stretch: 1; lyrics-deck: 0; }
                     Rectangle { height: 1px; background: Theme.border; }
@@ -2108,7 +2125,7 @@ export component AppWindow inherits Window {
                     deck-a := Deck { deck: 0; info: decks[0]; spin: spin-1; overview: overview-1; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
                     if !external-mixer: Mixer { }
                     if external-mixer: ExternalMixer { }
-                    Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
+                    deck-b := Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
                 }
 
                 // 2-Deck Basic: the lighter decks either side of the slim mixer, each
@@ -2336,14 +2353,16 @@ export component AppWindow inherits Window {
         }
 
         // The grip on the line under the waveforms, to make them taller
-        // or shorter; over everything, so its ticks show over the decks.
-        if waveforms.visible: WaveHeightGrip {
+        // or shorter; over everything, so it can be grabbed from just
+        // below the line too. While dragging, the waveforms take its height.
+        wave-grip := WaveHeightGrip {
+            visible: waveforms.visible;
             x: waveforms.absolute-position.x - keys.absolute-position.x;
             y: 0;
+            width: waveforms.width;
             height: parent.height;
             strip-top: waveforms.absolute-position.y - keys.absolute-position.y;
             strip-height: waveforms.height;
-            strip-width: waveforms.width;
             heights: strip-heights;
             fits: wave-fits;
             shown: wave-level;

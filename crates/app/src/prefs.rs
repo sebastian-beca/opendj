@@ -1465,7 +1465,7 @@ impl Prefs {
                         "Tints the sung parts of the waveforms green, as on VirtualDJ. \
                          Each track is checked once, in the background, the first time \
                          it is loaded.",
-                        settings::flag(crate::wave_look::VOCALS_KEY, true),
+                        settings::flag(crate::wave_look::VOCALS_KEY, false),
                     ),
                     PrefItem {
                         choices: strings(&["Off", "Beats", "Beats and phrases"]),

@@ -1327,7 +1327,11 @@ export component Header inherits Rectangle {
             HoverTip.shown = false;
         }
     }
-    height: compact ? 92px : 108px;
+    // The header's fixed height. A deck that hides the header sets its own
+    // height from this, never from preferred-height: that follows the
+    // overview image's pixel size, so the header grew with each render.
+    out property <length> fixed-height: compact ? 92px : 108px;
+    height: fixed-height;
     // Cover, title, info and overview share one black box.
     background: Theme.well;
 
@@ -5166,18 +5170,31 @@ component MixerStrip inherits Rectangle {
                     }
                     out := TouchArea { clicked => { Controls.set-value(Controls.resolve(group, "mixer"), 0); } }
                 }
+                // The channel's input ("1/2", "3"), then ▼ to pick another.
                 Rectangle {
                     visible: info.aux;
-                    width: info.aux ? 20px : 0px;
+                    width: !info.aux ? 0px : info.channels == "" ? 20px : input-text.preferred-width + 20px;
                     horizontal-stretch: 0;
                     border-radius: 4px;
                     background: box.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.control;
-                    Text {
-                        text: "▼";
-                        color: box.has-hover ? Theme.text : Theme.text-dim;
-                        font-size: 8px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    HorizontalLayout {
+                        padding-left: info.channels == "" ? 0px : 5px;
+                        padding-right: 0px;
+                        input-text := Text {
+                            text: info.channels;
+                            color: box.has-hover ? Theme.text : Theme.text-dim;
+                            font-size: 10px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            width: info.channels == "" ? parent.width : 15px;
+                            text: "▼";
+                            color: box.has-hover ? Theme.text : Theme.text-dim;
+                            font-size: 8px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
                     }
                     box := TouchArea {
                         clicked => {
@@ -5765,7 +5782,7 @@ export component Deck inherits Rectangle {
 
         // A Mixer deck gives the header's room to its strips: a slim title
         // row instead.
-        header := Header { deck: deck; info: info; overview: overview; mirrored: mirrored; group: group; visible: !mixer; height: mixer ? 0px : self.preferred-height; }
+        header := Header { deck: deck; info: info; overview: overview; mirrored: mirrored; group: group; visible: !mixer; height: mixer ? 0px : self.fixed-height; }
         if mixer: MixerTitle { deck: deck; in-view: root.mixer-keys || root.mixer-groove-shown; }
 
         Rectangle {
