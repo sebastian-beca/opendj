@@ -95,7 +95,7 @@ fn entry(n: Node) -> Option<ImportedEntry> {
 }
 
 /// A file from a `file://localhost/…` location.
-fn location(url: &str) -> Option<PathBuf> {
+pub(crate) fn location(url: &str) -> Option<PathBuf> {
     let rest = url
         .strip_prefix("file://localhost")
         .or_else(|| url.strip_prefix("file://"))?;
@@ -113,7 +113,7 @@ fn percent_decode(s: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
+        if bytes[i] == b'%' && i + 3 <= bytes.len() {
             if let Some(b) = std::str::from_utf8(&bytes[i + 1..i + 3])
                 .ok()
                 .and_then(|h| u8::from_str_radix(h, 16).ok())

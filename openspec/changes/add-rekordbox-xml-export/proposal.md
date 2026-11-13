@@ -2,6 +2,8 @@
 
 Planned for: **v0.6 · Buy it from the artist** (moved from v0.5 at the 0.5.0 release) (2026-11-02, from the ecosystem standards review)
 
+The tasks still open moved to **v0.8 · From the booth to the studio** on 2026-11-12, so v0.7 ships with what is built.
+
 ## Why
 
 rekordbox XML is the exchange format of the DJ library world. rekordbox imports it, and library tools (Lexicon, Rekord Buddy, Mixed In Key, DJ.Studio and others) read it and convert it to Serato, Traktor, Engine DJ and VirtualDJ. One exporter lets a DJ take openDJ's prep (cues, loops, grids, colours, playlists) to almost any other app, which makes switching to openDJ less of a one-way door. openDJ already reads the format (`crates/plugins/src/rekordbox/xml.rs`), so the field mapping is known. Research: notes/ecosystem-standards-review.md in the project files.

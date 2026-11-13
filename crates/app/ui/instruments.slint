@@ -10,11 +10,24 @@ import { Controls } from "controls.slint";
 import { ScrollView } from "scroll.slint";
 
 // One thing to drag onto a deck: a row of the list.
+// A choice in a Mixer strip's input picker.
+export struct PickerRow {
+    // "1/2" (a pair) or "3" (one channel).
+    label: string,
+    // Each channel's meter, 0 to 1; r is -1 for one channel.
+    l: float,
+    r: float,
+    // The strip takes it now.
+    current: bool,
+    // The first single channel, after the pairs: a line above it.
+    gap: bool,
+}
+
 // A strip of the Mixer: an aux input set up in Settings › Audio.
 export struct MixerStripInfo {
     // The aux input, from 1: `[AuxiliaryN]`.
     number: int,
-    // The interface it comes from ("M4"), or "Aux N" without one.
+    // Its name: "Ch N" until renamed.
     name: string,
     // Its channels on the interface: "3" (mono) or "1/2" (stereo).
     channels: string,
@@ -22,6 +35,22 @@ export struct MixerStripInfo {
     stereo: bool,
     // What is wrong with it (the device is missing), or "".
     problem: string,
+    // It comes from another interface than the main output's, so it runs
+    // on that interface's own clock and can drift.
+    own-clock: bool,
+    // Its controls' group: `[AuxiliaryN]`, `[Microphone]` or
+    // `[Instrument1]`; what its number square reads ("3", "MIC",
+    // "INST"); and the control that switches it on (`main_mix`, or the
+    // mic's `talkover`).
+    group: string,
+    badge: string,
+    on-key: string,
+    // An aux input: its input can be picked and it can be renamed. The
+    // mic and the instrument are removed from the Mixer instead.
+    aux: bool,
+    // The panel its button opens on the Mixer deck (see mixer-view): 0
+    // none, 1 the instrument's (keys), 2 the Groove Box's.
+    view: int,
 }
 
 export struct LiveItem {
@@ -171,6 +200,31 @@ export global InstrumentsUi {
     in property <[string]> routes;
     // The Mixer's strips, in order: the aux inputs set up.
     in property <[MixerStripInfo]> strips;
+    // The input picker (see the app's mixer_picker): the strip it is for
+    // (from 1), the interface it lists, and its choices with their meters.
+    in property <int> picker-strip;
+    in property <string> picker-device;
+    in property <[PickerRow]> picker-rows;
+    // Opens it for strip `number` (from 1), or for a new strip with 0.
+    callback open-picker(number: int);
+    // It is open for a new strip (+): it also offers the mic and the
+    // instrument plugin. Set by the app.
+    in property <bool> picker-adding;
+    // Names a Mixer channel; "" goes back to "Ch N".
+    callback rename-strip(number: int, name: string);
+    // Its popup is open: fresh meters, please.
+    callback picker-tick();
+    // Choice `index` of picker-rows picked.
+    callback pick(index: int);
+    // The picker's strip plays the Mixer deck's Groove Box; picking it.
+    in property <bool> picker-groove;
+    callback pick-groove();
+    // A Mixer channel plays the Mixer deck's Groove Box.
+    in property <bool> mixer-groove;
+    // What the Mixer deck shows: 0 its channels, 1 the instrument's panel,
+    // 2 the Groove Box's. A channel's view button opens one; the Mixer's
+    // title bar stays, with CHANNELS to come back.
+    in-out property <int> mixer-view;
 
     // Each ticked plugin's own image, in the picker's order, and each
     // input's (microphone, aux 1, aux 2, aux 3, Mixer), with whether there is one:
@@ -188,8 +242,9 @@ export global InstrumentsUi {
     // anything else loads like a track. `instrument` is the plugin picked.
     callback drop-art(deck: int, live: int, instrument: int);
     callback choose-art(live: int, instrument: int);
-    // Solos aux input `number` (from 1) alone in the Mixer: Cmd/Ctrl-click
-    // on its S.
+    // Solos strip `number` alone in the Mixer: aux input 1 to 8, 9 the
+    // instrument, 10 the mic (Cmd/Ctrl-click on its S). 0 clears every
+    // solo (CLEAR SOLO).
     public function solo-alone(number: int) {
         Controls.set-value(Controls.resolve("[Auxiliary1]", "solo"), number == 1 ? 1 : 0);
         Controls.set-value(Controls.resolve("[Auxiliary2]", "solo"), number == 2 ? 1 : 0);
@@ -199,6 +254,26 @@ export global InstrumentsUi {
         Controls.set-value(Controls.resolve("[Auxiliary6]", "solo"), number == 6 ? 1 : 0);
         Controls.set-value(Controls.resolve("[Auxiliary7]", "solo"), number == 7 ? 1 : 0);
         Controls.set-value(Controls.resolve("[Auxiliary8]", "solo"), number == 8 ? 1 : 0);
+        Controls.set-value(Controls.resolve("[Instrument1]", "solo"), number == 9 ? 1 : 0);
+        Controls.set-value(Controls.resolve("[Microphone]", "solo"), number == 10 ? 1 : 0);
+    }
+    // The Mixer's strips besides the aux inputs: the instrument plugin
+    // (number 9) and the mic (10), while their `mixer` is on.
+    public pure function instrument-strip(tick: int) -> MixerStripInfo {
+        {
+            number: 9, name: "Instrument", channels: "", stereo: true, own-clock: false,
+            group: "[Instrument1]", badge: "INST", on-key: "main_mix", aux: false, view: 1,
+            problem: Controls.value(Controls.resolve("[Instrument1]", "input_configured"), tick) > 0 ? "" : "No plugin",
+        }
+    }
+    public pure function mic-strip() -> MixerStripInfo {
+        {
+            number: 10, name: "Mic", channels: "", stereo: false, own-clock: false,
+            group: "[Microphone]", badge: "MIC", on-key: "talkover", aux: false, problem: "", view: 0,
+        }
+    }
+    public pure function in-mixer(group: string, tick: int) -> bool {
+        Controls.value(Controls.resolve(group, "mixer"), tick) > 0
     }
     callback remove-art(live: int, instrument: int);
 
@@ -407,7 +482,7 @@ export component LiveIcon inherits Rectangle {
         fill: transparent;
         commands: "M 11.5 8 A 3.5 3.5 0 0 1 18.5 8 L 18.5 15 A 3.5 3.5 0 0 1 11.5 15 Z M 8 14 A 7 7 0 0 0 22 14 M 15 21 L 15 25 M 11 25 L 19 25";
     }
-    // The Mixer: three faders.
+    // The Mixer: three lines, like a mixer's channels.
     if kind == 7: Path {
         width: parent.width;
         height: parent.height;
@@ -418,14 +493,6 @@ export component LiveIcon inherits Rectangle {
         stroke-line-cap: round;
         fill: transparent;
         commands: "M 8 5 L 8 25 M 15 5 L 15 25 M 22 5 L 22 25";
-    }
-    if kind == 7: Path {
-        width: parent.width;
-        height: parent.height;
-        viewbox-width: 30;
-        viewbox-height: 30;
-        fill: tint;
-        commands: "M 5.5 16 L 10.5 16 L 10.5 19.5 L 5.5 19.5 Z M 12.5 9 L 17.5 9 L 17.5 12.5 L 12.5 12.5 Z M 19.5 13 L 24.5 13 L 24.5 16.5 L 19.5 16.5 Z";
     }
     // The aux input: a cable's jack.
     if kind == 4: Path {
@@ -486,7 +553,7 @@ component InstrumentTree inherits Rectangle {
                 for n[i] in InstrumentsUi.nodes: Rectangle {
                     height: 34px;
                     border-radius: Theme.radius;
-                    background: i == InstrumentsUi.current-node ? Theme.selection : ta.has-hover ? #232326 : transparent;
+                    background: i == InstrumentsUi.current-node ? Theme.selection : ta.has-hover ? Theme.n-232326 : transparent;
                     ta := TouchArea {
                         clicked => { InstrumentsUi.select-node(i); }
                         double-clicked => { InstrumentsUi.toggle-node(i); }
@@ -552,7 +619,7 @@ component SortHeading inherits Rectangle {
     HorizontalLayout {
         spacing: 4px;
         Heading { text: root.text; color: on ? Theme.text : Theme.text-dim; }
-        if on: Heading { text: InstrumentsUi.sort-descending ? "▼" : "▲"; color: Theme.accent; font-size: 9px; }
+        if on: Heading { text: InstrumentsUi.sort-descending ? "▼" : "▲"; color: Theme.lilac-text; font-size: 9px; }
         Rectangle { horizontal-stretch: 1; }
     }
     TouchArea { mouse-cursor: pointer; clicked => { InstrumentsUi.sort-by(column); } }
@@ -591,7 +658,7 @@ component InstrumentRow inherits Rectangle {
                 width: 24px;
                 height: 24px;
                 border-radius: 4px;
-                background: #000000;
+                background: Theme.n-000000;
                 if item.kind != 5: LiveIcon { kind: item.kind; size: 20px; tint: Theme.accent; }
                 if item.kind == 5: NodeIcon { kind: 7; tint: Theme.accent; }
             }
@@ -601,7 +668,7 @@ component InstrumentRow inherits Rectangle {
         Text {
             width: maker-width;
             text: item.problem != "" ? item.problem : item.maker;
-            color: item.problem != "" ? #ff9f0a : selected ? Theme.on-row-selection : Theme.text-dim;
+            color: item.problem != "" ? Theme.c-ff9f0a : selected ? Theme.on-row-selection : Theme.text-dim;
             font-size: 13px;
             vertical-alignment: center;
             overflow: elide;
@@ -610,7 +677,7 @@ component InstrumentRow inherits Rectangle {
         Text {
             width: 64px;
             text: decks == "" ? "" : (decks.character-count > 1 ? "Decks " : "Deck ") + decks;
-            color: selected ? Theme.on-row-selection : Theme.accent;
+            color: selected ? Theme.on-row-selection : Theme.lilac-text;
             font-size: 12px;
             font-weight: 600;
             vertical-alignment: center;
@@ -628,7 +695,7 @@ export component TagChip inherits Rectangle {
     height: 22px;
     min-width: label.preferred-width + 16px;
     border-radius: 11px;
-    background: on ? Theme.accent.with-alpha(0.25) : tcta.has-hover ? #3a3a3d : Theme.control;
+    background: on ? Theme.accent.with-alpha(0.25) : tcta.has-hover ? Theme.n-3a3a3d : Theme.control;
     border-width: 1px;
     border-color: on ? Theme.accent : Theme.border;
     label := Text { text: root.text; color: on ? Theme.text : Theme.text-dim; font-size: 11px; }
@@ -741,7 +808,7 @@ component InstrumentList inherits Rectangle {
                     height: 64px;
                     Text {
                         text: InstrumentsUi.empty-text;
-                        color: InstrumentsUi.empty-page >= 0 ? Theme.accent : Theme.text-dim;
+                        color: InstrumentsUi.empty-page >= 0 ? Theme.lilac-text : Theme.text-dim;
                         font-size: 13px;
                     }
                     if InstrumentsUi.empty-page >= 0: TouchArea {

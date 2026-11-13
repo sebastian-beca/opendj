@@ -59,6 +59,10 @@ pub const AUXILIARIES: [usize; NUM_AUXILIARIES] = [
 /// inputs' own values, 1 + each input.
 pub const MIXER: usize = NUM_INPUTS + 1;
 
+/// The device an auxiliary input's route names when the strip plays the
+/// Mixer deck's own Groove Box instead of an interface's channels.
+pub const GROOVE_BOX: &str = "Groove Box";
+
 /// Where an input's sound goes this buffer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Routing {
@@ -70,6 +74,10 @@ pub(crate) enum Routing {
     /// for the deck to sum. A soloed strip plays whether on or off; while
     /// any strip of the Mixer is soloed (`any_solo`), only soloed ones do.
     Mixer { any_solo: bool },
+    /// Not heard: an aux input or the instrument that no deck plays, on
+    /// its own or in the Mixer. Its on switch is a Mixer strip's, so it
+    /// doesn't put it in the main mix by itself.
+    Off,
 }
 
 /// Knobs the instrument's plugin parameters show on:
@@ -103,6 +111,9 @@ pub(crate) struct InputFeed {
     pub(crate) rx: rtrb::Consumer<f32>,
     /// Frames the device delivered in its last callback.
     pub(crate) period: Arc<AtomicUsize>,
+    /// Frames left waiting in the queue after the engine's last read: with
+    /// `period`, how far behind the input is heard.
+    pub(crate) queued: Arc<AtomicUsize>,
 }
 
 /// `[Master],talkover_ducking`, as in Mixxx: off, ducking while the
@@ -218,7 +229,7 @@ struct InputControls {
     solo: Option<ControlHandle>,
     /// An auxiliary input's `fx` in the Mixer: through the deck's effects.
     fx: Option<ControlHandle>,
-    /// The microphone's `mixer`: a strip of the Mixer.
+    /// The microphone's and the instrument's `mixer`: a strip of the Mixer.
     mixer: Option<ControlHandle>,
     /// A strip's `peak_db`: its highest peak lately, in dBFS, read past
     /// full scale, for the readout over its meter.
@@ -312,16 +323,23 @@ impl InputControls {
             reg.create(g, "arp_hold", 0.0, 0.0, 1.0, Behavior::Free);
         }
         // The Mixer deck's strip controls, for the auxiliary inputs (fed by
-        // an interface's channels today; later the Groove Box or a plugin)
-        // and the microphone: `solo` within the Mixer, and `fx` for the
-        // strip through the deck's effects.
-        let strip = AUXILIARIES.contains(&input) || input == MICROPHONE;
+        // an interface's channels), the microphone and the instrument
+        // plugin: `solo` within the Mixer, and `fx` for the strip through
+        // the deck's effects.
+        let strip = AUXILIARIES.contains(&input) || input == MICROPHONE || input == INSTRUMENT;
         let pan = strip.then(|| reg.create(g, "pan", 0.0, -1.0, 1.0, Behavior::Linear));
         let solo = strip.then(|| reg.toggle(g, "solo"));
-        let fx = strip.then(|| reg.toggle(g, "fx"));
-        // The microphone as a strip of the Mixer too, while a deck plays
-        // it: off by default, so it stays on its own channel.
-        let mixer = (input == MICROPHONE).then(|| reg.toggle(g, "mixer"));
+        // On from the start: a strip sounds through its deck's effects as
+        // a track does, and FX off takes it out of them.
+        let fx = strip.then(|| {
+            let fx = reg.toggle(g, "fx");
+            fx.set_bool(true);
+            fx
+        });
+        // The microphone and the instrument as strips of the Mixer too,
+        // while a deck plays it: off by default, so each stays on its own
+        // channel (or deck).
+        let mixer = (input == MICROPHONE || input == INSTRUMENT).then(|| reg.toggle(g, "mixer"));
         let peak_db = strip.then(|| {
             let top = f64::from(PEAK_DB_TOP);
             let floor = f64::from(PEAK_DB_FLOOR);
@@ -377,6 +395,12 @@ pub(crate) struct Input {
     /// The master deck's key, for Auto.
     master_key: Option<crate::key::Key>,
     feed: Option<InputFeed>,
+    /// It plays the Mixer deck's Groove Box (see [`GROOVE_BOX`]) instead of
+    /// a device.
+    groove: bool,
+    /// The Groove Box's sound for this buffer, when the engine rendered it.
+    groove_block: Vec<[f32; 2]>,
+    groove_got: usize,
     /// How full its queue runs.
     queue: Queue,
     eq: Isolator,
@@ -453,6 +477,9 @@ impl Input {
                 Vec::new()
             },
             feed: None,
+            groove: false,
+            groove_block: vec![[0.0; 2]; 4096],
+            groove_got: 0,
             queue: Queue::default(),
             eq: Isolator::new(sample_rate),
             eq_gains: [1.0; 3],
@@ -478,9 +505,29 @@ impl Input {
     }
 
     /// A strip of the Mixer while a deck plays it: every auxiliary input,
-    /// and the microphone when its `mixer` is on.
+    /// and the microphone or the instrument when its `mixer` is on.
     pub(crate) fn mixer_strip(&self) -> bool {
         AUXILIARIES.contains(&self.index) || self.c.mixer.as_ref().is_some_and(|m| m.get_bool())
+    }
+
+    /// It plays the Mixer deck's Groove Box.
+    pub(crate) fn plays_groove(&self) -> bool {
+        self.groove
+    }
+
+    /// Plays the Mixer deck's Groove Box from now on, or not.
+    pub(crate) fn set_groove(&mut self, on: bool) {
+        self.groove = on;
+        self.c.configured.set_bool(on || self.feed.is_some());
+    }
+
+    /// The Groove Box's sound for the coming [`Input::render`].
+    pub(crate) fn take_groove(&mut self, block: &[[f32; 2]]) {
+        if self.groove_block.len() < block.len() {
+            self.groove_block.resize(block.len(), [0.0; 2]);
+        }
+        self.groove_block[..block.len()].copy_from_slice(block);
+        self.groove_got = block.len();
     }
 
     /// Soloed in the Mixer.
@@ -497,7 +544,7 @@ impl Input {
     /// to be dropped off the audio thread.
     pub(crate) fn set_feed(&mut self, feed: Option<InputFeed>) -> Option<InputFeed> {
         self.queue = Queue::default();
-        self.c.configured.set_bool(feed.is_some());
+        self.c.configured.set_bool(self.groove || feed.is_some());
         std::mem::replace(&mut self.feed, feed)
     }
 
@@ -582,6 +629,12 @@ impl Input {
             let playing = fx.finish_instrument(buf);
             self.c.configured.set_bool(fx.has_instrument());
             playing
+        } else if self.groove {
+            // Silent while no deck plays the Mixer to render it.
+            let got = std::mem::take(&mut self.groove_got).min(frames);
+            buf[..got].copy_from_slice(&self.groove_block[..got]);
+            buf[got..].fill([0.0; 2]);
+            true
         } else {
             let got = match &mut self.feed {
                 Some(feed) => pull(feed, &mut self.queue, buf),
@@ -595,7 +648,7 @@ impl Input {
         let on = self.c.on.get_bool();
         let (on, live) = match routing {
             Routing::Main => (on && !self.c.mute.get_bool(), on),
-            Routing::Deck => (false, false),
+            Routing::Deck | Routing::Off => (false, false),
             Routing::Mixer { any_solo } => {
                 let solo = self.c.solo.as_ref().is_some_and(|s| s.get_bool());
                 let heard = if any_solo { solo } else { on };
@@ -608,7 +661,8 @@ impl Input {
         self.level_ramp = (self.level, level);
         self.level = level;
         self.live = live && source;
-        self.pfl = self.c.pfl.get_bool() && routing != Routing::Deck;
+        self.pfl =
+            self.c.pfl.get_bool() && matches!(routing, Routing::Main | Routing::Mixer { .. });
         self.in_mixer = matches!(routing, Routing::Mixer { .. });
         let pre = (self.pregain, self.c.pregain.get() as f32);
         self.pregain = pre.1;
@@ -736,6 +790,12 @@ fn skip(feed: &mut InputFeed, frames: usize) {
 /// needed, the queue's low point less [`QUEUE_SLACK`]. A device running
 /// ahead is cut back at once.
 fn pull(feed: &mut InputFeed, q: &mut Queue, out: &mut [[f32; 2]]) -> usize {
+    let n = pull_inner(feed, q, out);
+    feed.queued.store(feed.rx.slots() / 2, Ordering::Relaxed);
+    n
+}
+
+fn pull_inner(feed: &mut InputFeed, q: &mut Queue, out: &mut [[f32; 2]]) -> usize {
     let frames = out.len();
     let enough = feed.period.load(Ordering::Relaxed).max(frames);
     let queued = feed.rx.slots() / 2;
@@ -885,7 +945,8 @@ mod tests {
     fn feed(period: usize) -> (InputFeed, rtrb::Producer<f32>) {
         let (tx, rx) = rtrb::RingBuffer::new(16_384);
         let period = Arc::new(AtomicUsize::new(period));
-        (InputFeed { rx, period }, tx)
+        let queued = Arc::default();
+        (InputFeed { rx, period, queued }, tx)
     }
 
     fn push(tx: &mut rtrb::Producer<f32>, frames: usize, v: f32) {

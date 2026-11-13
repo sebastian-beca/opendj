@@ -105,8 +105,7 @@ impl Browser {
         if lists[0].folder {
             let top = &self.nodes[node];
             let mut open: Vec<(i32, usize)> = vec![(top.depth, 0)];
-            for n in node + 1..self.nodes.len() {
-                let m = &self.nodes[n];
+            for (n, m) in self.nodes.iter().enumerate().skip(node + 1) {
                 if m.depth <= top.depth || m.history != top.history {
                     break;
                 }

@@ -1,10 +1,11 @@
 //! The Player layout's search box in the top bar: the best matches from the
 //! collection in a dropdown, as music players show them: artists and albums
-//! first (unless a track's title is the better match), then tracks. A track
-//! or album has Play next, Add to queue and Play now; an artist shows their
-//! tracks.
-//! The queue is the Automix list, so all three put the track there; Play now
-//! then has Automix mix into it as soon as it is waiting on the other deck.
+//! first (unless a track's title is the better match), then tracks, in a
+//! list that scrolls. As in streaming players, picking a track opens its
+//! album and plays from it on; an album or artist opens its page. Play next
+//! and Add to queue are on a row's right-click menu (and ⌘↵, ⇧↵).
+//! The queue is the Automix list; playing a track now has Automix mix into
+//! it as soon as it is waiting on the other deck.
 //! What is typed also filters the track list, so Player needs no second
 //! search box over the list.
 
@@ -22,8 +23,8 @@ use crate::remote::held_count;
 use crate::settings::show_key;
 use crate::{AppWindow, QuickRow, QuickSearch, StoreUi, TrackDrag};
 
-/// How many rows the dropdown shows.
-const SHOWN: usize = 8;
+/// At most this many tracks go in the dropdown (it scrolls).
+const TRACKS: usize = 200;
 /// At most this many artists, and this many albums, go first.
 const ARTISTS: usize = 2;
 const ALBUMS: usize = 3;
@@ -36,7 +37,7 @@ const ALBUM: i32 = 2;
 /// How long Play now waits for Automix to have the track ready.
 const PLAY_NOW_WAIT: Duration = Duration::from_secs(20);
 
-/// What a result's button asks for (QuickSearch.act's `mode`).
+/// What a press asks for (QuickSearch.act's `mode` 1 and 2; 0 opens).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
     PlayNext,
@@ -45,11 +46,12 @@ pub enum Action {
 }
 
 impl Action {
-    fn from_mode(mode: i32) -> Self {
+    /// None for 0: open the row (its album, or its page).
+    fn from_mode(mode: i32) -> Option<Self> {
         match mode {
-            1 => Action::AddToQueue,
-            2 => Action::PlayNow,
-            _ => Action::PlayNext,
+            1 => Some(Action::AddToQueue),
+            2 => Some(Action::PlayNext),
+            _ => None,
         }
     }
 }
@@ -59,8 +61,8 @@ impl Action {
 enum Group {
     /// The artist's name, to search for.
     Artist(String),
-    /// The album's track ids, in album order.
-    Album(Vec<usize>),
+    /// The album's name, its artist and track ids, in album order.
+    Album(String, String, Vec<usize>),
 }
 
 /// An artist or album row's id: below -1, so it can't be a track's.
@@ -115,15 +117,31 @@ impl Quick {
         });
         let j = jobs.clone();
         let weak = app.as_weak();
+        let b = browser.clone();
         g.on_act(move |id, mode| {
+            let action = Action::from_mode(mode);
+            let close = || {
+                if let Some(app) = weak.upgrade() {
+                    app.global::<QuickSearch>().set_open(false);
+                }
+            };
             if id >= 0 {
-                j.borrow_mut().push((id as usize, Action::from_mode(mode)));
+                match action {
+                    Some(a) => j.borrow_mut().push((id as usize, a)),
+                    // A track: its album's page, playing from it on.
+                    None => {
+                        if let Ok(mut b) = b.try_borrow_mut() {
+                            b.play_from_album(id as usize);
+                        }
+                        close();
+                    }
+                }
                 return;
             }
             let index = (-id - 2) as usize;
             let group = groups.borrow().get(index).cloned();
             match group {
-                // An artist: their tracks, in the dropdown and the list.
+                // An artist: their page, and their tracks in the list.
                 Some(Group::Artist(name)) => {
                     if let Some(app) = weak.upgrade() {
                         // The artist's page over the list.
@@ -133,12 +151,18 @@ impl Quick {
                         g.set_text(name.as_str().into());
                         g.set_current(0);
                         g.invoke_search(name.into());
+                        g.set_open(false);
                     }
                 }
-                Some(Group::Album(ids)) => {
-                    j.borrow_mut()
-                        .extend(album_jobs(&ids, Action::from_mode(mode)));
-                }
+                Some(Group::Album(name, by, ids)) => match action {
+                    Some(a) => j.borrow_mut().extend(album_jobs(&ids, a)),
+                    None => {
+                        if let Ok(mut b) = b.try_borrow_mut() {
+                            b.open_album_named(&name, &by);
+                        }
+                        close();
+                    }
+                },
                 None => {}
             }
         });
@@ -333,15 +357,14 @@ fn rows_for(b: &Browser, found: &[Arc<Track>], text: &str) -> (Vec<QuickRow>, Ve
             cover: cover.unwrap_or_default(),
             initials: initials(&by).into(),
         });
-        groups.push(Group::Album(ts.iter().map(|t| t.id).collect()));
+        groups.push(Group::Album(name, by, ts.iter().map(|t| t.id).collect()));
     }
     let words: Vec<String> = text.split_whitespace().map(str::to_lowercase).collect();
     // A track's title is the best match when it has every typed word and
     // no artist or album row's name does: tracks go first then.
     let title_best = found.first().is_some_and(|t| has_words(&t.title, &words))
         && !lead.iter().any(|r| has_words(&r.title, &words));
-    let tracks_shown = SHOWN.saturating_sub(lead.len()).max(SHOWN / 2);
-    let tracks: Vec<QuickRow> = found.iter().take(tracks_shown).map(|t| row(b, t)).collect();
+    let tracks: Vec<QuickRow> = found.iter().take(TRACKS).map(|t| row(b, t)).collect();
     let rows = if title_best {
         tracks.into_iter().chain(lead).collect()
     } else {
@@ -429,9 +452,10 @@ mod tests {
 
     #[test]
     fn modes() {
-        assert_eq!(Action::from_mode(0), Action::PlayNext);
-        assert_eq!(Action::from_mode(1), Action::AddToQueue);
-        assert_eq!(Action::from_mode(2), Action::PlayNow);
-        assert_eq!(Action::from_mode(9), Action::PlayNext);
+        // 0 opens the row: a track's album, playing from it.
+        assert_eq!(Action::from_mode(0), None);
+        assert_eq!(Action::from_mode(1), Some(Action::AddToQueue));
+        assert_eq!(Action::from_mode(2), Some(Action::PlayNext));
+        assert_eq!(Action::from_mode(9), None);
     }
 }

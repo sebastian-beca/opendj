@@ -83,7 +83,7 @@ Options to look at when that dialog is designed:
 
 1. **Curated openDJ packs** (recommended): a small `opendj-sample-packs` repository, each pack built from CC0 (and CC-BY with credits in `pack.json`) sounds, published as `.opendjpack` release assets. The dialog lists them from a JSON index, like add-on repositories. No account needed, licences checked by us, fast downloads.
 2. **Freesound** directly: huge CC catalogue and real "packs", but downloading originals needs OAuth2 (a Freesound login) and is limited to 500 a day; previews work with an API key. Licences are mixed (CC0, CC-BY, CC-BY-NC), so we'd filter out NC since DJs play paid gigs.
-3. **Add-on packs**: sample-pack add-ons from add-on repositories (`add-addon-repositories`), for third parties to publish their own.
+3. **Add-on packs**: sample-pack add-ons from add-on repositories (`add-stores-and-purchasing` step 0), for third parties to publish their own.
 
 ## Phases (one PR each)
 

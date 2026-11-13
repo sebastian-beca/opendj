@@ -3598,11 +3598,13 @@
 [Instrument1],chord_mode
 [Instrument1],chord_shape
 [Instrument1],enabled
+[Instrument1],fx
 [Instrument1],input_configured
 [Instrument1],instrument
 [Instrument1],keyboard_pads
 [Instrument1],main_mix
 [Instrument1],master
+[Instrument1],mixer
 [Instrument1],mute
 [Instrument1],num_parameters
 [Instrument1],octave
@@ -3623,6 +3625,7 @@
 [Instrument1],pad_7
 [Instrument1],pad_8
 [Instrument1],pad_9
+[Instrument1],pan
 [Instrument1],parameter1
 [Instrument1],parameter10
 [Instrument1],parameter11
@@ -3655,6 +3658,7 @@
 [Instrument1],parameter7
 [Instrument1],parameter8
 [Instrument1],parameter9
+[Instrument1],peak_db
 [Instrument1],peak_indicator
 [Instrument1],pfl
 [Instrument1],pregain
@@ -3664,6 +3668,7 @@
 [Instrument1],scale_root
 [Instrument1],scale_type
 [Instrument1],show_editor
+[Instrument1],solo
 [Instrument1],volume
 [Instrument1],vu_meter
 [Instrument1],vu_meter_left
@@ -4199,3 +4204,7 @@
 [Sculpt_[Channel4]],lpf
 [Shoutcast],enabled
 [Shoutcast],status
+[Skin],waveform_height
+[Skin],waveform_height_down
+[Skin],waveform_height_set_default
+[Skin],waveform_height_up
