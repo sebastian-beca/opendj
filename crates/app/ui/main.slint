@@ -1797,8 +1797,10 @@ export component AppWindow inherits Window {
                     // menu bar).
                     if AppMenu.shown: AppMenuButton { }
                     LayoutPill { layout <=> root.layout; changed-to(l) => { layout-changed(l); } }
-                    if !player: WaveformsButton { on <=> root.waveforms-visible; fits: wave-fits; changed-to(on) => { waveforms-visible-changed(on); } }
-                    if !player: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
+                    // Prep always shows its waveform and never the FX bar,
+                    // so neither button is offered there.
+                    if !player && layout != 3: WaveformsButton { on <=> root.waveforms-visible; fits: wave-fits; changed-to(on) => { waveforms-visible-changed(on); } }
+                    if !player && layout != 3: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
                     if layout == 2 || layout == 4: PadsButton { on <=> root.pads-visible; changed-to(on) => { pads-visible-changed(on); } }
                     if layout == 4: JogsButton { on <=> root.jogs-visible; changed-to(on) => { jogs-visible-changed(on); } }
                     if !player: Rectangle { horizontal-stretch: 1; }
@@ -1836,9 +1838,10 @@ export component AppWindow inherits Window {
             waveforms := Rectangle {
                 // Not rounded or clipped: that renders into a cached layer, which
                 // would freeze the GPU-updated waveform images. Folded away while
-                // the library is expanded or the top bar button hides them.
-                height: library-expanded || !waveforms-visible || player ? 0px : strip-heights[wave-level - 1];
-                visible: !library-expanded && waveforms-visible && !player;
+                // the library is expanded or the top bar button hides them
+                // (Prep has no such button: its waveform always shows).
+                height: library-expanded || !(waveforms-visible || prep) || player ? 0px : strip-heights[wave-level - 1];
+                visible: !library-expanded && (waveforms-visible || prep) && !player;
                 background: Theme.well;
                 // Thin grey lines above, between and below the waveforms.
                 if prep: VerticalLayout {
