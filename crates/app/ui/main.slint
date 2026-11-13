@@ -1938,7 +1938,10 @@ export component AppWindow inherits Window {
                         }
                         if PadsUi.visible: PadBarHalf { height: LiteUi.bar-height; deck: 0; info: decks[0]; }
                     }
-                    if !external-mixer && !(lite-full-a || lite-full-b): LiteMixer { tall: PadsUi.visible; }
+                    // With the pad bar the row is 2-Deck Pro's height, so it
+                    // takes the same full mixer: GAIN knobs, cues under the faders.
+                    if !external-mixer && !(lite-full-a || lite-full-b) && !PadsUi.visible: LiteMixer { }
+                    if !external-mixer && !(lite-full-a || lite-full-b) && PadsUi.visible: Mixer { }
                     if !external-mixer && (lite-full-a || lite-full-b): VerticalLayout {
                         Mixer { height: 272px; }
                         Rectangle { background: Theme.panel; vertical-stretch: 1; }
