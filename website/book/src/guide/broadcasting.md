@@ -86,7 +86,7 @@ station.
 
 ### Scrobbling to ListenBrainz
 
-Switch on **Settings › Broadcast › Send plays to ListenBrainz** and paste
+Switch on **Settings › Player › Send plays to ListenBrainz** and paste
 your user token (from listenbrainz.org, under Settings) into **ListenBrainz
 token**. Each track the audience hears then goes to your ListenBrainz
 profile, from any layout, as a music player's plays do: it shows as playing
@@ -133,7 +133,7 @@ loudness next to the time.
 
 ## Choosing a target
 
-Pick the target in **Settings › Audio › Loudness**:
+Pick the target in **Settings › Broadcast › Stations** under **Loudness**:
 
 | Target | For |
 |---|---|
@@ -153,7 +153,7 @@ The master always runs through a limiter, so the mix never clips. While you
 record or are on air, it also keeps the peaks between samples under **−1 dB**
 true peak, which MP3, AAC and Opus need so they don't distort. For streams at
 low bitrates (96 kb/s or less), choose **−2 dBTP** in **Settings › Audio ›
-Loudness**.
+Recording**.
 
 The headphones and booth don't go through the limiter (they would lag behind
 the master), so they have a soft clipper instead: nothing changes below

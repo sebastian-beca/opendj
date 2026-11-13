@@ -15,7 +15,7 @@ use super::super::Browser;
 use super::store;
 use crate::{settings, AppWindow, DeckLines, WaveLine, WaveLyrics, WaveWord};
 
-/// The setting: Settings › Decks › Lyrics on waveforms, on at first.
+/// The setting: Settings › Appearance › Look › Lyrics on waveforms, on at first.
 pub const SHOWN: &str = "waveform_lyrics";
 
 /// The setting, read once (the settings file isn't read every frame) and
@@ -33,7 +33,7 @@ pub fn shown() -> bool {
     }
 }
 
-/// Settings › Decks › Lyrics on waveforms was switched.
+/// Settings › Appearance › Look › Lyrics on waveforms was switched.
 pub fn set_shown(on: bool) {
     SHOWN_NOW.store(if on { 2 } else { 1 }, Ordering::Relaxed);
 }

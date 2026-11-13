@@ -215,7 +215,8 @@ impl Browser {
         ui.on_edit_lines(move || {
             if let Some(app) = weak.upgrade() {
                 // Settings › Collection, its Stages tab.
-                app.global::<crate::Preferences>().invoke_show_tab(2, 1);
+                app.global::<crate::Preferences>()
+                    .invoke_show_tab(crate::prefs::LIBRARY_PAGE, crate::prefs::STAGES_TAB as i32);
             }
         });
         let w = with.clone();

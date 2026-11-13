@@ -78,7 +78,7 @@ The menu at the top left of the window switches layouts:
   macOS, the media overlay on Windows, the desktop's media controls on
   Linux) work Player as its buttons do, and show the track with its art.
   The DJ layouts leave them alone unless **Media keys in every layout** is
-  on in **Settings › Keyboard**, so a headphone button can't stop a deck
+  on in **Settings › Player**, so a headphone button can't stop a deck
   in the middle of a set.
   The top bar keeps to search. The search box (**⌘F**) is Player's only
   search box: it filters the track list and shows the best matches as you
@@ -107,7 +107,7 @@ The menu at the top left of the window switches layouts:
   the decks in the same order.
   A [Groove Box](groove-box.md) deck shows its step grid only in 2-Deck.
 - **Prep** shows deck 1 alone, for getting tracks ready (see [Prep](#prep)).
-  It isn't in the menu at first: add it in **Settings › Layouts**.
+  It isn't in the menu at first: add it in **Settings › Appearance › Layouts**.
 
 The button at the bottom left of the window hides the decks for a compact
 view in 2-Deck and 4-Deck.
@@ -116,7 +116,7 @@ view in 2-Deck and 4-Deck.
 
 The layout menu offers only **your layouts**. At first that's Player,
 2-Deck, 2-Deck Pro and 4-Deck. To change them, click the small cog at the
-top right of the layout menu, or open **Settings › Layouts**:
+top right of the layout menu, or open **Settings › Appearance › Layouts**:
 
 - **Your layouts** lists the layouts the menu offers, in its order, each
   with a small drawing of it. **↑** and **↓** move one up or down; **−**
@@ -132,7 +132,7 @@ layouts.
 
 ## Appearance
 
-**Settings › Layouts › Appearance** picks **Dark**, **Light** or **Match
+**Settings › Appearance › Look** picks **Dark**, **Light** or **Match
 system**. Dark is the default. Light is easier to read in daylight and at
 outdoor gigs: panels, the library, buttons and Settings turn light, while
 the big waveforms and the overviews stay on black with their colours, as

@@ -966,7 +966,7 @@ component LayoutPill inherits Rectangle {
                 height: 22px;
                 padding-left: 10px;
                 Text { text: "LAYOUT"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; horizontal-stretch: 1; }
-                // Settings › Layouts, where the DJ picks what this menu offers.
+                // Settings › Appearance › Layouts, where the DJ picks what this menu offers.
                 Rectangle {
                     width: 22px;
                     border-radius: 5px;
@@ -990,7 +990,7 @@ component LayoutPill inherits Rectangle {
                     }
                 }
             }
-            // The DJ's layouts (Settings › Layouts), in their order.
+            // The DJ's layouts (Settings › Appearance › Layouts), in their order.
             for e in LayoutsUi.menu: LayoutItem {
                 kind: e.layout == 3 ? 4 : e.layout == 4 ? 5 : e.layout;
                 text: e.name;

@@ -1,7 +1,7 @@
 //! Scrobbling: the tracks the audience hears go to the DJ's ListenBrainz
 //! and Last.fm profiles (see `lastfm`), as a music player's do.
 //!
-//! Off until switched on in Settings › Broadcast with the DJ's own user
+//! Off until switched on in Settings › Player with the DJ's own user
 //! token. The track is the deck heard most in the master mix (as for the
 //! now-playing feed); a deck cued in the headphones never counts. A track
 //! is sent as "playing now" after a few seconds, and as a listen once it

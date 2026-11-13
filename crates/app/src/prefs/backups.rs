@@ -1,9 +1,9 @@
-//! Settings › Collection › General: backing up the collection and settings.
+//! Settings › Collection › Storage: backing up the collection and settings.
 
 use super::*;
 
 impl Prefs {
-    /// Settings › Collection › General: how often the collection and
+    /// Settings › Collection › Storage: how often the collection and
     /// settings are backed up, where to, Back up now and Restore.
     pub(super) fn backup_items(&self) -> Vec<PrefItem> {
         let dir = backup::folder();

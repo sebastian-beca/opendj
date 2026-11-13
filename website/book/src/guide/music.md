@@ -225,7 +225,7 @@ tempo and beat grid, and its key when the tags don't have one. It plays
 while that happens, and the waveform fills in as it goes. The result is
 saved, so the track loads at once next time.
 
-**Storage** at the bottom of **Settings › Collection › General** shows how
+**Settings › Collection › Storage** shows how
 the disk with your music is used: your music, the analysis results, high
 quality stems, tracks played from your servers, everything else, and how
 much is free. **Manage** clears the analysis results, the stems or the

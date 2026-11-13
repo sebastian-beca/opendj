@@ -4803,7 +4803,7 @@ component InputPicker inherits PopupWindow {
                 font-size: 12px;
                 vertical-alignment: center;
             }
-            more := TouchArea { clicked => { InstrumentsUi.open-settings(0, 0); root.close(); } }
+            more := TouchArea { clicked => { InstrumentsUi.open-settings(InstrumentsUi.audio-page, 0); root.close(); } }
         }
     }
 }
@@ -5173,7 +5173,7 @@ component MixerTitle inherits Rectangle {
             alignment: center;
             TitleButton {
                 icon: "M 12 8 A 4 4 0 0 1 12 16 A 4 4 0 0 1 12 8 Z M 12 2 L 12 5 M 12 19 L 12 22 M 2 12 L 5 12 M 19 12 L 22 12 M 5 5 L 7 7 M 17 17 L 19 19 M 5 19 L 7 17 M 17 7 L 19 5";
-                clicked => { InstrumentsUi.open-settings(0, 0); }
+                clicked => { InstrumentsUi.open-settings(InstrumentsUi.audio-page, 0); }
             }
         }
     }
@@ -5218,9 +5218,9 @@ component LivePanel inherits Rectangle {
                 width: 150px;
                 clicked => {
                     if live == 3 {
-                        InstrumentsUi.open-settings(7, 1);
+                        InstrumentsUi.open-settings(InstrumentsUi.plugins-page, 1);
                     } else {
-                        InstrumentsUi.open-settings(0, 0);
+                        InstrumentsUi.open-settings(InstrumentsUi.audio-page, 0);
                     }
                 }
             }
@@ -5255,7 +5255,7 @@ component LivePanel inherits Rectangle {
                     text: InstrumentsUi.route(live) != "" ? InstrumentsUi.route(live) : "Live input";
                     width: 150px;
                     height: 22px;
-                    clicked => { InstrumentsUi.open-settings(0, 0); }
+                    clicked => { InstrumentsUi.open-settings(InstrumentsUi.audio-page, 0); }
                 }
             }
             // The Mixer's strips on and off, until the strips have their
@@ -5468,9 +5468,9 @@ export component LiveStrip inherits Rectangle {
                 width: 140px;
                 clicked => {
                     if live == 3 {
-                        InstrumentsUi.open-settings(7, 1);
+                        InstrumentsUi.open-settings(InstrumentsUi.plugins-page, 1);
                     } else {
-                        InstrumentsUi.open-settings(0, 0);
+                        InstrumentsUi.open-settings(InstrumentsUi.audio-page, 0);
                     }
                 }
             }
@@ -5497,7 +5497,7 @@ export component LiveStrip inherits Rectangle {
                 text: InstrumentsUi.route(live) != "" ? InstrumentsUi.route(live) : "Live input";
                 width: 150px;
                 height: 22px;
-                clicked => { InstrumentsUi.open-settings(0, 0); }
+                clicked => { InstrumentsUi.open-settings(InstrumentsUi.audio-page, 0); }
             }
         }
         HorizontalLayout {

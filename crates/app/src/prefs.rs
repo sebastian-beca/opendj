@@ -14,7 +14,9 @@ mod sources;
 mod storage;
 mod tags;
 
-use broadcasting::{loudness_items, station_field};
+use broadcasting::{
+    air_ceiling_item, lastfm_items, loudness_target_item, scrobble_items, station_field,
+};
 use plugins::{plugin_formats, plugin_groups, PluginView};
 
 use std::cell::RefCell;
@@ -50,39 +52,79 @@ use crate::{
     Preferences, StoragePart, StorageUi, Tour,
 };
 
+// Settings' pages, in the order of the page list (PAGE_NAMES).
 const AUDIO: i32 = 0;
-const CONTROLLERS: i32 = 1;
-const LIBRARY: i32 = 2;
+/// Settings › Audio, for opening it from elsewhere.
+pub const AUDIO_PAGE: i32 = AUDIO;
+/// Settings › Audio's tabs.
+const AUDIO_TABS: [&str; 2] = ["Devices", "Recording"];
+const MIXER: i32 = 1;
+const DECKS: i32 = 2;
+/// Settings › Decks' tabs.
+const DECK_TABS: [&str; 3] = ["Playing", "Tempo and key", "Header"];
+/// Your layouts and the others (layouts.rs), and the look: light or dark,
+/// waveforms and track colors.
+const LAYOUTS: i32 = 3;
+/// Settings › Appearance's tabs.
+const APPEARANCE_TABS: [&str; 2] = ["Layouts", "Look"];
+/// Settings › Appearance, for the layout menu's cog.
+pub const LAYOUTS_PAGE: i32 = LAYOUTS;
+const CONTROLLERS: i32 = 4;
+/// Settings › Controllers' tabs.
+const CONTROLLER_TABS: [&str; 3] = ["Controllers", "MIDI clock", "OSC"];
+const KEYBOARD: i32 = 5;
+const LIBRARY: i32 = 6;
+/// Settings › Collection, for opening it from elsewhere.
+pub const LIBRARY_PAGE: i32 = LIBRARY;
 /// Settings › Collection's tabs.
-const LIBRARY_TABS: [&str; 5] = ["General", "Stages", "Tags", "Import", "Health"];
+const LIBRARY_TABS: [&str; 6] = ["General", "Stages", "Tags", "Import", "Health", "Storage"];
+/// The Stages tab's place in LIBRARY_TABS.
+pub const STAGES_TAB: usize = 1;
 /// The Import tab's place in LIBRARY_TABS.
 const IMPORT_TAB: usize = 3;
 /// The Health tab's place in LIBRARY_TABS: online lookup and clean-up.
 const HEALTH_TAB: usize = 4;
+/// The Storage tab's place in LIBRARY_TABS: the storage bar and backups.
+const STORAGE_TAB: usize = 5;
 /// Other DJ apps whose libraries openDJ can't bring in yet, listed on the
 /// Import tab so the DJ sees what's coming.
 const COMING_IMPORTS: [(&str, &str); 1] = [("Serato DJ", "Tracks, cues, loops and crates.")];
-const ANALYSIS: i32 = 3;
-const DECKS: i32 = 4;
-const MIXER: i32 = 5;
+const ANALYSIS: i32 = 7;
 /// Where music comes from: the rail's sources, their sign-ins, download
 /// folders and the cache they share.
-const SOURCES: i32 = 6;
+const SOURCES: i32 = 8;
 /// Settings › Sources, for opening it from elsewhere.
 pub const SOURCES_PAGE: i32 = SOURCES;
+/// Listening: scrobbling and the media keys.
+const PLAYER: i32 = 9;
 /// CLAP, VST3 and AU plugins.
-const AUDIO_PLUGINS: i32 = 7;
+const AUDIO_PLUGINS: i32 = 10;
+/// Settings › Plugins, for opening it from elsewhere.
+pub const PLUGINS_PAGE: i32 = AUDIO_PLUGINS;
 /// Settings › Plugins' tabs.
 const PLUGIN_TABS: [&str; 3] = ["Effects", "Instruments", "Folders"];
 /// The Folders tab's place in PLUGIN_TABS.
 const FOLDERS_TAB: usize = 2;
-const BROADCAST: i32 = 8;
-const KEYBOARD: i32 = 9;
-/// Your layouts and the others (layouts.rs).
-const LAYOUTS: i32 = 10;
-/// Settings › Layouts, for the layout menu's cog.
-pub const LAYOUTS_PAGE: i32 = LAYOUTS;
-const FEEDBACK: i32 = 11;
+const BROADCAST: i32 = 11;
+/// Settings › Broadcast's tabs.
+const BROADCAST_TABS: [&str; 2] = ["Stations", "Now playing"];
+const FEEDBACK: i32 = 12;
+/// The page list's names, by page number.
+const PAGE_NAMES: [&str; 13] = [
+    "Audio",
+    "Mixer",
+    "Decks",
+    "Appearance",
+    "Controllers",
+    "Keyboard",
+    "Collection",
+    "Analysis",
+    "Sources",
+    "Player",
+    "Plugins",
+    "Broadcast",
+    "Help",
+];
 
 /// Bitrates offered for a broadcast, in kb/s.
 const BITRATES: [u32; 7] = [64, 96, 128, 160, 192, 256, 320];
@@ -124,7 +166,7 @@ const TAG_ROW: i32 = 19;
 const FOLDER_LIST: i32 = 21;
 /// How track colors show: segmented buttons with a preview beside them.
 const TRACK_COLOR: i32 = 22;
-/// The whole of Settings › Layouts, drawn from LayoutsUi.
+/// The whole of Settings › Appearance › Layouts, drawn from LayoutsUi.
 const LAYOUTS_ROW: i32 = 24;
 /// The storage bar with its Manage menu (see StorageUi in preferences.slint).
 const STORAGE: i32 = 23;
@@ -624,6 +666,10 @@ impl Prefs {
             .map(|p| p.source().is_some_and(|s| s.plays()))
             .collect();
         let g = app.global::<Preferences>();
+        g.set_pages(strings(&PAGE_NAMES));
+        g.set_audio_page(AUDIO);
+        g.set_plugins_page(AUDIO_PLUGINS);
+        g.set_broadcast_page(BROADCAST);
         let prefs = Rc::new(RefCell::new(Prefs {
             app: app.as_weak(),
             registry,
@@ -1016,7 +1062,7 @@ impl Prefs {
             self.page(&app, g.get_page(), Some(tab))
         } else {
             let words: Vec<&str> = query.split_whitespace().collect();
-            (AUDIO..FEEDBACK + 1)
+            (0..PAGE_NAMES.len() as i32)
                 .flat_map(|p| {
                     let name = slint::Model::row_data(&pages, p as usize).unwrap_or_default();
                     self.page(&app, p, None).into_iter().map(move |mut item| {
@@ -1098,7 +1144,7 @@ impl Prefs {
                         heard
                     },
                 )];
-                items.extend(self.controllers_page());
+                items.extend(self.controller_items());
                 items
             }
             Part::Library => {
@@ -1166,9 +1212,13 @@ impl Prefs {
     /// A page's rows: of one of its tabs, or of all of them for a search
     /// (`tab` None).
     fn page(&mut self, app: &AppWindow, page: i32, tab: Option<usize>) -> Vec<PrefItem> {
+        // `tab` None is every tab, for a search.
+        let shows = |t: usize| tab.is_none_or(|x| x == t);
         match page {
-            AUDIO => vec![
-                mixer_mode_item(),
+            AUDIO => {
+                let mut items = Vec::new();
+                if shows(0) {
+                    items.push(
                 {
                     // Sample rate and buffer show as columns of the outputs
                     // table; their notes go under it.
@@ -1186,42 +1236,13 @@ impl Prefs {
                         &format!("{} {}", rate.detail, self.audio_health()),
                     )
                 },
-            ]
-            .into_iter()
-            .chain(deck_output_items())
-            .chain([
-                item("inputs", HEADING, "INPUTS", ""),
-                self.inputs_item(),
-                PrefItem {
-                    choices: strings(&["Off", "Auto", "Manual"]),
-                    chosen: settings::number("talkover_ducking", DUCK_AUTO) as i32,
-                    ..item(
-                        "talkover_ducking",
-                        SEGMENTED,
-                        "Talkover ducking",
-                        "Auto turns the music down while you talk into the mic; \
-                         Manual whenever the mic is on.",
-                    )
-                },
-                {
-                    let strength = settings::number("duck_strength", DEFAULT_DUCK_STRENGTH);
-                    let names: Vec<String> = DUCK_DB.iter().map(|d| format!("-{d} dB")).collect();
-                    PrefItem {
-                        choices: strings(&names),
-                        chosen: DUCK_DB
-                            .iter()
-                            .position(|&d| (duck_strength(d) - strength).abs() < 1e-3)
-                            .unwrap_or(1) as i32,
-                        ..item(
-                            "duck_strength",
-                            MENU,
-                            "Ducking depth",
-                            "How far the music goes down under the mic.",
-                        )
-                    }
-                },
-                item("recording", HEADING, "RECORDING", ""),
-                record_source_item(),
+                    );
+                    items.extend(deck_output_items());
+                    items.extend([item("inputs", HEADING, "INPUTS", ""), self.inputs_item()]);
+                }
+                if shows(1) {
+                    items.extend([
+                        record_source_item(),
                 {
                     let r = settings::recording();
                     PrefItem {
@@ -1238,26 +1259,22 @@ impl Prefs {
                         )
                     }
                 },
-                // The same folder as Recordings in Settings › Collection:
-                // recordings go in a folder inside it.
-                folder_list(
-                    settings::MIXED_SETS_FOLDER,
-                    "Recordings",
-                    &format!(
-                        "Saved in the \"{}\" folder inside your Recordings folder, the \
-                         same one as in Settings › Collection. Each mix comes with \
-                         a .cue tracklist.",
-                        settings::RECORDINGS_SUBFOLDER
-                    ),
-                    &settings::mixed_sets_folder().into_iter().collect::<Vec<_>>(),
-                    true,
-                    false,
-                ),
-            ])
-            .collect(),
+                        air_ceiling_item(),
+                    ]);
+                }
+                items
+            }
             CONTROLLERS => {
-                let mut items = self.controllers_page();
-                items.extend(osc_items());
+                let mut items = Vec::new();
+                if shows(0) {
+                    items.extend(self.controller_items());
+                }
+                if shows(1) {
+                    items.extend(crate::midi_clock::items());
+                }
+                if shows(2) {
+                    items.extend(osc_items());
+                }
                 items
             }
             LIBRARY => self.library_page(tab),
@@ -1271,7 +1288,6 @@ impl Prefs {
                     })
                     .collect();
                 let chosen = BPM_RANGES.iter().position(|&r| r == (lo, hi)).unwrap_or(1);
-                let camelot = app.global::<KeyNotation>().get_camelot();
                 vec![
                     PrefItem {
                         choices: strings(&names),
@@ -1307,28 +1323,6 @@ impl Prefs {
                              Keys from tags stay.",
                         )
                     },
-                    PrefItem {
-                        choices: strings(&[
-                            "Camelot · 8A",
-                            "Open Key · 1m",
-                            "Sharps · A#m",
-                            "Flats · Bbm",
-                        ]),
-                        chosen: match (camelot, key::notation()) {
-                            (true, key::Notation::OpenKey) => 1,
-                            (true, _) => 0,
-                            (false, key::Notation::Flats) => 3,
-                            (false, _) => 2,
-                        },
-                        ..item(
-                            "key_notation",
-                            MENU,
-                            "Key notation",
-                            "How keys are written on the decks and in the track list. \
-                             Clicking a deck's key switches between the wheel and notes. \
-                             Keys in your files' tags stay as they are.",
-                        )
-                    },
                 ]
                 .into_iter()
                 .chain(self.stems_items())
@@ -1341,97 +1335,242 @@ impl Prefs {
                     .map(|r| format!("±{}%", (r * 100.0).round()))
                     .collect();
                 let cue = settings::number("cue_mode", CUE_MODES[0]);
-                vec![
-                    PrefItem {
-                        choices: strings(&["Hold to preview", "Set and return"]),
-                        chosen: CUE_MODES.iter().position(|&m| m == cue).unwrap_or(0) as i32,
-                        ..item(
-                            "cue_mode",
-                            SEGMENTED,
-                            "CUE button",
-                            "Hold to preview plays while CUE is held, as on Pioneer players.",
-                        )
-                    },
-                    PrefItem {
-                        choices: strings(&names),
-                        chosen: RATE_RANGES
-                            .iter()
-                            .position(|&r| (r - range).abs() < 1e-6)
-                            .unwrap_or(2) as i32,
-                        ..item(
-                            "rate_range",
-                            MENU,
-                            "Tempo fader range",
-                            "How far the tempo fader changes the speed, either way.",
-                        )
-                    },
-                    PrefItem {
-                        choices: strings(&["Up slows down", "Up speeds up"]),
-                        chosen: if settings::flag("tempo_up_faster", false) { 1 } else { 0 },
-                        ..item(
-                            "tempo_direction",
-                            SEGMENTED,
-                            "Tempo fader direction",
-                            "Which way the tempo faders, on screen and on controllers, speed \
-                             the deck up. Pioneer players slow down as the fader goes up.",
-                        )
-                    },
-                    switch(
-                        "keylock_default",
-                        "Key lock on at start",
-                        "Tempo changes keep the key. Right-click a deck's tempo fader to switch it; its line turns lilac while on.",
-                        settings::flag("keylock_default", true),
-                    ),
-                    PrefItem {
-                        choices: strings(&["Harmonic · 4 keys", "Fuzzy · 6 keys"]),
-                        chosen: key_mixing().id() as i32,
-                        ..item(
-                            "key_mixing",
-                            SEGMENTED,
-                            "Key mixing",
-                            "Which keys the track list marks in lilac as mixing with the track \
-                             playing. Harmonic: the same number, or the next one with the same \
-                             letter (8A: 8A, 8B, 7A, 9A). Fuzzy ignores the letter, so 7B and 9B \
-                             mix too.",
-                        )
-                    },
-                    PrefItem {
-                        choices: strings(&["Off", "±1 semitone", "±2 semitones"]),
-                        chosen: key_match_range() as i32,
-                        ..item(
-                            "key_match_on_load",
-                            SEGMENTED,
-                            "Match key on load",
-                            "A track loaded while another deck plays is shifted up or down to \
-                             mix with it, with key lock on. The track list marks those tracks with \
-                             the shift they'd get.",
-                        )
-                    },
-                    switch(
-                        crate::browser::WAVE_LYRICS,
-                        "Lyrics on waveforms",
-                        "A track's timed lyrics run along the bottom of its big waveform, \
-                         lilac as far as they have been sung.",
-                        settings::flag(crate::browser::WAVE_LYRICS, true),
-                    ),
-                    PrefItem {
-                        choices: strings(&crate::wave_look::COLOR_LABELS),
-                        chosen: crate::wave_look::color() as i32,
-                        ..item(
-                            crate::wave_look::COLOR_KEY,
-                            MENU,
-                            "Waveform color",
-                            "How the decks' waveforms are colored. RGB: one shape, red where \
-                             the bass is loudest, amber for the mids, blue for the highs. \
-                             3-Band: bass, mids and highs stacked in their own colors, as on \
-                             rekordbox. Blue: one blue shape, lighter where the highs are loud. \
-                             Stems: each stem in its pad color once a track has stems, RGB \
-                             until then.",
-                        )
-                    },
-                ]
-                .into_iter()
-                .chain((crate::wave_look::color() == 1).then(|| PrefItem {
+                let mut items = Vec::new();
+                if shows(0) {
+                    items.extend([
+                        PrefItem {
+                            choices: strings(&["Hold to preview", "Set and return"]),
+                            chosen: CUE_MODES.iter().position(|&m| m == cue).unwrap_or(0) as i32,
+                            ..item(
+                                "cue_mode",
+                                SEGMENTED,
+                                "CUE button",
+                                "Hold to preview plays while CUE is held, as on Pioneer players.",
+                            )
+                        },
+                        switch(
+                            "quantize",
+                            "Quantize",
+                            "Decks start with quantize on: cues, loops, play and jumps land on the beat. \
+                             Right-click a deck's SYNC to switch it for that deck.",
+                            settings::flag("quantize", true),
+                        ),
+                        switch(
+                            "vinyl_mode",
+                            "Vinyl mode",
+                            "Touching the top of a controller's jog grabs the record to scratch. \
+                             Off, the top bends the tempo like the rim, as CDJ mode does.",
+                            settings::flag("vinyl_mode", true),
+                        ),
+                        switch(
+                            "protect_playing",
+                            "Protect playing decks",
+                            "A track can't be loaded onto a deck while it plays.",
+                            settings::flag("protect_playing", true),
+                        ),
+                        switch(
+                            "pfl_on_load",
+                            "Headphones follow the loaded deck",
+                            "Loading a track cues its deck in the headphones and takes the other decks out of the cue, like VirtualDJ. What the room hears doesn't change, and automix leaves the cue alone.",
+                            settings::flag("pfl_on_load", true),
+                        ),
+                        item("auto_reset", HEADING, "AUTO RESET ON LOAD", ""),
+                    ]);
+                    items.extend(AUTO_RESETS.map(|(id, title, detail)| {
+                        switch(id, title, detail, settings::flag(id, true))
+                    }));
+                }
+                if shows(1) {
+                    let camelot = app.global::<KeyNotation>().get_camelot();
+                    items.extend([
+                        PrefItem {
+                            choices: strings(&names),
+                            chosen: RATE_RANGES
+                                .iter()
+                                .position(|&r| (r - range).abs() < 1e-6)
+                                .unwrap_or(2) as i32,
+                            ..item(
+                                "rate_range",
+                                MENU,
+                                "Tempo fader range",
+                                "How far the tempo fader changes the speed, either way.",
+                            )
+                        },
+                        PrefItem {
+                            choices: strings(&["Up slows down", "Up speeds up"]),
+                            chosen: if settings::flag("tempo_up_faster", false) { 1 } else { 0 },
+                            ..item(
+                                "tempo_direction",
+                                SEGMENTED,
+                                "Tempo fader direction",
+                                "Which way the tempo faders, on screen and on controllers, speed \
+                                 the deck up. Pioneer players slow down as the fader goes up.",
+                            )
+                        },
+                        switch(
+                            "keylock_default",
+                            "Key lock on at start",
+                            "Tempo changes keep the key. Right-click a deck's tempo fader to switch it; its line turns lilac while on.",
+                            settings::flag("keylock_default", true),
+                        ),
+                        PrefItem {
+                            choices: strings(&[
+                                "Camelot · 8A",
+                                "Open Key · 1m",
+                                "Sharps · A#m",
+                                "Flats · Bbm",
+                            ]),
+                            chosen: match (camelot, key::notation()) {
+                                (true, key::Notation::OpenKey) => 1,
+                                (true, _) => 0,
+                                (false, key::Notation::Flats) => 3,
+                                (false, _) => 2,
+                            },
+                            ..item(
+                                "key_notation",
+                                MENU,
+                                "Key notation",
+                                "How keys are written on the decks and in the track list. \
+                                 Clicking a deck's key switches between the wheel and notes. \
+                                 Keys in your files' tags stay as they are.",
+                            )
+                        },
+                        PrefItem {
+                            choices: strings(&["Harmonic · 4 keys", "Fuzzy · 6 keys"]),
+                            chosen: key_mixing().id() as i32,
+                            ..item(
+                                "key_mixing",
+                                SEGMENTED,
+                                "Key mixing",
+                                "Which keys the track list marks in lilac as mixing with the track \
+                                 playing. Harmonic: the same number, or the next one with the same \
+                                 letter (8A: 8A, 8B, 7A, 9A). Fuzzy ignores the letter, so 7B and 9B \
+                                 mix too.",
+                            )
+                        },
+                        PrefItem {
+                            choices: strings(&["Off", "±1 semitone", "±2 semitones"]),
+                            chosen: key_match_range() as i32,
+                            ..item(
+                                "key_match_on_load",
+                                SEGMENTED,
+                                "Match key on load",
+                                "A track loaded while another deck plays is shifted up or down to \
+                                 mix with it, with key lock on. The track list marks those tracks with \
+                                 the shift they'd get.",
+                            )
+                        },
+                    ]);
+                }
+                if shows(2) {
+                    items.extend([
+                        PrefItem {
+                            choices: strings(&["Off", "Beats", "Beats and phrases"]),
+                            chosen: beat_counter_mode(),
+                            ..item(
+                                "beat_counter",
+                                SEGMENTED,
+                                "Beat counter",
+                                "Squares in each deck header light up beat by beat, the first of \
+                                 the bar brighter, with the bars of the phrase under them. With \
+                                 phrases, the header also counts down the bars to the next phrase \
+                                 and names it.",
+                            )
+                        },
+                        PrefItem {
+                            choices: strings(&crate::track_end::LABELS),
+                            chosen: crate::track_end::chosen() as i32,
+                            ..item(
+                                crate::track_end::KEY,
+                                MENU,
+                                "Track end warning",
+                                "A playing deck's remaining time blinks red this long before the \
+                                 track ends. Not while a loop plays.",
+                            )
+                        },
+                        PrefItem {
+                            choices: strings(&crate::track_end::STYLE_LABELS),
+                            chosen: crate::track_end::style() as i32,
+                            ..item(
+                                crate::track_end::STYLE_KEY,
+                                SEGMENTED,
+                                "Warning type",
+                                "What blinks near the track's end: the remaining time in red, the \
+                                 ring round the deck's jog in its color, or both.",
+                            )
+                        },
+                    ]);
+                }
+                items
+            }
+            MIXER => self.mixer_general(),
+            SOURCES => self.sources_page(tab.is_none()),
+            AUDIO_PLUGINS => self.audio_plugin_page(tab),
+            BROADCAST => {
+                let mut items = Vec::new();
+                if shows(0) {
+                    items.extend(self.broadcast_page());
+                    items.extend([
+                        item("loudness", HEADING, "LOUDNESS", ""),
+                        loudness_target_item(),
+                    ]);
+                }
+                if shows(1) {
+                    items.extend(self.now_playing_page());
+                }
+                items
+            }
+            PLAYER => {
+                let mut items = scrobble_items();
+                items.extend(lastfm_items());
+                items.extend(keyboard::media_key_items());
+                items
+            }
+            KEYBOARD => self.keyboard_page(),
+            LAYOUTS => {
+                let mut items = Vec::new();
+                if shows(0) {
+                    items.push(
+                        item(
+                            "layouts",
+                            LAYOUTS_ROW,
+                            "Your layouts",
+                            "The layouts the layout menu offers: add, remove and reorder them.",
+                        ),
+                    );
+                }
+                if shows(1) {
+                    items.extend([
+                        PrefItem {
+                            choices: strings(&crate::appearance::LABELS),
+                            chosen: crate::appearance::mode() as i32,
+                            ..item(
+                                crate::appearance::KEY,
+                                SEGMENTED,
+                                "Appearance",
+                                "Light is easier to read in daylight and at outdoor gigs; the \
+                                 waveforms stay on black in both. Match system follows your \
+                                 computer's light or dark setting.",
+                            )
+                        },
+                        PrefItem {
+                            choices: strings(&crate::wave_look::COLOR_LABELS),
+                            chosen: crate::wave_look::color() as i32,
+                            ..item(
+                                crate::wave_look::COLOR_KEY,
+                                MENU,
+                                "Waveform color",
+                                "How the decks' waveforms are colored. RGB: one shape, red where \
+                                 the bass is loudest, amber for the mids, blue for the highs. \
+                                 3-Band: bass, mids and highs stacked in their own colors, as on \
+                                 rekordbox. Blue: one blue shape, lighter where the highs are loud. \
+                                 Stems: each stem in its pad color once a track has stems, RGB \
+                                 until then.",
+                            )
+                        },
+                    ]);
+                    if crate::wave_look::color() == 1 {
+                        items.push(PrefItem {
                     choices: strings(&crate::wave_look::PALETTE_LABELS),
                     chosen: crate::wave_look::palette_index() as i32,
                     ..item(
@@ -1440,132 +1579,52 @@ impl Prefs {
                         "Palette",
                         "3-Band's colors for the bass, mids and highs.",
                     )
-                }))
-                .chain([
-                    PrefItem {
-                        choices: strings(&crate::wave_look::SHAPE_LABELS),
-                        chosen: crate::wave_look::half() as i32,
-                        ..item(
-                            crate::wave_look::HALF_KEY,
-                            SEGMENTED,
-                            "Overview",
-                            "The whole-track waveform under each deck: mirrored about its \
-                             middle, or half, growing from the bottom edge as on rekordbox. \
-                             The big scrolling waveform is always whole.",
-                        )
-                    },
-                    switch(
-                        crate::wave_look::GAIN_KEY,
-                        "Size follows gain",
-                        "A deck's gain knob makes its waveforms taller or shorter, as on \
-                         VirtualDJ.",
-                        settings::flag(crate::wave_look::GAIN_KEY, false),
-                    ),
-                    switch(
-                        crate::wave_look::VOCALS_KEY,
-                        "Show vocals",
-                        "Tints the sung parts of the waveforms green, as on VirtualDJ. \
-                         Each track is checked once, in the background, the first time \
-                         it is loaded.",
-                        settings::flag(crate::wave_look::VOCALS_KEY, true),
-                    ),
-                    PrefItem {
-                        choices: strings(&["Off", "Beats", "Beats and phrases"]),
-                        chosen: beat_counter_mode(),
-                        ..item(
-                            "beat_counter",
-                            SEGMENTED,
-                            "Beat counter",
-                            "Squares in each deck header light up beat by beat, the first of \
-                             the bar brighter, with the bars of the phrase under them. With \
-                             phrases, the header also counts down the bars to the next phrase \
-                             and names it.",
-                        )
-                    },
-                    PrefItem {
-                        choices: strings(&crate::track_end::LABELS),
-                        chosen: crate::track_end::chosen() as i32,
-                        ..item(
-                            crate::track_end::KEY,
-                            MENU,
-                            "Track end warning",
-                            "A playing deck's remaining time blinks red this long before the \
-                             track ends. Not while a loop plays.",
-                        )
-                    },
-                    PrefItem {
-                        choices: strings(&crate::track_end::STYLE_LABELS),
-                        chosen: crate::track_end::style() as i32,
-                        ..item(
-                            crate::track_end::STYLE_KEY,
-                            SEGMENTED,
-                            "Warning type",
-                            "What blinks near the track's end: the remaining time in red, the \
-                             ring round the deck's jog in its color, or both.",
-                        )
-                    },
-                    switch(
-                        "quantize",
-                        "Quantize",
-                        "Decks start with quantize on: cues, loops, play and jumps land on the beat. \
-                         Right-click a deck's SYNC to switch it for that deck.",
-                        settings::flag("quantize", true),
-                    ),
-                    switch(
-                        "vinyl_mode",
-                        "Vinyl mode",
-                        "Touching the top of a controller's jog grabs the record to scratch. \
-                         Off, the top bends the tempo like the rim, as CDJ mode does.",
-                        settings::flag("vinyl_mode", true),
-                    ),
-                    switch(
-                        "protect_playing",
-                        "Protect playing decks",
-                        "A track can't be loaded onto a deck while it plays.",
-                        settings::flag("protect_playing", true),
-                    ),
-                    switch(
-                        "pfl_on_load",
-                        "Headphones follow the loaded deck",
-                        "Loading a track cues its deck in the headphones and takes the other decks out of the cue, like VirtualDJ. What the room hears doesn't change, and automix leaves the cue alone.",
-                        settings::flag("pfl_on_load", true),
-                    ),
-                    item("auto_reset", HEADING, "AUTO RESET ON LOAD", ""),
-                ])
-                .chain(AUTO_RESETS.map(|(id, title, detail)| {
-                    switch(id, title, detail, settings::flag(id, true))
-                }))
-                .collect()
-            }
-            MIXER => self.mixer_general(),
-            SOURCES => self.sources_page(tab.is_none()),
-            AUDIO_PLUGINS => self.audio_plugin_page(tab),
-            BROADCAST => {
-                let mut items = self.broadcast_page();
-                items.extend(loudness_items());
+                });
+                    }
+                    items.extend([
+                        PrefItem {
+                            choices: strings(&crate::wave_look::SHAPE_LABELS),
+                            chosen: crate::wave_look::half() as i32,
+                            ..item(
+                                crate::wave_look::HALF_KEY,
+                                SEGMENTED,
+                                "Overview",
+                                "The whole-track waveform under each deck: mirrored about its \
+                                 middle, or half, growing from the bottom edge as on rekordbox. \
+                                 The big scrolling waveform is always whole.",
+                            )
+                        },
+                        switch(
+                            crate::wave_look::GAIN_KEY,
+                            "Size follows gain",
+                            "A deck's gain knob makes its waveforms taller or shorter, as on \
+                             VirtualDJ.",
+                            settings::flag(crate::wave_look::GAIN_KEY, false),
+                        ),
+                        switch(
+                            crate::wave_look::VOCALS_KEY,
+                            "Show vocals",
+                            "Tints the sung parts of the waveforms green, as on VirtualDJ. \
+                             Each track is checked once, in the background, the first time \
+                             it is loaded.",
+                            settings::flag(crate::wave_look::VOCALS_KEY, true),
+                        ),
+                        switch(
+                            crate::browser::WAVE_LYRICS,
+                            "Lyrics on waveforms",
+                            "A track's timed lyrics run along the bottom of its big waveform, \
+                             lilac as far as they have been sung.",
+                            settings::flag(crate::browser::WAVE_LYRICS, true),
+                        ),
+                        PrefItem {
+                            choices: strings(&["Dot", "Strip", "Tint", "Off"]),
+                            chosen: settings::track_color().unwrap_or(0) as i32,
+                            ..item("track_color", TRACK_COLOR, "Track color", "")
+                        },
+                    ]);
+                }
                 items
             }
-            KEYBOARD => self.keyboard_page(),
-            LAYOUTS => vec![
-                PrefItem {
-                    choices: strings(&crate::appearance::LABELS),
-                    chosen: crate::appearance::mode() as i32,
-                    ..item(
-                        crate::appearance::KEY,
-                        SEGMENTED,
-                        "Appearance",
-                        "Light is easier to read in daylight and at outdoor gigs; the \
-                         waveforms stay on black in both. Match system follows your \
-                         computer's light or dark setting.",
-                    )
-                },
-                item(
-                    "layouts",
-                    LAYOUTS_ROW,
-                    "Your layouts",
-                    "The layouts the layout menu offers: add, remove and reorder them.",
-                ),
-            ],
             FEEDBACK => vec![
                 item("", HEADING, "GUIDED TOUR", ""),
                 PrefItem {
@@ -1686,6 +1745,7 @@ impl Prefs {
             })
             .collect();
         let mut items = vec![
+            mixer_mode_item(),
             switch(
                 "auto_gain",
                 "Auto gain",
@@ -1753,6 +1813,35 @@ impl Prefs {
                 "Cue in the left ear and master in the right, both in mono.",
                 settings::flag("head_split", false),
             ),
+            item("", HEADING, "MIC", ""),
+            PrefItem {
+                choices: strings(&["Off", "Auto", "Manual"]),
+                chosen: settings::number("talkover_ducking", DUCK_AUTO) as i32,
+                ..item(
+                    "talkover_ducking",
+                    SEGMENTED,
+                    "Talkover ducking",
+                    "Auto turns the music down while you talk into the mic; \
+                     Manual whenever the mic is on.",
+                )
+            },
+            {
+                let strength = settings::number("duck_strength", DEFAULT_DUCK_STRENGTH);
+                let names: Vec<String> = DUCK_DB.iter().map(|d| format!("-{d} dB")).collect();
+                PrefItem {
+                    choices: strings(&names),
+                    chosen: DUCK_DB
+                        .iter()
+                        .position(|&d| (duck_strength(d) - strength).abs() < 1e-3)
+                        .unwrap_or(1) as i32,
+                    ..item(
+                        "duck_strength",
+                        MENU,
+                        "Ducking depth",
+                        "How far the music goes down under the mic.",
+                    )
+                }
+            },
         ]);
         items
     }
@@ -2018,12 +2107,6 @@ impl Prefs {
     /// Settings › Controllers: the controllers openDJ has a mapping for,
     /// and any others added; the rest wait under Add a controller.
     /// Settings › Controllers: each controller, then MIDI Clock.
-    fn controllers_page(&mut self) -> Vec<PrefItem> {
-        let mut items = self.controller_items();
-        items.extend(crate::midi_clock::items());
-        items
-    }
-
     fn controller_items(&mut self) -> Vec<PrefItem> {
         let Some(c) = &self.controllers else {
             return vec![item(
@@ -2336,11 +2419,17 @@ impl Prefs {
 
     /// The tabs a page has; most have none.
     fn tabs(&self, page: i32) -> Vec<String> {
-        match page {
-            LIBRARY => LIBRARY_TABS.iter().map(|t| t.to_string()).collect(),
-            AUDIO_PLUGINS => PLUGIN_TABS.iter().map(|t| t.to_string()).collect(),
-            _ => Vec::new(),
-        }
+        let tabs: &[&str] = match page {
+            AUDIO => &AUDIO_TABS,
+            DECKS => &DECK_TABS,
+            LAYOUTS => &APPEARANCE_TABS,
+            CONTROLLERS => &CONTROLLER_TABS,
+            LIBRARY => &LIBRARY_TABS,
+            AUDIO_PLUGINS => &PLUGIN_TABS,
+            BROADCAST => &BROADCAST_TABS,
+            _ => &[],
+        };
+        tabs.iter().map(|t| t.to_string()).collect()
     }
 
     /// Settings › Collection: General, Stages, Tags, Health and Import. `tab` None
@@ -2362,6 +2451,10 @@ impl Prefs {
         }
         if shows(HEALTH_TAB) {
             items.extend(self.health_items(tab.is_none()));
+        }
+        if shows(STORAGE_TAB) {
+            items.push(self.storage_item());
+            items.extend(self.backup_items());
         }
         items
     }
@@ -2502,15 +2595,6 @@ impl Prefs {
         if !self.library_note.is_empty() {
             items.push(item("", NOTE, "", &self.library_note));
         }
-        items.extend([
-            PrefItem {
-                choices: strings(&["Dot", "Strip", "Tint", "Off"]),
-                chosen: settings::track_color().unwrap_or(0) as i32,
-                ..item("track_color", TRACK_COLOR, "Track color", "")
-            },
-            self.storage_item(),
-        ]);
-        items.extend(self.backup_items());
         items
     }
 
@@ -3825,17 +3909,14 @@ const PLUGIN_FOLDERS_LIST: &str = "audio_plugin_folders";
 /// controlling openDJ and following it over Open Sound Control.
 fn osc_items() -> Vec<PrefItem> {
     let on = settings::flag(osc::ENABLED, false);
-    let mut items = vec![
-        item("", HEADING, "OSC", ""),
-        switch(
-            osc::ENABLED,
-            "OSC",
-            "Lets TouchOSC, Open Stage Control, Resolume, TouchDesigner, QLab and other \
+    let mut items = vec![switch(
+        osc::ENABLED,
+        "OSC",
+        "Lets TouchOSC, Open Stage Control, Resolume, TouchDesigner, QLab and other \
              Open Sound Control apps press any button and move any fader, and follow \
              what changes. /channel1/play 1 plays deck 1. See the user guide for every address.",
-            on,
-        ),
-    ];
+        on,
+    )];
     if !on {
         return items;
     }

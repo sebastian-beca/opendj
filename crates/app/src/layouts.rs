@@ -136,7 +136,7 @@ fn model(list: impl IntoIterator<Item = i32>) -> ModelRc<LayoutEntry> {
     ))
 }
 
-/// Fills the layout menu and Settings › Layouts from the saved list and
+/// Fills the layout menu and Settings › Appearance › Layouts from the saved list and
 /// the layout showing. Call it whenever either changes.
 pub fn refresh(app: &AppWindow) {
     let current = app.get_layout();
@@ -158,8 +158,8 @@ pub fn refresh(app: &AppWindow) {
     ));
 }
 
-/// Wires Settings › Layouts and the menu's cog. `switch` changes the layout
-/// as the menu does; `settings_page` is Settings › Layouts.
+/// Wires Settings › Appearance › Layouts and the menu's cog. `switch` changes the layout
+/// as the menu does; `settings_page` is Settings › Appearance › Layouts.
 pub fn install(app: &AppWindow, switch: impl Fn(i32) + 'static, settings_page: i32) {
     let ui = app.global::<LayoutsUi>();
     let weak = app.as_weak();

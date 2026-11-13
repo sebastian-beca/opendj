@@ -496,7 +496,7 @@ const PLAYER_LAYOUT: i32 = 1;
 /// Behind the Player bar's overview: the bar's own colour (Theme.panel),
 /// so the waveform sits on the bar rather than in a black box.
 const PLAYER_OVERVIEW_BACKGROUND: [f32; 4] = [0.102, 0.102, 0.110, 1.0];
-/// Whether the Prep layout is offered (Settings › Layouts, the Cues and
+/// Whether the Prep layout is offered (Settings › Appearance › Layouts, the Cues and
 /// Checklist tabs, the checklist settings). Offered from v0.6, under More
 /// layouts: the DJ adds it to the layout menu.
 pub(crate) const PREP_OFFERED: bool = true;
@@ -859,7 +859,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    // Settings › Layouts switches layout as the menu does.
+    // Settings › Appearance › Layouts switches layout as the menu does.
     {
         let app_weak = app.as_weak();
         layouts::install(
@@ -2687,7 +2687,7 @@ impl Gpu {
         tracks: &[Option<Arc<Track>>; NUM_DECKS],
         visual: &VisualPositions,
     ) {
-        // Settings › Decks › Waveform color and Overview, when they change.
+        // Settings › Appearance › Look › Waveform color and Overview, when they change.
         if self.look != wave_look::version() {
             self.look = wave_look::version();
             let (style, palette, half) =

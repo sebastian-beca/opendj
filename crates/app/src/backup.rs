@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 use crate::settings;
 
 pub const EXTENSION: &str = "opendjbackup";
-/// Settings › Collection › General › Back up: 0 off, 1 daily, 2 weekly.
+/// Settings › Collection › Storage › Back up: 0 off, 1 daily, 2 weekly.
 pub const EVERY_KEY: &str = "backup_every";
 pub const DEFAULT_EVERY: usize = 1;
 pub const EVERY_CHOICES: [&str; 3] = ["Off", "Daily", "Weekly"];

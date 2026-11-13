@@ -134,6 +134,8 @@ const INPUTS: [(i32, i32, usize, &str); 2] =
 
 pub fn install(app: &AppWindow) {
     let ui = app.global::<InstrumentsUi>();
+    ui.set_audio_page(crate::prefs::AUDIO_PAGE);
+    ui.set_plugins_page(crate::prefs::PLUGINS_PAGE);
     ui.on_payload(|kind, index| DataTransfer::from(SharedString::from(payload(kind, index))));
     ui.on_item(|data| data.plain_text().ok().and_then(|t| parse(&t)).unwrap_or(-1));
     let weak = app.as_weak();

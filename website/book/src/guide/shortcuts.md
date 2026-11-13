@@ -9,7 +9,7 @@
 | <kbd>⌘</kbd> <kbd>A</kbd> (Linux and Windows: <kbd>Ctrl</kbd> <kbd>A</kbd>) | Pick every track in the track list or side list you last clicked, to drag or analyze them together |
 | <kbd>⌘</kbd> <kbd>,</kbd> (Linux and Windows: <kbd>Ctrl</kbd> <kbd>,</kbd>) | Open or close Settings |
 | <kbd>Esc</kbd> | Close Settings |
-| Media keys (play/pause, next, previous) | In [Player](layouts.md), play or pause, mix into the next track in Up Next, or go back to the start of the track; headphone buttons and the system's Now Playing do the same. Other layouts only with **Media keys in every layout** on in Settings › Keyboard |
+| Media keys (play/pause, next, previous) | In [Player](layouts.md), play or pause, mix into the next track in Up Next, or go back to the start of the track; headphone buttons and the system's Now Playing do the same. Other layouts only with **Media keys in every layout** on in Settings › Player |
 
 ## openDJscript
 

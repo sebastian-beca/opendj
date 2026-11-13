@@ -1,7 +1,7 @@
 //! How the decks' waveforms look: the colour scheme, the stacked bands'
 //! palette, and whether the overview is drawn whole or from the bottom up.
 //!
-//! Picked in Settings › Decks and kept here, so the renderer can read it
+//! Picked in Settings › Appearance › Look and kept here, so the renderer can read it
 //! every frame without reading the settings file; [`version`] changes with
 //! every pick so the renderer applies it once.
 
@@ -14,9 +14,9 @@ use crate::settings;
 pub const COLOR_KEY: &str = "waveform_color";
 pub const PALETTE_KEY: &str = "waveform_palette";
 pub const HALF_KEY: &str = "waveform_overview_half";
-/// Settings › Decks › Size follows gain, off at first.
+/// Settings › Appearance › Look › Size follows gain, off at first.
 pub const GAIN_KEY: &str = "waveform_follows_gain";
-/// Settings › Decks › Show vocals, on at first.
+/// Settings › Appearance › Look › Show vocals, on at first.
 pub const VOCALS_KEY: &str = "waveform_show_vocals";
 
 /// The color schemes, in Settings order.

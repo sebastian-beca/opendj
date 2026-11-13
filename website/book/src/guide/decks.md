@@ -29,7 +29,7 @@ passes.
 
 ### Waveform colors
 
-**Settings › Decks › Waveform color** picks how the waveforms are colored:
+**Settings › Appearance › Look › Waveform color** picks how the waveforms are colored:
 
 - **RGB** (the default): one shape, red where the bass is loudest, amber for
   the mids and blue for the highs.

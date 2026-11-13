@@ -1,5 +1,6 @@
 //! Settings › Broadcast: the stations to stream to, the loudness meter
-//! targets and the now-playing feed.
+//! target and the now-playing feed; the recording limiter and
+//! scrobbling, which other pages show.
 
 use super::*;
 
@@ -10,43 +11,41 @@ pub(super) fn station_field(id: &str) -> Option<(usize, &str)> {
     Some((i.parse().ok()?, field))
 }
 
-/// Settings › Broadcast: the loudness meter's target and the limiter.
-pub(super) fn loudness_items() -> Vec<PrefItem> {
-    vec![
-        item("loudness", HEADING, "LOUDNESS", ""),
-        {
-            let target = settings::number("loudness_target", meter::DEFAULT_LOUDNESS_TARGET);
-            PrefItem {
-                choices: strings(&LOUDNESS_TARGETS.map(|t| t.1)),
-                chosen: LOUDNESS_TARGETS
-                    .iter()
-                    .position(|t| (t.0 - target).abs() < 1e-6)
-                    .unwrap_or(0) as i32,
-                ..item(
-                    "loudness_target",
-                    MENU,
-                    "Loudness target",
-                    "Where the loudness meter in the ON AIR panel shows green. It doesn't change any level.",
-                )
-            }
-        },
-        {
-            let ceiling = settings::number("air_ceiling", engine::DEFAULT_AIR_CEILING_DB);
-            PrefItem {
-                choices: strings(&AIR_CEILINGS.map(|t| t.1)),
-                chosen: AIR_CEILINGS
-                    .iter()
-                    .position(|t| (t.0 - ceiling).abs() < 1e-6)
-                    .unwrap_or(0) as i32,
-                ..item(
-                    "air_ceiling",
-                    MENU,
-                    "Limiter while recording or on air",
-                    "Keeps peaks, also those between samples, under this level so MP3, AAC and Opus files and streams don't clip.",
-                )
-            }
-        },
-    ]
+/// Settings › Broadcast › Stations: where the loudness meter in the ON AIR
+/// panel shows green.
+pub(super) fn loudness_target_item() -> PrefItem {
+    let target = settings::number("loudness_target", meter::DEFAULT_LOUDNESS_TARGET);
+    PrefItem {
+            choices: strings(&LOUDNESS_TARGETS.map(|t| t.1)),
+            chosen: LOUDNESS_TARGETS
+                .iter()
+                .position(|t| (t.0 - target).abs() < 1e-6)
+                .unwrap_or(0) as i32,
+            ..item(
+                "loudness_target",
+                MENU,
+                "Loudness target",
+                "Where the loudness meter in the ON AIR panel shows green. It doesn't change any level.",
+            )
+        }
+}
+
+/// Settings › Audio › Recording: the limiter on recordings and streams.
+pub(super) fn air_ceiling_item() -> PrefItem {
+    let ceiling = settings::number("air_ceiling", engine::DEFAULT_AIR_CEILING_DB);
+    PrefItem {
+            choices: strings(&AIR_CEILINGS.map(|t| t.1)),
+            chosen: AIR_CEILINGS
+                .iter()
+                .position(|t| (t.0 - ceiling).abs() < 1e-6)
+                .unwrap_or(0) as i32,
+            ..item(
+                "air_ceiling",
+                MENU,
+                "Limiter while recording or on air",
+                "Keeps peaks, also those between samples, under this level so MP3, AAC and Opus files and streams don't clip.",
+            )
+        }
 }
 
 /// Settings › Broadcast › NOW PLAYING FEED: the track the audience hears,
@@ -133,7 +132,7 @@ pub(super) fn now_playing_items() -> Vec<PrefItem> {
     items
 }
 
-/// Settings › Broadcast › SCROBBLING: the tracks heard, sent to the DJ's
+/// Settings › Player › SCROBBLING: the tracks heard, sent to the DJ's
 /// ListenBrainz profile.
 pub(super) fn scrobble_items() -> Vec<PrefItem> {
     use crate::scrobble as sc;
@@ -169,7 +168,7 @@ pub(super) fn scrobble_items() -> Vec<PrefItem> {
     items
 }
 
-/// Settings › Broadcast › SCROBBLING, Last.fm: the DJ's own API account
+/// Settings › Player › SCROBBLING, Last.fm: the DJ's own API account
 /// and signing in.
 pub(super) fn lastfm_items() -> Vec<PrefItem> {
     use crate::lastfm as fm;
@@ -416,37 +415,13 @@ impl Prefs {
             action: "Add".into(),
             ..item("bc_add", BUTTON, "Add a station", "")
         });
-        items.push(item("", HEADING, "NOW PLAYING", ""));
-        items.push(PrefItem {
-            value: settings::string(broadcast::TITLE_TEMPLATE).into(),
-            ..item(
-                broadcast::TITLE_TEMPLATE,
-                TEXT,
-                "Title sent to listeners",
-                "The track heard most, a couple of seconds after it takes over. {artist}, \
-                 {title} and {dj} are filled in; plain text is sent as it is. Empty is \
-                 {artist} - {title}.",
-            )
-        });
-        items.push(PrefItem {
-            value: settings::string(broadcast::DJ_NAME).into(),
-            ..item(
-                broadcast::DJ_NAME,
-                TEXT,
-                "DJ name",
-                "For {dj} in the title.",
-            )
-        });
-        items.extend(now_playing_items());
-        items.extend(scrobble_items());
-        items.extend(lastfm_items());
         items.push(item("", HEADING, "BEFORE YOU GO ON AIR", ""));
         items.push(item(
             "",
             NOTE,
             "",
             "While on air, the limiter keeps peaks under the ceiling set in Settings › Audio › \
-             Loudness, and the ON AIR panel's loudness meter shows how loud the stream is \
+             Recording, and the ON AIR panel's loudness meter shows how loud the stream is \
              against your target.",
         ));
         items.push(item(
@@ -468,6 +443,34 @@ impl Prefs {
                 ),
             ));
         }
+        items
+    }
+
+    /// Settings › Broadcast › Now playing: the title sent to listeners and
+    /// the now-playing feed for streaming software.
+    pub(super) fn now_playing_page(&self) -> Vec<PrefItem> {
+        let mut items = vec![item("", HEADING, "STREAM TITLE", "")];
+        items.push(PrefItem {
+            value: settings::string(broadcast::TITLE_TEMPLATE).into(),
+            ..item(
+                broadcast::TITLE_TEMPLATE,
+                TEXT,
+                "Title sent to listeners",
+                "The track heard most, a couple of seconds after it takes over. {artist}, \
+                 {title} and {dj} are filled in; plain text is sent as it is. Empty is \
+                 {artist} - {title}.",
+            )
+        });
+        items.push(PrefItem {
+            value: settings::string(broadcast::DJ_NAME).into(),
+            ..item(
+                broadcast::DJ_NAME,
+                TEXT,
+                "DJ name",
+                "For {dj} in the title.",
+            )
+        });
+        items.extend(now_playing_items());
         items
     }
 

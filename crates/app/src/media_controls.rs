@@ -5,7 +5,7 @@
 //! [`crate::transport`]).
 //!
 //! Only Player mode takes them, so a headphone button can't stop a deck in
-//! the middle of a set; Settings › Keyboard › Media keys in every layout
+//! the middle of a set; Settings › Player › Media keys in every layout
 //! lets the DJ layouts have them too. Outside those, openDJ leaves the
 //! system's Now Playing.
 //!

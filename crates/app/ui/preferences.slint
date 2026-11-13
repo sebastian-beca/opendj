@@ -67,12 +67,17 @@ export global Preferences {
     in-out property <bool> open;
     in-out property <int> page;
     in-out property <string> query;
-    // The page's tabs (Library has General, Stages, Tags and Import);
-    // most pages have none.
+    // The page's tabs (Collection has General, Stages, Tags, Import,
+    // Health and Storage); some pages have none.
     in property <[string]> tabs;
     in-out property <int> tab;
     in property <[PrefItem]> items;
-    in-out property <[string]> pages: ["Audio", "Controllers", "Collection", "Analysis", "Decks", "Mixer", "Sources", "Plugins", "Broadcast", "Keyboard", "Layouts", "Help"];
+    // The page list, filled by the app (PAGE_NAMES in prefs.rs).
+    in-out property <[string]> pages;
+    // Pages opened from elsewhere, by their number in `pages`.
+    in property <int> audio-page;
+    in property <int> plugins-page;
+    in property <int> broadcast-page;
     // The page or the search changed: the app fills `items` again.
     callback changed();
     callback toggled(id: string, on: bool);
@@ -148,7 +153,7 @@ export struct StoragePart {
     tint: color,
 }
 
-// Settings › Collection › General › Storage: how the disk with the music is
+// Settings › Collection › Storage: how the disk with the music is
 // used, and the Manage menu's clean-ups. Picking one asks first: `confirm`
 // is its question, `warning` what it costs, `confirm-label` its button.
 // The menu picks "storage_manage"; the buttons press "storage_confirm" and
@@ -1087,7 +1092,7 @@ export component PrefRow inherits Rectangle {
             }
         }
         if item.kind == 21: FolderList { item: item; bright: bright; }
-        // Settings › Layouts (layouts.slint).
+        // Settings › Appearance › Layouts (layouts.slint).
         if item.kind == 24: LayoutsPage {}
         if item.kind == 23: StorageView { item: item; searching: searching; }
         if item.kind == 22: VerticalLayout {
