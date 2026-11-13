@@ -6788,6 +6788,7 @@ dependencies = [
 name = "opendj-plugins"
 version = "0.6.0"
 dependencies = [
+ "chrono",
  "md5",
  "opendj-engine",
  "plist",

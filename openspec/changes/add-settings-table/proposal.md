@@ -2,6 +2,8 @@
 
 Planned for: **v0.6 · Buy it from the artist** (first step of the split `add-settings-layers`, 2026-11-05; issue #364)
 
+The tasks still open moved to **v0.8 · From the booth to the studio** on 2026-11-12, so v0.7 ships with what is built.
+
 ## Why
 
 Settings has grown to 11 pages, but there is no single list of the settings. `prefs.rs` reads and writes about 97

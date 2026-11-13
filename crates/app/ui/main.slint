@@ -11,7 +11,11 @@ export { MiniPlayer } from "mini.slint";
 import { AppMenu, AppMenuButton } from "appmenu.slint";
 export { AppMenu, MenuEntry } from "appmenu.slint";
 import { PrepDeck, PrepUi } from "prep.slint";
-import { LayoutsUi } from "layouts.slint";
+import { WaveZoom, ZoomBar, ZoomReadout } from "zoom.slint";
+export { WaveZoom }
+import { WaveHeight, WaveHeightList, WaveHeightGrip } from "wave_height.slint";
+export { WaveHeight }
+import { LayoutsUi, LayoutEntry } from "layouts.slint";
 export { LayoutsUi, LayoutEntry } from "layouts.slint";
 import { CueList } from "cues.slint";
 import { ChecklistUi } from "checklist.slint";
@@ -50,7 +54,7 @@ export { BroadcastState, BroadcastStation }
 export { InstrumentsUi, LiveItem, ParamMatch, PresetItem, PresetUi, Theme, Controls, DeckActions, PhraseView, PhraseTip, BeatCounter, BeatCount, GrooveUi, GrooveKit, GrooveGenre, GrooveName, AudioSettings, OutputRow, EffectList, FxRow, KeyNotation, DeckInfo, KeyItem, Folder, TrackRow, SideRow, SideTab, SideTabs, TrackDrag, LibraryEdit, KeepGoingUi, UpNextUi, MenuListRow, MenuTag, StoreUi, StreamMatch, WantedUi, FilesUi, AlbumsUi, AlbumTile, HealthUi, HealthCard, HealthStage, HealthLine, HealthArea, HealthChip, HealthReview, CleanupUi, CleanupRow, FixNamesUi, GenreRow, BuyUi, BuyGroup, BuyRow, Preferences, PrefItem, ImportWizard, PluginErrors, StorageUi, StoragePart, ControllerEditor, EditorRow, EditorPart, EditorPanel, EditorOption, EditorSetting, UsbExport }
 
 // Macro lanes: an instrument deck's knobs drawn as lines on its scrolling
-// waveform instead of its note roll (2-Deck only), a colour each.
+// waveform instead of its note roll (2-Deck Basic only), a colour each.
 export global MacroLanes {
     // `shown[d]`: deck d shows them. Set by the app; `toggle` flips one.
     in property <[bool]> shown: [false, false, false, false];
@@ -130,13 +134,33 @@ component Waveform inherits Rectangle {
     in property <int> lyrics-deck: deck;
     // The deck's grid, for the Edit Grid popover and its More… menu.
     in property <DeckInfo> info;
-    // Prep's waveform: always in grid edit mode, and it shows
-    // `zoom-seconds` across its width (set from the app).
+    // Prep's waveform: always in grid edit mode.
     in property <bool> drag-grid;
-    in property <float> zoom-seconds;
-    // Must match the app's VISIBLE_SECONDS: the track seconds the waveform
-    // shows across its width at normal speed.
-    property <float> visible-seconds: (zoom-seconds > 0 ? zoom-seconds : 10) * (1 + Controls.value(rate-index, Controls.tick) * Controls.value(range-index, Controls.tick));
+    // The track seconds the waveform shows across its width: the shared
+    // zoom's, more when the deck plays faster (as the app draws it).
+    property <float> visible-seconds: WaveZoom.seconds * (1 + Controls.value(rate-index, Controls.tick) * Controls.value(range-index, Controls.tick));
+    // The top large waveform of the layout: the zoom's step shows on it
+    // after a change from the keys, menus or a controller.
+    in property <bool> first;
+    // When the last mouse wheel notch came, so a notch's second event
+    // isn't taken as another step.
+    property <duration> wheel-notched: -1s;
+    // The zoom's step shows a moment after it changes.
+    property <int> zoom-changes: WaveZoom.changes;
+    property <bool> zoom-flash;
+    changed zoom-changes => {
+        zoom-flash = true;
+        zoom-hide.running = false;
+        zoom-hide.running = true;
+    }
+    zoom-hide := Timer {
+        interval: 900ms;
+        running: false;
+        triggered => {
+            zoom-flash = false;
+            self.running = false;
+        }
+    }
     property <int> rate-index: Controls.resolve(group, "rate");
     property <int> range-index: Controls.resolve(group, "rateRange");
     property <int> position-index: Controls.resolve(group, "playposition");
@@ -169,8 +193,25 @@ component Waveform inherits Rectangle {
     // Where the right-click menu opens.
     property <length> menu-x;
     property <length> menu-y;
-    TouchArea {
+    wave-touch := TouchArea {
         mouse-cursor: Controls.value(duration-index, Controls.tick) > 0 ? ew-resize : default;
+        // Up zooms in, down out, on every large waveform at once: smoothly,
+        // settling on the nearest step once the wheel or trackpad stops. A
+        // trackpad moves a step per 40 px of swipe; a mouse wheel's notch
+        // (a big jump of scroll, which can come as two events) one step.
+        scroll-event(e) => {
+            if e.delta-y == 0 {
+                return reject;
+            }
+            if abs(e.delta-y) >= 40px {
+                if animation-tick() - wheel-notched < 70ms {
+                    return accept;
+                }
+                wheel-notched = animation-tick();
+            }
+            WaveZoom.nudge(clamp(e.delta-y / 40px, -1, 1));
+            accept
+        }
         pointer-event(e) => {
             if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                 menu-x = self.mouse-x;
@@ -237,10 +278,36 @@ component Waveform inherits Rectangle {
         now: WaveLyrics.now(lyrics-deck);
         visible-seconds: root.visible-seconds;
     }
-    // Right-click: show or hide the phrase flags on every scrolling waveform.
+    // The zoom's bar at the left edge while the pointer is over this
+    // waveform, and its step a moment after it changes: on this waveform
+    // when the pointer is on it, else on the layout's top one, so it shows
+    // once whatever the number of decks.
+    property <bool> pointer-here: wave-touch.has-hover || zoom-bar.active;
+    changed pointer-here => {
+        if pointer-here {
+            WaveZoom.hovered = group;
+        } else if WaveZoom.hovered == group {
+            WaveZoom.hovered = "";
+        }
+    }
+    // At the outer edge away from the grid pencil, so it has the whole
+    // height even on short waveforms.
+    zoom-bar := ZoomBar {
+        x: pencil-right ? 0 : parent.width - self.width;
+        y: 0;
+        height: parent.height;
+        shown: wave-touch.has-hover;
+    }
+    ZoomReadout {
+        x: 28px;
+        y: 6px;
+        shown: zoom-flash && (WaveZoom.hovered == group || (WaveZoom.hovered == "" && first));
+    }
+    // Right-click: show or hide the phrase flags on every scrolling
+    // waveform, and zoom them all.
     wave-menu := PopupWindow {
         x: min(menu-x, root.width - 130px);
-        y: min(menu-y, root.height - 32px);
+        y: min(menu-y, root.height - 158px);
         width: 130px;
         Rectangle {
             background: Theme.panel-raised;
@@ -248,7 +315,7 @@ component Waveform inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 8px;
-            drop-shadow-color: #00000080;
+            drop-shadow-color: Theme.s-00000080;
         }
         VerticalLayout {
             padding: 4px;
@@ -271,6 +338,77 @@ component Waveform inherits Rectangle {
                     }
                 }
             }
+            for item[i] in [
+                { text: "Zoom in", enabled: WaveZoom.level < WaveZoom.steps, by: 1 },
+                { text: "Zoom out", enabled: WaveZoom.level > 1, by: -1 },
+                { text: "Reset zoom", enabled: WaveZoom.level != WaveZoom.default-level, by: 0 },
+            ]: Rectangle {
+                height: 24px;
+                background: zta.has-hover && item.enabled ? Theme.panel-raised.brighter(0.3) : transparent;
+                border-radius: 4px;
+                Text {
+                    x: 10px;
+                    text: item.text;
+                    color: item.enabled ? Theme.text : Theme.text-dim;
+                    font-size: 11px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+                if i == 0: Text {
+                    x: parent.width - self.width - 10px;
+                    text: WaveZoom.percent(WaveZoom.level);
+                    color: Theme.text-dim;
+                    font-family: "Inter Tabular";
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+                zta := TouchArea {
+                    enabled: item.enabled;
+                    clicked => {
+                        if item.by == 0 {
+                            WaveZoom.reset();
+                        } else {
+                            WaveZoom.step(item.by);
+                        }
+                    }
+                }
+            }
+            // How tall the large waveforms are in this layout.
+            Rectangle {
+                height: 22px;
+                Text {
+                    x: 10px;
+                    text: "Height";
+                    color: Theme.text-dim;
+                    font-size: 10px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+            }
+            // − step +, as the zoom steps are in Prep.
+            HorizontalLayout {
+                height: 26px;
+                spacing: 4px;
+                padding-left: 6px;
+                padding-right: 6px;
+                padding-bottom: 2px;
+                for b in [{ text: "−", by: -1 }, { text: "", by: 0 }, { text: "+", by: 1 }]: Rectangle {
+                    property <bool> enabled: b.by < 0 ? WaveHeight.level > 1 : b.by > 0 ? WaveHeight.level < WaveHeight.steps : false;
+                    border-radius: 4px;
+                    background: b.by == 0 ? transparent : hta.has-hover && enabled ? Theme.panel-raised.brighter(0.3) : Theme.panel-raised.brighter(0.12);
+                    Text {
+                        text: b.by == 0 ? WaveHeight.level : b.text;
+                        color: b.by == 0 || enabled ? Theme.text : Theme.text-dim;
+                        font-family: "Inter Tabular";
+                        font-size: b.by == 0 ? 12px : 14px;
+                        font-weight: b.by == 0 ? 700 : 500;
+                    }
+                    hta := TouchArea {
+                        enabled: enabled;
+                        clicked => { WaveHeight.step(b.by); }
+                    }
+                }
+            }
         }
     }
     // The pencil: dimmed until hovered, lit while editing.
@@ -280,7 +418,7 @@ component Waveform inherits Rectangle {
         width: 24px;
         height: 22px;
         border-radius: 5px;
-        background: pta.pressed ? Theme.control-pressed : pta.has-hover ? #000000c0 : transparent;
+        background: pta.pressed ? Theme.control-pressed : pta.has-hover ? Theme.s-000000c0 : transparent;
         // A pencil, point down to the left.
         Path {
             width: 14px;
@@ -320,7 +458,7 @@ component Waveform inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 14px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
         }
         VerticalLayout {
             padding: 12px;
@@ -391,7 +529,7 @@ component Waveform inherits Rectangle {
         width: 24px;
         height: 18px;
         border-radius: 4px;
-        background: kta.pressed ? Theme.control-pressed : kta.has-hover ? #2a2b2e : #000000a0;
+        background: kta.pressed ? Theme.control-pressed : kta.has-hover ? Theme.n-2a2b2e : Theme.s-000000a0;
         border-width: 1px;
         border-color: macros ? Theme.accent : transparent;
         // Three sliders: knobs as lines.
@@ -429,7 +567,7 @@ component FooterButton inherits Rectangle {
     width: 34px;
     height: 26px;
     border-radius: 5px;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2a2a2e : transparent;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-2a2a2e : transparent;
     if !lit: Path { width: 18px; height: 18px; viewbox-width: 20; viewbox-height: 20; stroke: ink; stroke-width: 1.5px; fill: transparent; commands: icon; }
     if lit: Path { width: 18px; height: 18px; viewbox-width: 20; viewbox-height: 20; stroke: ink; stroke-width: 1.5px; fill: transparent; commands: lit-icon; }
     ta := TouchArea {
@@ -475,7 +613,7 @@ component MicButton inherits Rectangle {
     clip: true;
     HorizontalLayout {
         Rectangle {
-            background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #ffffff10 : transparent;
+            background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-ffffff10 : transparent;
             HorizontalLayout {
                 padding-left: 12px;
                 padding-right: 10px;
@@ -503,10 +641,10 @@ component MicButton inherits Rectangle {
                 clicked => { Controls.toggle(on-index); }
             }
         }
-        Rectangle { width: 1px; background: on ? tint.with-alpha(0.5) : #ffffff18; }
+        Rectangle { width: 1px; background: on ? tint.with-alpha(0.5) : Theme.n-ffffff18; }
         Rectangle {
             width: 26px;
-            background: arrow.pressed ? Theme.control-pressed : arrow.has-hover ? #ffffff10 : transparent;
+            background: arrow.pressed ? Theme.control-pressed : arrow.has-hover ? Theme.n-ffffff10 : transparent;
             Path {
                 width: 8px;
                 height: 5px;
@@ -535,7 +673,7 @@ component MapBarButton inherits Rectangle {
     y: 7px;
     width: tl.preferred-width;
     border-radius: 6px;
-    background: primary ? (ta.has-hover ? Theme.lilac.brighter(0.1) : Theme.lilac) : ta.has-hover ? #ffffff20 : #ffffff12;
+    background: primary ? (ta.has-hover ? Theme.lilac.brighter(0.1) : Theme.lilac) : ta.has-hover ? Theme.n-ffffff20 : Theme.n-ffffff12;
     tl := HorizontalLayout {
         padding-left: 12px;
         padding-right: 12px;
@@ -559,12 +697,12 @@ component MapBar inherits Rectangle {
     border-width: 1px;
     border-color: Theme.lilac;
     drop-shadow-blur: 16px;
-    drop-shadow-color: #000000a0;
+    drop-shadow-color: Theme.s-000000a0;
     bl := HorizontalLayout {
         padding-left: 16px;
         padding-right: 8px;
         spacing: 12px;
-        Text { text: MapMode.walking || MapMode.asking-decks || MapMode.asking-device ? "MAPPING WIZARD" : "MIDI MAP"; color: Theme.lilac; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; vertical-alignment: center; }
+        Text { text: MapMode.walking || MapMode.asking-decks || MapMode.asking-device ? "MAPPING WIZARD" : "MIDI MAP"; color: Theme.lilac-text; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; vertical-alignment: center; }
         if MapMode.walking: Text { text: MapMode.step; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
         // While walking, what to do now; otherwise what was learned last.
         Text { text: MapMode.last != "" && !MapMode.walking ? MapMode.last : MapMode.status; color: Theme.text; font-size: 12px; vertical-alignment: center; }
@@ -594,7 +732,7 @@ component RecordButton inherits Rectangle {
     property <int> hours: floor(seconds / 3600);
     property <int> minutes: mod(floor(seconds / 60), 60);
     property <int> secs: mod(floor(seconds), 60);
-    background: ta.pressed ? Theme.control-pressed : on ? #e5484d.with-alpha(0.16) : ta.has-hover ? #2e2e32 : Theme.panel-raised;
+    background: ta.pressed ? Theme.control-pressed : on ? #e5484d.with-alpha(0.16) : ta.has-hover ? Theme.n-2e2e32 : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
     border-color: on ? #e5484d : transparent;
@@ -638,8 +776,8 @@ component OnAirButton inherits Rectangle {
     // 0 off, 1 connecting, 2 every station on air, 3 failed, 4 some.
     property <int> status: Controls.value(Controls.resolve("[Shoutcast]", "status"), Controls.tick);
     property <float> seconds: Controls.value(Controls.resolve("[Broadcast]", "on_air_seconds"), Controls.tick);
-    property <color> light: status == 2 ? #e5484d : status == 3 ? #7a7a80 : #f5a524;
-    background: ta.pressed ? Theme.control-pressed : on ? #e5484d.with-alpha(0.16) : ta.has-hover ? #2e2e32 : Theme.panel-raised;
+    property <color> light: status == 2 ? #e5484d : status == 3 ? Theme.n-7a7a80 : #f5a524;
+    background: ta.pressed ? Theme.control-pressed : on ? #e5484d.with-alpha(0.16) : ta.has-hover ? Theme.n-2e2e32 : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
     border-color: on ? light : transparent;
@@ -721,7 +859,7 @@ component LayoutIcon inherits Rectangle {
             Rectangle { height: 1.5px; width: 60%; background: tint; }
         }
     }
-    // 2-Deck: two short decks over the pad bar.
+    // 2-Deck Basic: two short decks over the pad bar.
     if kind == 5: VerticalLayout {
         padding: 3.5px;
         spacing: 2px;
@@ -784,7 +922,7 @@ component LayoutItem inherits Rectangle {
         VerticalLayout { alignment: center; LayoutIcon { kind: kind; tint: tint; } }
         Text { text: root.text; color: tint; font-size: 13px; font-weight: 500; vertical-alignment: center; horizontal-stretch: 1; }
         if !enabled: Text { text: "Soon"; color: Theme.text-dim.with-alpha(0.5); font-size: 10px; vertical-alignment: center; }
-        if current: Text { text: "✓"; color: Theme.accent; font-size: 13px; vertical-alignment: center; }
+        if current: Text { text: "✓"; color: Theme.lilac-text; font-size: 13px; vertical-alignment: center; }
     }
     ta := TouchArea {
         mouse-cursor: enabled ? pointer : default;
@@ -796,13 +934,210 @@ component LayoutItem inherits Rectangle {
     }
 }
 
+// Dark, Light or Auto (Match system): three segments at the foot of the
+// layout menu, the one in use lit.
+component AppearanceRow inherits Rectangle {
+    property <[string]> names: ["Dark", "Light", "Auto"];
+    height: 28px;
+    border-radius: 7px;
+    background: Theme.n-ffffff0d;
+    HorizontalLayout {
+        padding: 2px;
+        spacing: 2px;
+        for name[i] in names: Rectangle {
+            property <bool> on: LayoutsUi.appearance == i;
+            border-radius: 5px;
+            background: on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? Theme.n-ffffff0d : transparent;
+            border-width: on ? 1px : 0px;
+            border-color: Theme.accent;
+            Text { text: name; color: on ? Theme.lilac-text : ta.has-hover ? Theme.text : Theme.text-dim; font-size: 12px; font-weight: on ? 600 : 500; }
+            ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { LayoutsUi.appearance-picked(i); }
+            }
+        }
+    }
+}
+
+// The layout menu's pencil, and the lit one on its chooser.
+component LayoutPencil inherits Rectangle {
+    in property <bool> lit;
+    callback clicked();
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    background: lit ? Theme.accent.with-alpha(0.18) : ta.has-hover ? Theme.panel-raised.brighter(0.3) : transparent;
+    Path {
+        width: 14px;
+        height: 14px;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        fill: transparent;
+        stroke: lit ? Theme.accent : ta.has-hover ? Theme.text : Theme.text-dim;
+        stroke-width: 1.4px;
+        stroke-line-join: round;
+        commands: "M 10.5 2.5 L 13.5 5.5 L 5.5 13.5 L 2 14 L 2.5 10.5 Z M 9 4 L 12 7";
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// An on/off switch, as on the side panel tabs' chooser.
+component LayoutSwitch inherits Rectangle {
+    in property <bool> on;
+    callback toggled();
+    width: 34px;
+    height: 20px;
+    border-radius: 10px;
+    background: on ? Theme.accent : Theme.n-48484a;
+    Rectangle {
+        x: on ? 16px : 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: Theme.n-ffffff;
+    }
+    TouchArea { mouse-cursor: pointer; clicked => { toggled(); } }
+}
+
+// The layout menu's chooser: every layout with a switch for whether the
+// menu offers it, and a grip to drag it up or down, as the side panel
+// tabs' and the rail's choosers have. The layout in use, and the last one
+// on, stay on.
+component LayoutChooser inherits Rectangle {
+    callback done();
+    property <int> n: LayoutsUi.all.length;
+    property <length> row-h: 40px;
+    // The row being dragged, how far, and where it would land.
+    property <int> drag-from: -1;
+    property <length> drag-dy;
+    property <length> drag-start;
+    property <int> drag-to: drag-from < 0 ? -1 : max(0, min(n - 1, drag-from + round(drag-dy / row-h)));
+    property <LayoutEntry> dragged;
+    height: list.preferred-height;
+    Rectangle {
+        background: Theme.n-2a2a2d;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: Theme.s-00000080;
+    }
+    list := VerticalLayout {
+        padding: 8px;
+        spacing: 2px;
+        HorizontalLayout {
+            height: 28px;
+            padding-left: 6px;
+            Text { text: "LAYOUTS"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; horizontal-stretch: 1; }
+            VerticalLayout { alignment: center; LayoutPencil { lit: true; clicked => { root.done(); } } }
+        }
+        Rectangle {
+            height: n * row-h;
+            for e[pos] in LayoutsUi.all: Rectangle {
+                // Rows between where the dragged one was and where it would
+                // go step aside for it.
+                property <length> shift: drag-from < 0 || pos == drag-from ? 0px
+                    : drag-from < drag-to && pos > drag-from && pos <= drag-to ? -row-h
+                    : drag-from > drag-to && pos < drag-from && pos >= drag-to ? row-h : 0px;
+                // The dragged row stays put, unseen, so its grip keeps the mouse.
+                opacity: pos == drag-from ? 0 : 1;
+                x: 0;
+                y: pos * row-h + shift;
+                width: parent.width;
+                height: row-h;
+                animate y { duration: 100ms; }
+                HorizontalLayout {
+                    padding-left: 4px;
+                    padding-right: 6px;
+                    spacing: 8px;
+                    Rectangle {
+                        width: 16px;
+                        Text { text: "⋮⋮"; color: grip.has-hover ? Theme.text : Theme.text-dim; font-size: 13px; }
+                        grip := TouchArea {
+                            mouse-cursor: drag-from >= 0 ? MouseCursor.grabbing : MouseCursor.grab;
+                            pointer-event(ev) => {
+                                if ev.button == PointerEventButton.left && ev.kind == PointerEventKind.down {
+                                    drag-from = pos;
+                                    dragged = e;
+                                    drag-start = self.absolute-position.y + self.mouse-y;
+                                    drag-dy = 0px;
+                                }
+                                if ev.button == PointerEventButton.left && ev.kind == PointerEventKind.up && drag-from >= 0 {
+                                    if drag-to != drag-from {
+                                        LayoutsUi.moved(e.layout, drag-to - drag-from);
+                                    }
+                                    drag-from = -1;
+                                    drag-dy = 0px;
+                                }
+                            }
+                            moved => {
+                                if drag-from >= 0 {
+                                    drag-dy = self.absolute-position.y + self.mouse-y - drag-start;
+                                }
+                            }
+                        }
+                    }
+                    VerticalLayout { alignment: center; LayoutIcon { kind: e.layout == 3 ? 4 : e.layout == 4 ? 5 : e.layout; tint: e.on ? Theme.text : Theme.text-dim; } }
+                    Text { text: e.name; color: e.on ? Theme.text : Theme.text-dim; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
+                    VerticalLayout {
+                        alignment: center;
+                        LayoutSwitch {
+                            on: e.on;
+                            opacity: e.locked ? 0.45 : 1;
+                            toggled => {
+                                if !e.locked {
+                                    LayoutsUi.toggled(e.layout);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // The row being dragged, over the others.
+            if drag-from >= 0: Rectangle {
+                y: max(0px, min(parent.height - row-h, drag-from * row-h + drag-dy));
+                width: parent.width;
+                height: row-h;
+                border-radius: 8px;
+                background: Theme.n-36363b;
+                drop-shadow-blur: 10px;
+                drop-shadow-color: Theme.s-00000080;
+                HorizontalLayout {
+                    padding-left: 4px;
+                    padding-right: 6px;
+                    spacing: 8px;
+                    Rectangle {
+                        width: 16px;
+                        Text { text: "⋮⋮"; color: Theme.text; font-size: 13px; }
+                    }
+                    VerticalLayout { alignment: center; LayoutIcon { kind: dragged.layout == 3 ? 4 : dragged.layout == 4 ? 5 : dragged.layout; } }
+                    Text { text: dragged.name; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
+                    VerticalLayout { alignment: center; LayoutSwitch { on: dragged.on; } }
+                }
+            }
+        }
+        Rectangle { height: 9px; Rectangle { height: 1px; background: Theme.border; } }
+        Rectangle {
+            height: 32px;
+            border-radius: 8px;
+            background: rta.has-hover ? Theme.n-ffffff0d : transparent;
+            Text { x: 6px; text: "Reset to default"; color: rta.has-hover ? Theme.text : Theme.text-dim; font-size: 13px; vertical-alignment: center; }
+            rta := TouchArea { mouse-cursor: pointer; clicked => { LayoutsUi.reset(); } }
+        }
+    }
+}
+
 // The layout button: the current layout's icon and name, opening a menu of
-// the DJ's layouts (LayoutsUi.menu). 0 is 2-Deck Pro, 1 Player, 2 4-Deck,
-// 3 Prep and 4 2-Deck (the stored values); Player is the Automix layout.
+// the DJ's layouts (LayoutsUi.menu), and its pencil the chooser that picks
+// them. 0 is 2-Deck, 1 Player, 2 4-Deck,
+// 3 Prep and 4 2-Deck Basic (the stored values); Player is the Automix layout.
 component LayoutPill inherits Rectangle {
     in-out property <int> layout;
     callback changed-to(layout: int);
-    background: ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    background: ta.has-hover ? Theme.n-3a3a3d : Theme.panel-raised;
     border-radius: 10px;
     height: 36px;
     y: 8px;
@@ -812,7 +1147,7 @@ component LayoutPill inherits Rectangle {
         padding-right: 14px;
         spacing: 8px;
         VerticalLayout { alignment: center; LayoutIcon { kind: layout == 3 ? 4 : layout == 4 ? 5 : layout; } }
-        Text { text: layout == 1 ? "Player" : layout == 2 ? "4-Deck" : layout == 3 ? "Prep" : layout == 4 ? "2-Deck" : "2-Deck Pro"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+        Text { text: layout == 1 ? "Player" : layout == 2 ? "4-Deck" : layout == 3 ? "Prep" : layout == 4 ? "2-Deck Basic" : "2-Deck"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -827,7 +1162,7 @@ component LayoutPill inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #00000080;
+            drop-shadow-color: Theme.s-00000080;
         }
         VerticalLayout {
             padding: 6px;
@@ -836,27 +1171,12 @@ component LayoutPill inherits Rectangle {
                 height: 22px;
                 padding-left: 10px;
                 Text { text: "LAYOUT"; color: Theme.text-dim; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; horizontal-stretch: 1; }
-                // Settings › Layouts, where the DJ picks what this menu offers.
-                Rectangle {
-                    width: 22px;
-                    border-radius: 5px;
-                    background: cog.has-hover ? Theme.panel-raised.brighter(0.3) : transparent;
-                    Path {
-                        width: 15px;
-                        height: 15px;
-                        viewbox-width: 16;
-                        viewbox-height: 16;
-                        fill: transparent;
-                        stroke: cog.has-hover ? Theme.text : Theme.text-dim;
-                        stroke-width: 1.4px;
-                        commands: "M 8 5.5 A 2.5 2.5 0 1 1 7.99 5.5 Z M 8 1.5 L 8 3.5 M 8 12.5 L 8 14.5 M 1.5 8 L 3.5 8 M 12.5 8 L 14.5 8 M 3.4 3.4 L 4.8 4.8 M 11.2 11.2 L 12.6 12.6 M 3.4 12.6 L 4.8 11.2 M 11.2 4.8 L 12.6 3.4 M 8 3.5 A 4.5 4.5 0 1 1 7.99 3.5 Z";
-                    }
-                    cog := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            menu.close();
-                            LayoutsUi.edit();
-                        }
+                // The pencil: opens the chooser, where the DJ picks what
+                // this menu offers.
+                LayoutPencil {
+                    clicked => {
+                        menu.close();
+                        chooser.show();
                     }
                 }
             }
@@ -870,43 +1190,108 @@ component LayoutPill inherits Rectangle {
                     changed-to(e.layout);
                 }
             }
+            Rectangle { height: 9px; Rectangle { height: 1px; background: Theme.border; } }
+            // Dark, Light or Auto (Match system), as in Settings › Layouts.
+            AppearanceRow {}
+        }
+    }
+    chooser := PopupWindow {
+        y: root.height + 6px;
+        width: 240px;
+        height: chooser-view.preferred-height;
+        close-policy: close-on-click-outside;
+        chooser-view := LayoutChooser {
+            done => {
+                chooser.close();
+                menu.show();
+            }
         }
     }
 }
 
-// Shows or hides the large scrolling waveforms above the decks: just a
+// Shows or hides the large scrolling waveforms above the decks: a
 // waveform icon, lit while they show. Hidden, the room goes to the browser.
+// The arrow at its right end, as on MIC, opens their heights.
 component WaveformsButton inherits Rectangle {
     in-out property <bool> on;
+    // The highest step the window has room for now.
+    in property <int> fits: 10;
     callback changed-to(on: bool);
-    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    background: on ? Theme.accent.with-alpha(0.18) : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
     border-color: on ? Theme.accent : transparent;
     height: 36px;
     y: 8px;
     horizontal-stretch: 0;
+    clip: true;
     HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
-        spacing: 7px;
-        // A small waveform.
-        Path {
-            width: 16px;
-            height: 12px;
-            y: (parent.height - self.height) / 2;
-            viewbox-width: 16;
-            viewbox-height: 12;
-            stroke: on ? Theme.accent : Theme.text-dim;
-            stroke-width: 1.5px;
-            commands: "M 1 5 L 1 7 M 4 3 L 4 9 M 7 0.5 L 7 11.5 M 10 2 L 10 10 M 13 4 L 13 8 M 15.5 5.5 L 15.5 6.5";
+        Rectangle {
+            background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-ffffff10 : transparent;
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 10px;
+                // A small waveform.
+                Path {
+                    width: 16px;
+                    height: 12px;
+                    y: (parent.height - self.height) / 2;
+                    viewbox-width: 16;
+                    viewbox-height: 12;
+                    stroke: on ? Theme.accent : Theme.text-dim;
+                    stroke-width: 1.5px;
+                    commands: "M 1 5 L 1 7 M 4 3 L 4 9 M 7 0.5 L 7 11.5 M 10 2 L 10 10 M 13 4 L 13 8 M 15.5 5.5 L 15.5 6.5";
+                }
+            }
+            ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    on = !on;
+                    changed-to(on);
+                }
+            }
+        }
+        Rectangle { width: 1px; background: on ? Theme.accent.with-alpha(0.5) : Theme.n-ffffff18; }
+        Rectangle {
+            width: 24px;
+            background: arrow.pressed ? Theme.control-pressed : arrow.has-hover ? Theme.n-ffffff10 : transparent;
+            Path {
+                width: 8px;
+                height: 5px;
+                commands: "M 0 0 L 4 4 L 8 0";
+                stroke: arrow.has-hover ? Theme.text : on ? Theme.accent : Theme.text-dim;
+                stroke-width: 1.4px;
+                fill: transparent;
+            }
+            arrow := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { sizes.show(); }
+            }
         }
     }
-    ta := TouchArea {
-        mouse-cursor: pointer;
-        clicked => {
-            on = !on;
-            changed-to(on);
+    sizes := PopupWindow {
+        x: 0px;
+        y: root.height + 6px;
+        width: 270px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: Theme.s-000000b0;
+        }
+        WaveHeightList {
+            fits: root.fits;
+            picked => {
+                // Picking a height shows the waveforms if they were hidden.
+                if !root.on {
+                    root.on = true;
+                    root.changed-to(true);
+                }
+                sizes.close();
+            }
         }
     }
 }
@@ -915,7 +1300,7 @@ component WaveformsButton inherits Rectangle {
 component FxButton inherits Rectangle {
     in-out property <bool> on;
     callback changed-to(on: bool);
-    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? Theme.n-3a3a3d : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
     border-color: on ? Theme.accent : transparent;
@@ -925,7 +1310,7 @@ component FxButton inherits Rectangle {
     HorizontalLayout {
         padding-left: 11px;
         padding-right: 11px;
-        Text { text: "FX"; color: on ? Theme.accent : Theme.text-dim; font-size: 14px; font-weight: 700; font-italic: true; vertical-alignment: center; }
+        Text { text: "FX"; color: on ? Theme.lilac-text : Theme.text-dim; font-size: 14px; font-weight: 700; font-italic: true; vertical-alignment: center; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -943,7 +1328,7 @@ component FxButton inherits Rectangle {
 component PadsButton inherits Rectangle {
     in-out property <bool> on;
     callback changed-to(on: bool);
-    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? Theme.n-3a3a3d : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
     border-color: on ? Theme.accent : transparent;
@@ -978,11 +1363,11 @@ component PadsButton inherits Rectangle {
     TourMark { id: "ui,pads_button"; }
 }
 
-// JOG, in 2-Deck: shows a jog on the mixer side of each deck.
+// JOG, in 2-Deck Basic: shows a jog on the mixer side of each deck.
 component JogsButton inherits Rectangle {
     in-out property <bool> on;
     callback changed-to(on: bool);
-    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? #3a3a3d : Theme.panel-raised;
+    background: ta.pressed ? Theme.control-pressed : on ? Theme.accent.with-alpha(0.18) : ta.has-hover ? Theme.n-3a3a3d : Theme.panel-raised;
     border-radius: 10px;
     border-width: 1px;
     border-color: on ? Theme.accent : transparent;
@@ -1026,7 +1411,7 @@ component MasterPill inherits Rectangle {
     in property <string> clock;
     property <bool> link: Controls.value(Controls.resolve("[Link]", "enabled"), Controls.tick) > 0;
     property <bool> midi-clock: Controls.value(Controls.resolve("[MidiClock]", "enabled"), Controls.tick) > 0;
-    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? #2e2e32 : Theme.panel-raised;
+    background: ta.pressed ? Theme.control-pressed : ta.has-hover ? Theme.n-2e2e32 : Theme.panel-raised;
     border-radius: 10px;
     height: 36px;
     y: 8px;
@@ -1042,8 +1427,8 @@ component MasterPill inherits Rectangle {
             VuMeter { group: "[Master]"; key: "VuMeterL"; width: 120px; height: 4px; vertical: false; segments: 24; }
             VuMeter { group: "[Master]"; key: "VuMeterR"; width: 120px; height: 4px; vertical: false; segments: 24; }
         }
-        if link: Text { text: "LINK"; color: Theme.accent; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
-        if midi-clock: Text { text: "CLOCK"; color: Theme.accent; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+        if link: Text { text: "LINK"; color: Theme.lilac-text; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
+        if midi-clock: Text { text: "CLOCK"; color: Theme.lilac-text; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; vertical-alignment: center; }
         Text { text: clock; color: Theme.text; font-size: 14px; font-weight: 500; vertical-alignment: center; }
         Path {
             width: 8px;
@@ -1075,7 +1460,7 @@ export component AppWindow inherits Window {
     preferred-height: 1050px;
     min-width: 1280px;
     min-height: 800px;
-    background: #000000;
+    background: Theme.n-000000;
     default-font-family: Theme.font-family;
 
     in property <[DeckInfo]> decks: [{}, {}, {}, {}];
@@ -1116,6 +1501,11 @@ export component AppWindow inherits Window {
     in property <int> sort-column: 1;
     in property <bool> sort-ascending: true;
     in-out property <int> current-track <=> browser.current-row;
+    // The track list's scroll, kept per list while openDJ runs.
+    out property <length> track-scroll-y: browser.list-scroll-y;
+    public function show-tracks-at(row: int, offset: length, y: length) {
+        browser.show-list-at(row, offset, y);
+    }
     in property <[SideRow]> side-rows;
     in property <string> side-total;
     in-out property <int> side-tab <=> browser.side-tab;
@@ -1162,16 +1552,45 @@ export component AppWindow inherits Window {
     // Two waveforms, or four in 4-Deck, share the room between the lines.
     out property <length> waveform-height: max(1px, (waveforms.height - (wave-rows + 1) * 1px - (prep ? 24px : 0px)) / wave-rows);
     property <int> wave-rows: four ? 4 : prep ? 1 : 2;
+    // The waveforms' strip at each of the ten height steps
+    // (wave_height.slint), 1 first, 3 being the height it always had: each
+    // waveform 48 to 144 px in 2-Deck Basic and 2-Deck, 36 to 84 px in 4-Deck,
+    // 120 to 320 px in Prep, with the lines between (and Prep's key hints).
+    property <[length]> strip-heights: four ? [149px, 181px, 213px, 233px, 249px, 269px, 285px, 305px, 321px, 341px] : prep ? [146px, 173px, 200px, 221px, 242px, 263px, 283px, 304px, 325px, 346px] : [99px, 123px, 144px, 167px, 189px, 209px, 229px, 249px, 271px, 291px];
+    // Everything else down the window but the library, which is as tall as
+    // this layout makes it whatever the waveforms' height: the top bar, the
+    // decks, the FX bar and the footer, with the lines between.
+    property <length> deck-rows: layout == 0 ? LiteUi.deck-height + 1px + LiteUi.bar-height
+        : lite ? lite-row + (PadsUi.visible ? 1px + LiteUi.bar-height : 0px)
+        : four ? (PadsUi.visible ? 330px : 247px) + 1px + 48px
+        : prep ? 280px : 0px;
+    property <length> other-rows: 52px + 1px + 1px + deck-rows + 1px + (fx-bar-visible && !prep ? (four ? 96px : 68px) + 1px : 0px) + 1px + 36px;
+    // The library keeps room for about five tracks under its header: a
+    // step with less shows the highest one that fits, but never below 3
+    // unless the DJ chose less. The chosen one comes back
+    // when the window has room again.
+    property <length> library-floor: 230px;
+    // The window's height as `changed height` passes it on: reading
+    // root.height here would tie the window's own size to the waveforms'.
+    property <length> strip-room: LibraryEdit.window-height - other-rows - library-floor;
+    property <int> wave-fits: strip-heights[9] <= strip-room ? 10 : strip-heights[8] <= strip-room ? 9 : strip-heights[7] <= strip-room ? 8 : strip-heights[6] <= strip-room ? 7 : strip-heights[5] <= strip-room ? 6 : strip-heights[4] <= strip-room ? 5 : strip-heights[3] <= strip-room ? 4 : strip-heights[2] <= strip-room ? 3 : strip-heights[1] <= strip-room ? 2 : 1;
+    property <int> wave-level: min(WaveHeight.level, max(wave-fits, min(WaveHeight.level, WaveHeight.default-level)));
     // From whichever layout's deck A is showing.
-    out property <length> overview-width: player ? 1px : four ? strip-1.overview-width : compact ? player-a.overview-width : prep ? prep-deck.overview-width : lite ? lite-a.overview-width : deck-a.overview-width;
-    out property <length> overview-height: player ? 1px : four ? strip-1.overview-height : compact ? player-a.overview-height : prep ? prep-deck.overview-height : lite ? lite-a.overview-height : deck-a.overview-height;
+    // 2-Deck measures the overviews on deck 1, or on deck 2 while deck 1
+    // is a Mixer deck: that has no overview, and its zero height would draw
+    // every overview as only its phrase bar, stretched to fill.
+    property <bool> pro-overview-b: deck-a.overview-height < 1px && deck-b.overview-height >= 1px;
+    property <length> pro-overview-width: pro-overview-b ? deck-b.overview-width : deck-a.overview-width;
+    property <length> pro-overview-height: pro-overview-b ? deck-b.overview-height : deck-a.overview-height;
+    out property <length> overview-width: player ? 1px : four ? strip-1.overview-width : compact ? player-a.overview-width : prep ? prep-deck.overview-width : lite ? lite-a.overview-width : pro-overview-width;
+    out property <length> overview-height: player ? 1px : four ? strip-1.overview-height : compact ? player-a.overview-height : prep ? prep-deck.overview-height : lite ? lite-a.overview-height : pro-overview-height;
     property <bool> four: layout == 2 && !library-expanded;
-    // 2-Deck, the lighter two-deck layout (lite.slint). A deck there holding
+    // 2-Deck Basic, the lighter two-deck layout (lite.slint). A deck there holding
     // a Groove Box or an instrument shows the full deck, and the row is as
-    // tall as 2-Deck Pro's.
+    // tall as 2-Deck's.
     property <bool> lite: layout == 4 && !library-expanded;
     property <bool> lite-full-a: Controls.value(Controls.resolve("[Groove1]", "enabled"), Controls.tick) > 0 || (!decks[0].loaded && InstrumentsUi.live(0) > 0);
-    // The 2-Deck deck row: the full deck's height when one holds a Groove
+    // The 2-Deck Basic deck row: the full deck's height when one holds a Groove
     // Box or an instrument.
     property <length> lite-row: lite-full-a || lite-full-b ? 272px : LiteUi.deck-height;
     property <bool> lite-full-b: Controls.value(Controls.resolve("[Groove2]", "enabled"), Controls.tick) > 0 || (!decks[1].loaded && InstrumentsUi.live(1) > 0);
@@ -1182,7 +1601,7 @@ export component AppWindow inherits Window {
     // The Player layout: one bar, no waveforms or FX bar.
     property <bool> player: layout == 1;
     property <bool> recording: Controls.value(Controls.resolve("[Recording]", "status"), Controls.tick) > 1;
-    // The compact row shows in 2-Deck, 4-Deck and Prep while the footer
+    // The compact row shows in 2-Deck Basic, 4-Deck and Prep while the footer
     // button has the library expanded (then with no waveforms).
     property <bool> compact: library-expanded && !player;
 
@@ -1239,14 +1658,26 @@ export component AppWindow inherits Window {
         }
     }
 
+    // Text fields and other std widgets follow the appearance.
+    property <bool> light-look: Theme.light;
+    changed light-look => {
+        Palette.color-scheme = self.light-look ? ColorScheme.light : ColorScheme.dark;
+    }
+
     init => {
-        Palette.color-scheme = ColorScheme.dark;
+        Palette.color-scheme = Theme.light ? ColorScheme.light : ColorScheme.dark;
+        Theme.player = player;
+        WaveHeight.layout = layout;
         keys.focus();
         LibraryEdit.window-height = root.height;
         LibraryEdit.window-width = root.width;
         LibraryEdit.top-search = player;
     }
+    changed layout => {
+        WaveHeight.layout = layout;
+    }
     changed player => {
+        Theme.player = player;
         LibraryEdit.top-search = player;
         // Now Playing and its large lyrics only show in Player mode.
         if !player {
@@ -1488,6 +1919,21 @@ export component AppWindow inherits Window {
                 return accept;
             }
             // ⌘F (Ctrl+F on Linux and Windows) goes to the library search.
+            // ⌘= (or ⌘+) and ⌘− zoom the large waveforms, ⌘0 resets them.
+            if (e.text == "=" || e.text == "+" || e.text == "-" || e.text == "0") && e.modifiers.control && !e.modifiers.alt && !Preferences.open {
+                if e.text == "0" {
+                    WaveZoom.reset();
+                } else {
+                    WaveZoom.step(e.text == "-" ? -1 : 1);
+                }
+                return accept;
+            }
+            // ⌥⌘↑ and ⌥⌘↓ (Ctrl+Alt on Linux and Windows) make the large
+            // waveforms taller or shorter in this layout.
+            if (e.text == Key.UpArrow || e.text == Key.DownArrow) && e.modifiers.control && e.modifiers.alt && !e.modifiers.shift && !Preferences.open && !player {
+                WaveHeight.step(e.text == Key.UpArrow ? 1 : -1);
+                return accept;
+            }
             if (e.text == "f" || e.text == "F") && e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift && !Preferences.open {
                 find();
                 return accept;
@@ -1561,8 +2007,10 @@ export component AppWindow inherits Window {
                     // menu bar).
                     if AppMenu.shown: AppMenuButton { }
                     LayoutPill { layout <=> root.layout; changed-to(l) => { layout-changed(l); } }
-                    if !player: WaveformsButton { on <=> root.waveforms-visible; changed-to(on) => { waveforms-visible-changed(on); } }
-                    if !player: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
+                    // Prep always shows its waveform and never the FX bar,
+                    // so neither button is offered there.
+                    if !player && layout != 3: WaveformsButton { on <=> root.waveforms-visible; fits: wave-fits; changed-to(on) => { waveforms-visible-changed(on); } }
+                    if !player && layout != 3: FxButton { on <=> root.fx-bar-visible; changed-to(on) => { fx-bar-visible-changed(on); } }
                     if layout == 2 || layout == 4: PadsButton { on <=> root.pads-visible; changed-to(on) => { pads-visible-changed(on); } }
                     if layout == 4: JogsButton { on <=> root.jogs-visible; changed-to(on) => { jogs-visible-changed(on); } }
                     if !player: Rectangle { horizontal-stretch: 1; }
@@ -1600,15 +2048,16 @@ export component AppWindow inherits Window {
             waveforms := Rectangle {
                 // Not rounded or clipped: that renders into a cached layer, which
                 // would freeze the GPU-updated waveform images. Folded away while
-                // the library is expanded or the top bar button hides them.
-                height: library-expanded || !waveforms-visible || player ? 0px : four ? 213px : prep ? 200px : 144px;
-                visible: !library-expanded && waveforms-visible && !player;
+                // the library is expanded or the top bar button hides them
+                // (Prep has no such button: its waveform always shows).
+                height: library-expanded || !(waveforms-visible || prep) || player ? 0px : wave-grip.dragging ? wave-grip.drag-height : strip-heights[wave-level - 1];
+                visible: !library-expanded && (waveforms-visible || prep) && !player;
                 background: Theme.well;
                 // Thin grey lines above, between and below the waveforms.
                 if prep: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; info: decks[0]; vertical-stretch: 1; lyrics-deck: 0; drag-grid: true; zoom-seconds: PrepUi.seconds; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; info: decks[0]; vertical-stretch: 1; lyrics-deck: 0; drag-grid: true; first: true; }
                     // The quick review keys, and how long this track has taken.
                     Rectangle {
                         height: 24px;
@@ -1640,7 +2089,7 @@ export component AppWindow inherits Window {
                 if !four && !prep: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-1; group: "[Channel1]"; info: decks[0]; deck: 0; vertical-stretch: 1; }
+                    Waveform { source: waveform-1; group: "[Channel1]"; info: decks[0]; deck: 0; vertical-stretch: 1; first: true; }
                     Rectangle { height: 1px; background: Theme.border; }
                     Waveform { source: waveform-2; group: "[Channel2]"; info: decks[1]; deck: 1; vertical-stretch: 1; }
                     Rectangle { height: 1px; background: Theme.border; }
@@ -1648,7 +2097,7 @@ export component AppWindow inherits Window {
                 if four: VerticalLayout {
                     spacing: 0px;
                     Rectangle { height: 1px; background: Theme.border; }
-                    Waveform { source: waveform-3; group: "[Channel3]"; info: decks[2]; vertical-stretch: 1; lyrics-deck: 2; }
+                    Waveform { source: waveform-3; group: "[Channel3]"; info: decks[2]; vertical-stretch: 1; lyrics-deck: 2; first: true; }
                     Rectangle { height: 1px; background: Theme.border; }
                     Waveform { source: waveform-1; group: "[Channel1]"; info: decks[0]; vertical-stretch: 1; lyrics-deck: 0; }
                     Rectangle { height: 1px; background: Theme.border; }
@@ -1671,7 +2120,7 @@ export component AppWindow inherits Window {
                 // sizes the renderer reads stay valid) for the compact row below.
                 HorizontalLayout {
                     spacing: 1px;
-                    // As tall as 2-Deck with its pad bar, so switching between
+                    // As tall as 2-Deck Basic with its pad bar, so switching between
                     // them leaves the library where it is.
                     height: library-expanded || layout != 0 ? 0px : LiteUi.deck-height + 1px + LiteUi.bar-height;
                     visible: !library-expanded && layout == 0;
@@ -1681,14 +2130,14 @@ export component AppWindow inherits Window {
                     deck-a := Deck { deck: 0; info: decks[0]; spin: spin-1; overview: overview-1; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
                     if !external-mixer: Mixer { }
                     if external-mixer: ExternalMixer { }
-                    Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
+                    deck-b := Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
                 }
 
-                // 2-Deck: the lighter decks either side of the slim mixer, each
+                // 2-Deck Basic: the lighter decks either side of the slim mixer, each
                 // with its half of the pad bar (with PADS) under it. The mixer
                 // runs the full height of both, using the room between the pads.
                 // A deck with a Groove Box or an instrument shows the full deck,
-                // and then the deck row and mixer are 2-Deck Pro's.
+                // and then the deck row and mixer are 2-Deck's.
                 HorizontalLayout {
                     spacing: 1px;
                     height: lite ? lite-row + (PadsUi.visible ? 1px + LiteUi.bar-height : 0px) : 0px;
@@ -1705,7 +2154,10 @@ export component AppWindow inherits Window {
                         }
                         if PadsUi.visible: PadBarHalf { height: LiteUi.bar-height; deck: 0; info: decks[0]; }
                     }
-                    if !external-mixer && !(lite-full-a || lite-full-b): LiteMixer { tall: PadsUi.visible; }
+                    // With the pad bar the row is 2-Deck Pro's height, so it
+                    // takes the same full mixer: GAIN knobs, cues under the faders.
+                    if !external-mixer && !(lite-full-a || lite-full-b) && !PadsUi.visible: LiteMixer { }
+                    if !external-mixer && !(lite-full-a || lite-full-b) && PadsUi.visible: Mixer { }
                     if !external-mixer && (lite-full-a || lite-full-b): VerticalLayout {
                         Mixer { height: 272px; }
                         Rectangle { background: Theme.panel; vertical-stretch: 1; }
@@ -1729,7 +2181,7 @@ export component AppWindow inherits Window {
                 }
 
                 // 4-Deck: four strips, decks 3, 1, 2 and 4, then the bar with the
-                // crossfader. Folded away, like the 2-Deck row, in the other
+                // crossfader. Folded away, like the 2-Deck Basic row, in the other
                 // layouts.
                 HorizontalLayout {
                     spacing: 1px;
@@ -1908,6 +2360,22 @@ export component AppWindow inherits Window {
             }
         }
 
+        // The grip on the line under the waveforms, to make them taller
+        // or shorter; over everything, so it can be grabbed from just
+        // below the line too. While dragging, the waveforms take its height.
+        wave-grip := WaveHeightGrip {
+            visible: waveforms.visible;
+            x: waveforms.absolute-position.x - keys.absolute-position.x;
+            y: 0;
+            width: waveforms.width;
+            height: parent.height;
+            strip-top: waveforms.absolute-position.y - keys.absolute-position.y;
+            strip-height: waveforms.height;
+            heights: strip-heights;
+            fits: wave-fits;
+            shown: wave-level;
+        }
+
         if update-version != "": Rectangle {
             x: root.width - self.width - 16px;
             y: 64px;
@@ -1918,7 +2386,7 @@ export component AppWindow inherits Window {
             border-width: 1px;
             border-color: Theme.lilac;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
             update-row := HorizontalLayout {
                 padding-left: 14px;
                 padding-right: update-status == "" ? 6px : 14px;
@@ -1969,7 +2437,7 @@ export component AppWindow inherits Window {
             border-width: 1px;
             border-color: Theme.lilac;
             drop-shadow-blur: 12px;
-            drop-shadow-color: #000000a0;
+            drop-shadow-color: Theme.s-000000a0;
             alert-text := Text {
                 x: 14px;
                 width: parent.width - 28px;
@@ -1983,15 +2451,17 @@ export component AppWindow inherits Window {
         }
 
         // Player's search results, under the box in the top bar. A click
-        // anywhere else closes them.
+        // anywhere else closes them; the wheel scrolls only the results.
         if player && QuickSearch.open && QuickSearch.text != "": TouchArea {
             y: 52px;
             height: root.height - 52px;
             clicked => { QuickSearch.open = false; }
+            scroll-event(e) => { accept }
         }
         if player && QuickSearch.open && QuickSearch.text != "": QuickResults {
             x: (root.width - self.width) / 2;
             y: 48px;
+            max-list-height: root.height - 48px - 60px;
         }
 
         if Tour.offer && Tour.mode == 0 && update-version == "": TourOffer {

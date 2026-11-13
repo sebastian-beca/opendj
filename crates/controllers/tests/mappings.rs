@@ -320,6 +320,67 @@ fn xone_k2_two_decks() {
     assert_eq!(c.errors(), Vec::<String>::new());
 }
 
+/// openDJ's K2 mapping for the Mixer deck: a column a channel.
+#[test]
+fn xone_k2_mixer() {
+    const K2: &str = "Allen and Heath Xone K2 - Mixer.opendj-mapping";
+    let (reg, mut c) = load(K2);
+    let press = |c: &mut Controller, note: u8| {
+        c.receive(&[0x9E, note, 0x7F]);
+        c.receive(&[0x8E, note, 0x7F]);
+    };
+
+    // The third fader is Ch 3's volume (it picks up from where it is).
+    for v in (0..=0x7F).chain((0x40..0x7F).rev()) {
+        c.receive(&[0xBE, 0x12, v]);
+    }
+    let vol = reg.get("[Auxiliary3]", "volume").unwrap().get_parameter();
+    assert!((vol - 0x40 as f64 / 127.0).abs() < 0.01, "volume {vol}");
+
+    // The top encoder trims a step a click; pressing it goes back to 0 dB.
+    let trim = |r: &ControlRegistry| r.get("[Auxiliary2]", "pregain").unwrap().get_parameter();
+    let before = trim(&reg);
+    c.receive(&[0xBE, 0x01, 0x01]);
+    assert!(trim(&reg) > before);
+    press(&mut c, 0x35);
+    assert_eq!(get(&reg, "[Auxiliary2]", "pregain"), 1.0);
+
+    // The first knob is PAN, picked up as it passes the centre.
+    for v in (0x30..=0x50).chain((0..0x50).rev()) {
+        c.receive(&[0xBE, 0x04, v]);
+    }
+    assert_eq!(get(&reg, "[Auxiliary1]", "pan"), -1.0);
+
+    // The knob buttons are FX (on from the start, so a press takes the
+    // channel out of the deck's effects), S and cue; the first matrix row
+    // is on/off.
+    let fx = get(&reg, "[Auxiliary4]", "fx");
+    press(&mut c, 0x33);
+    press(&mut c, 0x2F);
+    press(&mut c, 0x2B);
+    assert_eq!(get(&reg, "[Auxiliary4]", "fx"), 1.0 - fx);
+    assert_eq!(get(&reg, "[Auxiliary4]", "solo"), 1.0);
+    assert_eq!(get(&reg, "[Auxiliary4]", "pfl"), 1.0);
+    let on = get(&reg, "[Auxiliary1]", "main_mix");
+    press(&mut c, 0x24);
+    assert_eq!(get(&reg, "[Auxiliary1]", "main_mix"), 1.0 - on);
+
+    // Lights: Ch 4's S amber, its cue green; Ch 1's meter while it plays.
+    reg.get("[Auxiliary1]", "vu_meter").unwrap().set(0.6);
+    c.take_output();
+    settle(&mut c, 100);
+    let out = c.take_output();
+    let sent = |m: [u8; 3]| out.iter().any(|o| o.as_slice() == m);
+    assert!(sent([0x9E, 0x2F + 36, 0x7F]), "S amber: {out:02X?}");
+    assert!(sent([0x9E, 0x2B + 72, 0x7F]), "cue green");
+    assert!(
+        sent([0x9E, 0x18 + 72, 0x7F]) && sent([0x9E, 0x1C + 72, 0x7F]),
+        "meter"
+    );
+    assert!(!sent([0x9E, 0x20 + 36, 0x7F]), "no amber below 80%");
+    assert_eq!(c.errors(), Vec::<String>::new());
+}
+
 #[test]
 fn every_bundled_mapping_loads_and_takes_its_messages() {
     let dir = default_mappings_dir().unwrap();
@@ -1041,4 +1102,334 @@ fn a_mixxx_mapping_follows_too() {
     c.receive(&[0x90, 0x0B, 0x00]);
     assert_eq!(get(&reg, "[Channel3]", "play"), 1.0);
     assert_eq!(get(&reg, "[Channel1]", "play"), 0.0);
+}
+
+/// The DDJ-SX2 and DDJ-RX run Mixxx's DDJ-SX mapping: the same messages
+/// play, scratch and move the faders on all three.
+#[test]
+fn ddj_sx_family_plays_and_mixes() {
+    for file in [
+        "Pioneer DDJ-SX.midi.xml",
+        "Pioneer DDJ-SX2.midi.xml",
+        "Pioneer DDJ-RX.midi.xml",
+    ] {
+        let (reg, mut c) = load(file);
+        settle(&mut c, 50);
+        assert!(!c.take_output().is_empty(), "{file}: init lights the LEDs");
+        // PLAY on deck 2 (right side).
+        c.receive(&[0x91, 0x0B, 0x7F]);
+        c.receive(&[0x91, 0x0B, 0x00]);
+        assert_eq!(get(&reg, "[Channel2]", "play"), 1.0, "{file}");
+        // Channel 1 fader, 14-bit: all the way down.
+        sweep14(&mut c, 0xB0, 0x13, 0x33, 0x00);
+        assert!(get(&reg, "[Channel1]", "volume") < 0.02, "{file}");
+        // PLAY on deck 3: the left side's second deck, its own channel.
+        c.receive(&[0x92, 0x0B, 0x7F]);
+        c.receive(&[0x92, 0x0B, 0x00]);
+        assert_eq!(get(&reg, "[Channel3]", "play"), 1.0, "{file}");
+        // Pads in every mode and the jogs run without script errors.
+        for status in 0x97..=0x9A {
+            for pad in [0x00, 0x10, 0x20, 0x30, 0x50] {
+                c.receive(&[status, pad, 0x7F]);
+                c.receive(&[status, pad, 0x00]);
+            }
+        }
+        c.receive(&[0x90, 0x36, 0x7F]);
+        c.receive(&[0xB0, 0x22, 0x45]);
+        c.receive(&[0x90, 0x36, 0x00]);
+        settle(&mut c, 50);
+        assert_eq!(c.errors(), Vec::<String>::new(), "{file}");
+        c.shutdown();
+    }
+}
+
+/// On the DDJ-RX, note 0x35 on a deck channel is QUANTIZE.
+#[test]
+fn ddj_rx_quantize() {
+    let (reg, mut c) = load("Pioneer DDJ-RX.midi.xml");
+    settle(&mut c, 50);
+    let before = get(&reg, "[Channel3]", "quantize");
+    c.receive(&[0x92, 0x35, 0x7F]);
+    c.receive(&[0x92, 0x35, 0x00]);
+    assert_eq!(get(&reg, "[Channel3]", "quantize"), 1.0 - before);
+    c.poll(Instant::now());
+    let want = if before == 0.0 { 0x7F } else { 0x00 };
+    assert!(
+        c.take_output().iter().any(|m| m[..] == [0x92, 0x35, want]),
+        "QUANTIZE LED follows"
+    );
+    assert_eq!(c.errors(), Vec::<String>::new());
+}
+
+/// openDJ's DDJ-800 mapping: the DDJ-FLX4's, moved to the DDJ-800's
+/// messages, plus its own buttons and Beat FX switches.
+#[test]
+fn ddj_800_decks_mixer_and_beat_fx() {
+    let (reg, mut c) = load("Pioneer-DDJ-800.midi.xml");
+    settle(&mut c, 50);
+    let out = c.take_output();
+    assert!(
+        out.iter().any(|m| m[..] == [0x90, 0x5D, 0x00]),
+        "jog display shown: {out:x?}"
+    );
+
+    // PLAY on deck 2.
+    c.receive(&[0x91, 0x0B, 0x7F]);
+    c.receive(&[0x91, 0x0B, 0x00]);
+    assert_eq!(get(&reg, "[Channel2]", "play"), 1.0);
+
+    // Channel 1 fader, 14-bit, all the way down.
+    sweep14(&mut c, 0xB0, 0x13, 0x33, 0x00);
+    assert!(get(&reg, "[Channel1]", "volume") < 0.02);
+
+    // QUANTIZE and MASTER TEMPO toggle, and their lights follow.
+    for (note, key) in [(0x35, "quantize"), (0x1A, "keylock")] {
+        let before = get(&reg, "[Channel1]", key);
+        c.receive(&[0x90, note, 0x7F]);
+        c.receive(&[0x90, note, 0x00]);
+        assert_eq!(get(&reg, "[Channel1]", key), 1.0 - before, "{key}");
+        c.poll(Instant::now());
+        let want = if before == 0.0 { 0x7F } else { 0x00 };
+        assert!(
+            c.take_output().iter().any(|m| m[..] == [0x90, note, want]),
+            "{key} light"
+        );
+    }
+
+    // Beat FX: CH SELECT to CH2, FX SELECT to REVERB, ON.
+    c.receive(&[0x94, 0x1D, 0x7F]);
+    let unit = "[EffectRack1_EffectUnit5]";
+    assert_eq!(get(&reg, unit, "group_[Channel2]_enable"), 1.0);
+    assert_eq!(get(&reg, unit, "group_[Channel1]_enable"), 0.0);
+    c.receive(&[0x94, 0x14, 0x7F]);
+    assert_eq!(get(&reg, unit, "group_[Master]_enable"), 1.0);
+    assert_eq!(get(&reg, unit, "group_[Channel2]_enable"), 0.0);
+    c.receive(&[0x94, 0x24, 0x7F]);
+    let slot = "[EffectRack1_EffectUnit5_Effect1]";
+    assert_eq!(
+        opendj_engine::effect_name(get(&reg, slot, "loaded_effect")),
+        "Reverb"
+    );
+    let on = get(&reg, slot, "enabled");
+    c.receive(&[0x94, 0x47, 0x7F]);
+    c.receive(&[0x94, 0x47, 0x00]);
+    assert_eq!(get(&reg, slot, "enabled"), 1.0 - on);
+
+    // SEARCH and KEY SYNC run without script errors.
+    for note in [0x5E, 0x5F, 0x65, 0x64] {
+        c.receive(&[0x91, note, 0x7F]);
+        settle(&mut c, 20);
+        c.receive(&[0x91, note, 0x00]);
+    }
+    settle(&mut c, 100);
+    assert_eq!(c.errors(), Vec::<String>::new());
+    c.shutdown();
+}
+
+#[test]
+fn xdj_az_decks_mixer_pads_and_beat_fx() {
+    let (reg, mut c) = load("Pioneer-XDJ-AZ.midi.xml");
+    settle(&mut c, 50);
+    c.take_output();
+
+    // Each deck has its own channel: PLAY on channel 4 plays deck 4.
+    c.receive(&[0x93, 0x00, 0x7F]);
+    c.receive(&[0x93, 0x00, 0x00]);
+    assert_eq!(get(&reg, "[Channel4]", "play"), 1.0);
+    assert_eq!(get(&reg, "[Channel2]", "play"), 0.0);
+
+    // DECK QUANTIZE moved to 0x1A; KEY SYNC, 4 BEAT and BEAT JUMP are new.
+    let quantize = get(&reg, "[Channel1]", "quantize");
+    c.receive(&[0x90, 0x1A, 0x7F]);
+    assert_ne!(get(&reg, "[Channel1]", "quantize"), quantize);
+    c.receive(&[0x90, 0x43, 0x7F]);
+    c.receive(&[0x90, 0x43, 0x00]);
+    c.receive(&[0x90, 0x17, 0x7F]);
+    let size = get(&reg, "[Channel1]", "beatjump_size");
+    c.receive(&[0x90, 0x19, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "beatjump_size"), size / 2.0);
+
+    // The mixer on channel 5: deck 3's fader, the crossfader.
+    c.receive(&[0xB4, 0x13, 0x7F]);
+    assert_eq!(get(&reg, "[Channel3]", "volume"), 1.0);
+    c.receive(&[0xB4, 0x0B, 0x00]);
+    assert_eq!(get(&reg, "[Master]", "crossfader"), -1.0);
+    // CROSSFADER ASSIGN: one CC a channel, A / THRU / B.
+    c.receive(&[0xB4, 0x42, 0x7F]);
+    assert_eq!(get(&reg, "[Channel2]", "orientation"), 2.0);
+    c.receive(&[0xB4, 0x41, 0x00]);
+    assert_eq!(get(&reg, "[Channel1]", "orientation"), 0.0);
+    c.receive(&[0xB4, 0x43, 0x40]);
+    assert_eq!(get(&reg, "[Channel3]", "orientation"), 1.0);
+
+    // Pads: pad 1 on deck 1's first pad channel, pad 6 on its second
+    // (channel 10), each mode on its own note, routed onto the pages.
+    c.receive(&[0x95, 0x00, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "hotcue_1_activate"), 1.0);
+    c.receive(&[0x95, 0x00, 0x00]);
+    c.receive(&[0x99, 0x13, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1]", "hotcue_6_activate"), 1.0);
+    c.receive(&[0x99, 0x13, 0x00]);
+    // Deck 2's pads 3 and 7 in BEAT JUMP mode send 2 * 19 + 9.
+    c.receive(&[0x91, 0x25, 0x7F]);
+    assert_eq!(get(&reg, "[Channel2]", "pad_tab"), 2.0);
+    c.receive(&[0x96, 0x2F, 0x7F]);
+    c.receive(&[0x96, 0x2F, 0x00]);
+    assert_eq!(get(&reg, "[Channel2]", "beatjump_size"), 8.0);
+    c.receive(&[0x9A, 0x2F, 0x7F]);
+    c.receive(&[0x9A, 0x2F, 0x00]);
+    assert_eq!(get(&reg, "[Channel2]", "beatjump_size"), 32.0);
+    // A note with no page does nothing.
+    c.receive(&[0x95, 0x04, 0x7F]);
+    c.receive(&[0x95, 0x04, 0x00]);
+    assert_eq!(get(&reg, "[Channel1]", "hotcue_5_activate"), 0.0);
+
+    // Hot cue 6's light reaches pad 6 on channel 10.
+    reg.get("[Channel1]", "hotcue_6_status").unwrap().set(1.0);
+    settle(&mut c, 20);
+    let out = c.take_output();
+    assert!(
+        out.iter().any(|m| m[0] == 0x99 && m[1] == 0x13 && m[2] > 0),
+        "pad 6 lit: {out:x?}"
+    );
+
+    // BEAT FX: CH SELECT CH3 sends it to deck 3 only; CF.B follows the
+    // crossfader assign; EFFECT SELECT REVERB; AUTO/TAP.
+    let unit = "[EffectRack1_EffectUnit5]";
+    let fx = "[EffectRack1_EffectUnit5_Effect1]";
+    c.receive(&[0xB4, 0x72, 0x7F]);
+    assert_eq!(get(&reg, fx, "enabled"), 1.0);
+    c.receive(&[0xB4, 0x22, 0x7F]);
+    assert_eq!(get(&reg, unit, "group_[Channel3]_enable"), 1.0);
+    assert_eq!(get(&reg, unit, "group_[Channel1]_enable"), 0.0);
+    c.receive(&[0xB4, 0x28, 0x7F]);
+    assert_eq!(get(&reg, unit, "group_[Channel2]_enable"), 1.0);
+    assert_eq!(get(&reg, unit, "group_[Channel1]_enable"), 0.0);
+    c.receive(&[0xB4, 0x36, 0x7F]);
+    assert_eq!(get(&reg, fx, "loaded_effect"), 2.0);
+    c.receive(&[0xB4, 0x45, 0x7F]);
+
+    // The jog display on channel 14 shows the playhead.
+    reg.get("[Channel1]", "track_loaded").unwrap().set(1.0);
+    reg.get("[Channel1]", "duration").unwrap().set(180.0);
+    reg.get("[Channel1]", "playposition")
+        .unwrap()
+        .set(0.5 / 180.0);
+    settle(&mut c, 100);
+    let out = c.take_output();
+    assert!(
+        out.iter()
+            .any(|m| m[0] == 0xBD && (m[1] == 0x00 || m[1] == 0x20) && m[2] > 0),
+        "jog display moved: {out:x?}"
+    );
+    assert!(
+        out.iter().any(|m| m[..] == [0x9D, 0x00, 0x7F]),
+        "LOAD light: {out:x?}"
+    );
+    assert_eq!(c.errors(), Vec::<String>::new());
+    c.shutdown();
+}
+
+#[test]
+fn ddj_flx10_decks_mixer_fx_and_displays() {
+    let (reg, mut c) = load("Pioneer-DDJ-FLX10.midi.xml");
+    settle(&mut c, 50);
+    let out = c.take_output();
+    assert!(
+        out.iter().any(|m| m[..] == [0x9F, 0x5D, 0x00]),
+        "jog display shown: {out:x?}"
+    );
+
+    // Each deck has its own channel: PLAY on channel 3 plays deck 3.
+    c.receive(&[0x92, 0x0B, 0x7F]);
+    c.receive(&[0x92, 0x0B, 0x00]);
+    assert_eq!(get(&reg, "[Channel3]", "play"), 1.0);
+    assert_eq!(get(&reg, "[Channel1]", "play"), 0.0);
+
+    // The mixer, as on the FLX6.
+    sweep14(&mut c, 0xB3, 0x13, 0x33, 0x20);
+    let v = get(&reg, "[Channel4]", "volume");
+    assert!((v - 0.25).abs() < 0.02, "deck 4 volume {v}");
+
+    // Deck 4's pads: hot cue 1.
+    c.receive(&[0x9D, 0x00, 0x7F]);
+    assert_eq!(get(&reg, "[Channel4]", "hotcue_1_activate"), 1.0);
+    c.receive(&[0x9D, 0x00, 0x00]);
+
+    // The FLX10's own buttons: QUANTIZE, SLIP, KEY SYNC, 4 BEAT JUMP,
+    // CROSSFADER ASSIGN; SHIFT + BEAT SYNC pins the sync leader.
+    let quantize = get(&reg, "[Channel1]", "quantize");
+    c.receive(&[0x90, 0x35, 0x7F]);
+    assert_ne!(get(&reg, "[Channel1]", "quantize"), quantize);
+    c.receive(&[0x91, 0x40, 0x7F]);
+    assert_eq!(get(&reg, "[Channel2]", "slip_enabled"), 1.0);
+    c.receive(&[0x90, 0x65, 0x7F]);
+    c.receive(&[0x90, 0x65, 0x00]);
+    c.receive(&[0x90, 0x5E, 0x7F]);
+    c.receive(&[0x92, 0x18, 0x7F]);
+    assert_eq!(get(&reg, "[Channel3]", "orientation"), 2.0);
+    c.receive(&[0x92, 0x16, 0x7F]);
+    assert_eq!(get(&reg, "[Channel3]", "orientation"), 0.0);
+    c.receive(&[0x91, 0x5C, 0x7F]);
+    assert_eq!(get(&reg, "[Channel2]", "sync_leader"), 2.0);
+
+    // BEAT FX: ON/OFF, SELECT on REVERB, CH SELECT on CH3 then MASTER.
+    let unit = "[EffectRack1_EffectUnit5]";
+    let fx = "[EffectRack1_EffectUnit5_Effect1]";
+    c.receive(&[0x94, 0x47, 0x7F]);
+    assert_eq!(get(&reg, fx, "enabled"), 1.0);
+    c.receive(&[0x94, 0x24, 0x7F]);
+    assert_eq!(get(&reg, fx, "loaded_effect"), 2.0);
+    c.receive(&[0x94, 0x12, 0x7F]);
+    assert_eq!(get(&reg, unit, "group_[Channel3]_enable"), 1.0);
+    assert_eq!(get(&reg, unit, "group_[Channel1]_enable"), 0.0);
+    c.receive(&[0x94, 0x14, 0x7F]);
+    for deck in 1..=4 {
+        assert_eq!(
+            get(&reg, unit, &format!("group_[Channel{deck}]_enable")),
+            1.0
+        );
+    }
+
+    // SOUND COLOR FX: NOISE on every deck's COLOR knob, lit.
+    c.receive(&[0x96, 0x04, 0x7F]);
+    for deck in 1..=4 {
+        assert_eq!(
+            get(
+                &reg,
+                &format!("[QuickEffectRack1_[Channel{deck}]]"),
+                "loaded_chain_preset"
+            ),
+            4.0
+        );
+    }
+
+    // ACTIVE PART VOCAL mutes deck 1's vocals stem.
+    c.receive(&[0x90, 0x0E, 0x7F]);
+    assert_eq!(get(&reg, "[Channel1_Stem4]", "mute"), 1.0);
+
+    // The jog display shows the playhead and the time.
+    reg.get("[Channel1]", "track_loaded").unwrap().set(1.0);
+    reg.get("[Channel1]", "duration").unwrap().set(180.0);
+    reg.get("[Channel1]", "playposition")
+        .unwrap()
+        .set(61.5 / 180.0);
+    settle(&mut c, 100);
+    let out = c.take_output();
+    assert!(
+        out.iter()
+            .any(|m| m[0] == 0xBF && (m[1] == 0x10 || m[1] == 0x30) && m[2] > 0),
+        "jog display moved: {out:x?}"
+    );
+    assert!(
+        out.iter().any(|m| m[..] == [0xBF, 0x42, 0x01]),
+        "minutes shown: {out:x?}"
+    );
+    assert!(
+        out.iter()
+            .any(|m| m[0] == 0x96 && m[1] == 0x04 && m[2] == 0x7F),
+        "NOISE lit: {out:x?}"
+    );
+    assert_eq!(c.errors(), Vec::<String>::new());
+    c.shutdown();
 }

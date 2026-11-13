@@ -1,6 +1,6 @@
 # Native PipeWire audio on Linux
 
-Planned for v0.7. Issue #402.
+Planned for v0.8. Issue #402.
 
 ## Why
 

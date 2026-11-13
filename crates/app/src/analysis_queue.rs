@@ -4,7 +4,9 @@
 //! loaded on a deck. Results are cached as a deck load would cache them,
 //! and handed back to the browser to save. Tracks the DJ asks to analyse
 //! that have no cover also get the first one found online, on a thread of
-//! its own so the next track's analysis doesn't wait for it.
+//! its own so the next track's analysis doesn't wait for it. With Show
+//! vocals on, each track also gets its vocal pass (see
+//! [`opendj_engine::vocals`]), so the decks have it at once.
 //!
 //! Both threads run at low priority, so the UI and the audio come first,
 //! and while a deck plays the analysis takes one core and rests between
@@ -17,7 +19,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use opendj_engine::loader::analyse_file;
-use opendj_engine::{background, cover, Source, Track};
+use opendj_engine::{background, cover, vocals, Source, Track};
 
 use crate::coverart;
 
@@ -88,6 +90,18 @@ impl AnalysisQueue {
                     now.store(r.track.id, Ordering::Relaxed);
                     let started = Instant::now();
                     let result = analyse_file(&r.track, r.fresh);
+                    // Show vocals: the vocal pass too, kept for the decks.
+                    if let (Ok(_), Source::File(path)) = (&result, &r.track.source) {
+                        if crate::wave_look::show_vocals() {
+                            let keep_going = || {
+                                crate::wave_look::show_vocals()
+                                    && r.generation == current.load(Ordering::Relaxed)
+                            };
+                            if let Err(e) = vocals::analyse(path, None, keep_going) {
+                                eprintln!("no vocals for {}: {e}", r.track.title);
+                            }
+                        }
+                    }
                     rest(started.elapsed(), &current, r.generation);
                     now.store(IDLE, Ordering::Relaxed);
                     let t = match result {

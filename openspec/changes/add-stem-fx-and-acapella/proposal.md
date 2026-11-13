@@ -2,6 +2,8 @@
 
 Planned for: **v0.6 · Buy it from the artist** (moved from v0.5 at the 0.5.0 release)
 
+The tasks still open moved to **v0.8 · From the booth to the studio** on 2026-11-12, so v0.7 ships with what is built.
+
 ## Why
 
 The headline use of stems in 2026 is echoing out a vocal, playing an acapella or an instrumental. Stems mute and level today but take no effects.

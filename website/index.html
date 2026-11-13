@@ -4,14 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>openDJ · Free, open-source DJ software for macOS, Linux and Windows</title>
-  <meta name="description" content="openDJ is a free, open-source DJ app for macOS, Linux and Windows, built in Rust. Two or four decks, stems, a great Automix you can run from your phone, your own VST3, CLAP and Audio Unit plugins, beat grids, key mixing, Collection Health and controller mappings you can edit. Bring your rekordbox, VirtualDJ or Mixxx library across in a few clicks.">
+  <meta name="description" content="openDJ is free, open-source DJ software for macOS, Windows and Linux, written in Rust. It grew out of Mixxx and plays your own music files, keeps your collection in shape, and works with over 140 controllers.">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0e0d17">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <meta property="og:title" content="openDJ">
-  <meta property="og:description" content="Free, open-source DJ software for macOS, Linux and Windows, in public beta. Your music. Your mix. Your people.">
-  <meta property="og:image" content="https://opendj.app/assets/home/hero.webp">
+  <meta property="og:description" content="Free, open-source DJ software for macOS, Windows and Linux.">
+  <meta property="og:image" content="https://opendj.app/assets/og.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
   <meta property="og:url" content="https://opendj.app/">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="stylesheet" href="style.css">
@@ -28,9 +30,10 @@
     </a>
     <nav class="nav-links" aria-label="Main">
       <a href="#features">Features</a>
+      <a href="#screenshots">Screenshots</a>
       <a href="docs/">Docs</a>
-      <a href="tutorials/">Tutorials</a>
-      <a href="about/">About</a>
+      <a href="#releases">Releases</a>
+      <a href="#about">About</a>
       <a href="https://github.com/openwave-studio/opendj">GitHub</a>
     </nav>
     <a class="btn btn-primary btn-sm" href="#download">Download</a>
@@ -38,300 +41,79 @@
 </header>
 
 <main id="main">
-
-  <!-- Hero -->
-  <section class="h-hero" id="top">
-    <div class="wrap center-col">
-      <a class="beta-flag" href="#steward"><span class="pill">Public beta</span> Become an openDJ Steward →</a>
-      <h1>Open-source DJ software.<br>Your music. Your mix. Your people.</h1>
-      <p class="lede">For the love of playing music. Mix at home, share a set with friends, or bring the neighborhood together.</p>
-      <div class="cta-row center">
-        <a class="btn btn-primary btn-lg" href="#download" data-download-primary>Download openDJ</a>
-        <a class="text-link" href="#download">All platforms ↓</a>
+  <div class="wrap">
+    <section class="intro" id="top">
+      <div>
+        <h1>Free, open-source DJ software</h1>
+        <p>openDJ plays your own music files, keeps your collection in shape, and works with over 140 controllers. It runs on macOS, Windows and Linux, is written in Rust, and is released under the GPL.</p>
+        <p class="thanks">openDJ grew out of <a href="https://mixxx.org">Mixxx</a>, the long-running open-source DJ project, and still runs its controller mappings. Many thanks to the Mixxx developers and community.</p>
+        <p class="cta"><a class="btn btn-primary" data-download-primary href="#download">Download openDJ</a> <span class="small muted" data-version>macOS · Windows · Linux</span></p>
       </div>
-      <p class="trust">Always free · macOS, Windows and Linux · <span data-version>v0.6.0</span></p>
-    </div>
-    <div class="wrap wrap-wide">
-      <figure class="frame frame-hero reveal" data-zoom="1.12" style="--fx:50%;--fy:30%">
-        <img src="assets/home/hero.webp" width="2400" height="1402" alt="openDJ in the 2-Deck Pro layout: colour waveforms on top, two decks with a mixer between them, the Play Ready list and the Automix queue below.">
-      </figure>
-    </div>
-  </section>
+      <a class="intro-shot" href="assets/home/hero.webp"><img src="assets/home/hero.webp" width="2400" height="1318" alt="openDJ's 2-Deck Pro layout: two decks under their waveforms, with the collection below."></a>
+    </section>
 
-  <!-- Features -->
-  <section class="h-intro" id="features">
-    <div class="wrap center-col">
-      <p class="eyebrow">Built to play</p>
-      <h2>Everything you need. Nothing in the way.</h2>
-      <p class="sub">The things openDJ does best, and keeps getting better at.</p>
-    </div>
-  </section>
+    <section id="features">
+      <h2>Features</h2>
+      <div class="feat">
+        <div><h3>Decks and mixing</h3><p>Two or four decks with sync, key lock, hot cues, loops, slip mode and twelve pad modes. Clean GPU waveforms with bar counters and phrase markers, in layouts from a simple player to four decks.</p></div>
+        <div><h3>Collection and Health</h3><p>Your music folders as crates, playlists and smart lists. The Health tool finds missing files, duplicates and bad tags, and fixes names and covers from MusicBrainz and Discogs. Every fix can be undone.</p></div>
+        <div><h3>Beat grids, keys and phrases</h3><p>Neural beat detection with straight or dynamic grids, key detection for harmonic mixing, and phrase detection for intros, builds, drops and outros.</p></div>
+        <div><h3>Stems</h3><p>Vocals, drums, bass and other on load, with high-quality HTDemucs stems prepared in the background. Stem pads and stem FX. Everything runs on your computer.</p></div>
+        <div><h3>Effects and plugins</h3><p>18 built-in effects locked to the beat grid, plus your own CLAP, VST3 and Audio Unit effects, each in its own crash-safe helper process.</p></div>
+        <div><h3>Jam</h3><p>A tempo-synced Groove Box with 808, 909 and 606 style kits, and your own plugin synths with scale, chord and arpeggiator modes.</p></div>
+        <div><h3>Automix and phone remote</h3><p>Beatmatched Automix that blends on phrases, and a phone remote over Wi-Fi to queue, search and set a sleep timer.</p></div>
+        <div><h3>Sources</h3><p>Browse Spotify, TIDAL, Apple Music, SoundCloud and Mixcloud (read only); tracks you own play from your files. Plex, Navidrome and Jellyfin servers too.</p></div>
+        <div><h3>Controllers</h3><p>140+ MIDI controllers through Mixxx's mappings, Traktor Kontrol HID controllers, and a Controller Editor with MIDI learn.</p></div>
+        <div><h3>Imports, recording and sync</h3><p>Imports from rekordbox, VirtualDJ, Traktor and Mixxx with cues and grids. Record to WAV or FLAC, stream to Icecast, Ableton Link, MIDI clock and OSC.</p></div>
+      </div>
+      <p class="small"><a href="docs/">Full feature list in the docs →</a></p>
+    </section>
 
-  <section class="feature feature-wide reveal" id="waveforms">
-    <div class="wrap">
-      <div class="feature-text">
-        <span class="fnum">01</span>
-        <h2>Fast, clean, and made to play.</h2>
-        <p>A calm interface that responds the moment you touch it. Sharp colour waveforms, drawn on your graphics card, show every kick, snare and vocal coming.</p>
-        <ul class="points"><li>Colour waveforms with intro, build, drop and outro marked</li><li>2-Deck, 4-Deck and Simple layouts</li><li>Written in Rust, light on your laptop</li></ul>
+    <section id="screenshots">
+      <h2>Screenshots</h2>
+      <div class="gal">
+        <figure><a href="assets/home/hero.webp"><img src="assets/home/hero.webp" width="2400" height="1318" loading="lazy" alt="The 2-Deck Pro layout"></a><figcaption>The 2-Deck Pro layout</figcaption></figure>
+        <figure><a href="assets/home/four-deck.webp"><img src="assets/home/four-deck.webp" width="2400" height="1321" loading="lazy" alt="The 4-Deck layout: four stacked waveforms, four deck strips and the collection below"></a><figcaption>The 4-Deck layout</figcaption></figure>
+        <figure><a href="assets/home/jam.webp"><img src="assets/home/jam.webp" width="2400" height="1323" loading="lazy" alt="Jam: the Groove Box on one deck and an Arturia Acid V synth on the other, with the chord menu open"></a><figcaption>Jam: the Groove Box and a plugin synth with chords</figcaption></figure>
+        <figure><a href="assets/home/health.webp"><img src="assets/home/health.webp" width="2400" height="1328" loading="lazy" alt="Collection Health"></a><figcaption>Collection Health</figcaption></figure>
+        <figure><a href="assets/home/controller-editor.webp"><img src="assets/home/controller-editor.webp" width="2400" height="1322" loading="lazy" alt="Controller Editor"></a><figcaption>Controller Editor</figcaption></figure>
+        <figure><a href="assets/home/player.webp"><img src="assets/home/player.webp" width="2400" height="1314" loading="lazy" alt="The Player layout: album art, synced lyrics and the play bar"></a><figcaption>The Player, with synced lyrics</figcaption></figure>
       </div>
-    </div>
-    <div class="wrap wrap-wide">
-      <figure class="frame" data-zoom="1.1" style="--fx:50%;--fy:30%"><img src="assets/home/waveforms.webp" width="2400" height="344" loading="lazy" alt="Two colour waveforms meeting at the playhead, with bar numbers and an INTRO marker, above both deck headers with cover art, phrase, key and time left."></figure>
-    </div>
-  </section>
+    </section>
 
-  <section class="feature feature-wide reveal" id="health">
-    <div class="wrap">
-      <div class="feature-text">
-        <span class="fnum">02</span>
-        <h2>Your collection, cleaned up.</h2>
-        <p>See at a glance how much of your collection is clean, from Inbox to Play Ready. Fix the sure things in one go, then review the rest one card at a time.</p>
-        <ul class="points"><li>Missing files, strays and duplicates found for you</li><li>Names, tags, genres and covers filled in from online</li><li>Every fix can be undone</li></ul>
+    <section id="download">
+      <h2>Download</h2>
+      <div class="dl">
+        <div class="dl-card" data-os="mac"><h3>macOS</h3><p>Apple Silicon and Intel, macOS 11 or newer. Signed and notarized, updates itself.</p><a class="btn btn-primary btn-sm" data-asset="macos" href="https://github.com/openwave-studio/opendj/releases/latest">Download for Mac</a></div>
+        <div class="dl-card" data-os="windows"><h3>Windows <span class="soon">Preview</span></h3><p>64-bit Windows 10 or 11. Not signed yet: More info → Run anyway.</p><a class="btn btn-primary btn-sm" data-asset="winsetup" href="https://github.com/openwave-studio/opendj/releases/latest">Installer</a><div class="alt"><a data-asset="winzip" href="https://github.com/openwave-studio/opendj/releases/latest">Portable .zip</a></div></div>
+        <div class="dl-card" data-os="linux"><h3>Linux</h3><p>x86_64, glibc 2.35 or newer (Ubuntu 22.04+, Fedora 36+, Debian 12+).</p><a class="btn btn-primary btn-sm" data-asset="appimage" href="https://github.com/openwave-studio/opendj/releases/latest">AppImage</a><div class="alt"><a data-asset="deb" href="https://github.com/openwave-studio/opendj/releases/latest">.deb</a><a data-asset="rpm" href="https://github.com/openwave-studio/opendj/releases/latest">.rpm</a><a data-asset="tarball" href="https://github.com/openwave-studio/opendj/releases/latest">.tar.gz</a></div></div>
       </div>
-    </div>
-    <div class="wrap wrap-wide">
-      <figure class="frame" data-zoom="1.1" style="--fx:30%;--fy:30%"><img src="assets/home/health.webp" width="2000" height="740" loading="lazy" alt="The Collection Health dashboard: 56% of 2029 tracks clean, progress for Inbox, In Prep and Play Ready, and five areas: Files, Out of place, Duplicates, Info and Prep."></figure>
-    </div>
-  </section>
+      <p class="small"><a href="https://github.com/openwave-studio/opendj/releases">All releases</a> · <a href="https://github.com/openwave-studio/opendj#building-from-source">Build from source</a></p>
+    </section>
 
-  <section class="feature reveal" id="sources">
-    <div class="wrap feature-inner">
-      <div class="feature-text">
-        <span class="fnum">03</span>
-        <h2>All your music, one library.</h2>
-        <p>Your files, your playlists on Spotify and TIDAL, and your music server, side by side in one browser. Streaming services are browse-only: see your playlists, and play the tracks you own.</p>
-        <ul class="points"><li>Spotify, TIDAL, Apple Music, SoundCloud and Mixcloud</li><li>Bandcamp and Beatport for buying what's missing</li><li>Plex and other music servers</li></ul>
+    <section class="two">
+      <div id="releases">
+        <h2>Latest releases</h2>
+        <ul class="rel" data-releases>
+          <li><a href="https://github.com/openwave-studio/opendj/releases/tag/v0.6.0">openDJ 0.6.0</a> <span>10 Nov 2026</span></li>
+          <li><a href="https://github.com/openwave-studio/opendj/releases/tag/v0.5.1">openDJ 0.5.1</a> <span>6 Nov 2026</span></li>
+          <li><a href="https://github.com/openwave-studio/opendj/releases/tag/v0.5.0">openDJ 0.5.0</a> <span>5 Nov 2026</span></li>
+          <li><a href="https://github.com/openwave-studio/opendj/releases/tag/v0.4.6">openDJ 0.4.6</a> <span>31 Oct 2026</span></li>
+        </ul>
       </div>
-      <figure class="frame" data-zoom="1.25" style="--fx:20%;--fy:50%"><img src="assets/home/sources.webp" width="1812" height="990" loading="lazy" alt="Spotify playlists in openDJ's Lists panel, with one playlist open showing covers, ratings and waveforms of the tracks in your collection, and a menu with Open in Browser, Add to Wanted and Add to Downloads."></figure>
-    </div>
-  </section>
-
-  <section class="feature feature-rev reveal" id="stems">
-    <div class="wrap feature-inner">
-      <div class="feature-text">
-        <span class="fnum">04</span>
-        <h2>Studio-quality stems.</h2>
-        <p>Every track splits into vocals, drums, bass and the rest as it loads. When it matters, prepare high-quality stems for the cleanest acapellas and instrumentals.</p>
-        <ul class="points"><li>Stem pads: acapella or instrumental in one tap</li><li>Stems EQ: the mixer knobs become HiHat, Vocal, Kick and Bass</li><li>Runs on your computer, no cloud needed</li></ul>
-      </div>
-      <div class="duo">
-        <figure class="frame" data-zoom="1.15" style="--fx:35%;--fy:50%"><img src="assets/home/stems.webp" width="910" height="360" loading="lazy" alt="The STEMS pad page: Vocal, Instru, Bass and Acapella on top, Kick, HiHat, Stems FX (Echo) and Instrumental below, with an HQ badge."></figure>
-        <figure class="frame" data-zoom="1.15" style="--fx:50%;--fy:40%"><img src="assets/home/stems-eq.webp" width="492" height="558" loading="lazy" alt="The mixer in STEMS mode: each channel's EQ knobs become HiHat, Vocal, Kick and Bass."></figure>
-      </div>
-    </div>
-  </section>
-
-  <section class="feature reveal" id="pads">
-    <div class="wrap feature-inner">
-      <div class="feature-text">
-        <span class="fnum">05</span>
-        <h2>Twelve ways to play the pads.</h2>
-        <p>Switch each deck's pads between twelve modes, from hot cues and loop rolls to slicing a beat or playing a melody in key.</p>
-        <ul class="points"><li>Hot cues, beat jump, beat loop, loop roll, sampler</li><li>Stems, two pad FX pages, SLICER and FREEZE</li><li>Keyboard and key shift, in key with the track</li></ul>
-      </div>
-      <figure class="frame" data-zoom="1.12" style="--fx:100%;--fy:100%"><img src="assets/home/pads.webp" width="946" height="670" loading="lazy" alt="A deck's pads with the pad mode menu open: Hot Cues, Pad FX 1, Beat Jump, Sampler, Stems, Beat Loop, Pad FX 2, Keyboard, Key Shift, Loop Roll, Slicer and Freeze."></figure>
-    </div>
-  </section>
-
-  <section class="feature feature-rev reveal" id="fx">
-    <div class="wrap feature-inner">
-      <div class="feature-text">
-        <span class="fnum">06</span>
-        <h2>Built-in effects, and your own plugins.</h2>
-        <p>Eighteen effects made for DJing, all locked to the beat: echoes that trail out, reverbs that roll, filters, sweeps and gates. Your own plugins sit in the next tab.</p>
-        <ul class="points"><li>Delay and echo, reverb, filter and EQ, modulation, distortion</li><li>Beat FX plus three FX slots per deck, and Color FX on every filter knob</li><li>Echo Out, Rev Roll and Spiral for clean exits</li></ul>
-      </div>
-      <div class="duo duo-tall">
-        <figure class="frame" data-zoom="1.08" style="--fx:50%;--fy:0%"><img src="assets/home/fx.webp" width="422" height="938" loading="lazy" alt="The effect chooser with openDJ FX and Plugins tabs: Echo, Echo Out, Filter Echo, Spiral, Hall, Rev Roll, Reverb, Filter, Ladder, Chorus, Flanger, Phaser and more."></figure>
-        <figure class="frame" data-zoom="1.08" style="--fx:50%;--fy:0%"><img src="assets/home/plugins.webp" width="418" height="882" loading="lazy" alt="The Plugins tab of the effect chooser: delay, reverb, distortion and other plugins, in VST3 and Audio Unit versions."></figure>
-      </div>
-    </div>
-  </section>
-
-  <section class="feature feature-wide reveal" id="plugins">
-    <div class="wrap">
-      <div class="feature-text">
-        <span class="fnum">07</span>
-        <h2>Your favourite plugins, on the decks.</h2>
-        <p>Load the delays, reverbs and synths you already own into any FX slot, and open their own window right over your mix. Each plugin runs in its own helper process, so if one crashes, the music keeps playing.</p>
-        <ul class="points"><li>VST3 and CLAP everywhere, Audio Unit on macOS</li><li>On any deck, the mic or the aux input</li><li>Pick which plugins show, so the FX menus stay short</li></ul>
-      </div>
-    </div>
-    <div class="wrap wrap-wide">
-      <figure class="frame" data-zoom="1.15" style="--fx:85%;--fy:90%"><img src="assets/home/plugin-window.webp" width="2400" height="1585" loading="lazy" alt="A delay plugin's own window open over openDJ, loaded in deck 1's second FX slot, with the stem pads and stems EQ in use above it."></figure>
-    </div>
-  </section>
-
-  <section class="feature reveal" id="beatgrids">
-    <div class="wrap feature-inner">
-      <div class="feature-text">
-        <span class="fnum">08</span>
-        <h2>Beat grids and phrases that follow the music.</h2>
-        <p>A neural beat tracker finds every beat and bar one, and the grid bends with live drummers and tempo changes. Every track is split into phrases, so you always know how long until the drop.</p>
-        <ul class="points"><li>Intro, verse, chorus, build, drop, break and outro, coloured on the overview</li><li>Bar counter and a countdown to the next phrase</li><li>Dynamic grids for real tempo changes, with grid lock</li></ul>
-      </div>
-      <figure class="frame" data-zoom="1.08" style="--fx:50%;--fy:30%"><img src="assets/home/grids.webp" width="1550" height="550" loading="lazy" alt="A deck header with the track overview coloured by phrase, and a tooltip on one phrase: DROP, 31 bars, 4:05 to 5:04. The header shows bar 1.2.1 and 16 bars to the chorus."></figure>
-    </div>
-  </section>
-
-  <section class="feature feature-rev reveal" id="keys">
-    <div class="wrap feature-inner">
-      <div class="feature-text">
-        <span class="fnum">09</span>
-        <h2>Mix in key without thinking about it.</h2>
-        <p>Every track shows whether it fits the one playing. Tracks a semitone away are marked, and can shift to fit as they load.</p>
-        <ul class="points"><li>Harmonic or fuzzy key matching</li><li>Key lock on by default</li><li>A filter for tracks that mix with this one</li></ul>
-      </div>
-      <figure class="frame frame-crop" data-zoom="1.15" style="--fx:70%;--fy:40%"><img src="assets/home/keys.webp" width="1000" height="420" loading="lazy" alt="The track list with keys, and +1 or −1 marks on tracks one semitone from a compatible key."></figure>
-    </div>
-  </section>
-
-  <section class="feature reveal" id="automix">
-    <div class="wrap feature-inner">
-      <div class="feature-text">
-        <span class="fnum">10</span>
-        <h2>Automix, in your pocket.</h2>
-        <p>Queue the tracks and openDJ beatmatches and blends them for you. Scan a QR code and run the queue from your phone, with nothing to install.</p>
-        <ul class="points"><li>Blends in bars or seconds, smooth or quick</li><li>Search, add and reorder from your phone</li><li>Sleep timer to end the night</li></ul>
-      </div>
-      <figure class="frame-phones">
-        <img src="assets/remote-now-playing.webp" width="585" height="1266" loading="lazy" alt="The phone remote's now-playing screen with cover art and a countdown to the next mix.">
-        <img src="assets/remote-queue.webp" width="585" height="1266" loading="lazy" alt="The phone remote's queue with five tracks up next.">
-      </figure>
-    </div>
-  </section>
-
-  <section class="feature feature-rev reveal" id="groovebox">
-    <div class="wrap feature-inner">
-      <div class="feature-text">
-        <span class="fnum">11</span>
-        <h2>A drum machine that plays in time.</h2>
-        <p>The built-in Groove Box sits on a deck and follows the tempo of your mix. Layer a beat under a track, or play synths from your pads and MIDI keyboard, in time and in key.</p>
-        <ul class="points"><li>808, 909 and 606 style kits, with house, techno and breaks grooves</li><li>Patterns A to D, automatic fills and a Remix strip</li><li>Mute, solo and a 4x4 view for pad controllers</li></ul>
-      </div>
-      <figure class="frame" data-zoom="1.06" style="--fx:50%;--fy:75%"><img src="assets/home/groovebox.webp" width="1550" height="838" loading="lazy" alt="The Groove Box step sequencer under a deck's waveform, with an Analog kit playing a house groove at 122 BPM."></figure>
-    </div>
-  </section>
-
-  <section class="feature reveal" id="instruments">
-    <div class="wrap feature-inner">
-      <div class="feature-text">
-        <span class="fnum">12</span>
-        <h2>Play your synths over the mix.</h2>
-        <p>Load your VST3, CLAP or Audio Unit instruments from Jam on a deck. They follow the tempo of the mix, and you play them from your pads, a MIDI keyboard or the screen.</p>
-        <ul class="points"><li>Scale mode keeps every note in the track's key</li><li>One-finger chords and a tempo-synced arpeggiator</li><li>The plugin's own window, plus its main knobs on the deck</li></ul>
-      </div>
-      <figure class="frame" data-zoom="1.1" style="--fx:20%;--fy:20%"><img src="assets/home/instruments.webp" width="2000" height="1266" loading="lazy" alt="An Arturia Acid V instrument on a deck with scale, chord and arpeggiator controls, its plugin window open over the Jam browser."></figure>
-    </div>
-  </section>
-  <section class="feature feature-rev reveal" id="controllers">
-    <div class="wrap feature-inner">
-      <div class="feature-text">
-        <span class="fnum">13</span>
-        <h2>Plug in your controller.</h2>
-        <p>More than 140 controllers work through Mixxx's mappings, and a growing list gets openDJ's own care. Change any control in the Controller Editor, with shift layers and openDJscript lines, or teach it a new one.</p>
-        <ul class="points"><li>Pioneer DDJ-FLX4, FLX6, XDJ-RX3, DDJ-400 and more</li><li>Traktor Kontrol S2, S3 and S4, Numark V7, Xone:K2</li><li>MIDI learn for anything without a mapping</li></ul>
-        <p class="note"><a href="docs/controllers/">All controllers →</a></p>
-      </div>
-      <figure class="frame" data-zoom="1.2" style="--fx:80%;--fy:65%"><img src="assets/home/controller-editor.webp" width="2000" height="1261" loading="lazy" alt="The Controller Editor for the Allen &amp; Heath Xone:K2, with a drawing of the controller and the selected button set to an openDJscript line."></figure>
-    </div>
-  </section>
-
-  <!-- Full feature list -->
-  <section class="specs" id="all-features">
-    <div class="wrap">
-      <p class="eyebrow">Full feature list</p>
-      <h2>Everything in openDJ.</h2>
-      <p class="sub">Everything openDJ does today, for the details people. A few items arrive with the next release.</p>
-      <div class="spec-grid">
-        <div class="spec"><h3>Decks and performance</h3><ul><li>2 or 4 decks; 2-Deck, 2-Deck Pro, 4-Deck, Simple and Player layouts</li><li>Hot cues in 8 colours, saved loops, beat jump, loop roll, slip mode</li><li>Pad pages: hot cues, pad FX, beat jump, sampler, stems, beat loop, keyboard, key shift, SLICER, FREEZE</li><li>Sync with quantize, master deck, tempo ranges, pitch bend and nudge</li><li>Key lock (time-stretch), key shift and key match on load</li><li>Beat and bar counter, phrase markers, track end warning</li><li>Vinyl mode, fast-response scratching, Scratch crossfader curve</li></ul></div>
-        <div class="spec"><h3>Mixer and effects</h3><ul><li>Gain with auto-gain, 3-band EQ, Color FX on the filter knob</li><li>FX bar: Beat FX plus 3 FX slots per deck, beat-locked to the grid</li><li>18 built-in effects: echo, reverb, gate, roll, flanger, phaser, bitcrusher and more</li><li>CLAP, VST3 and Audio Unit effects, each in its own crash-safe helper process</li><li>Mic and Aux inputs with their own FX, booth and headphone outputs</li><li>Look-ahead master limiter and headphone cue mix</li></ul></div>
-        <div class="spec"><h3>Stems</h3><ul><li>Instant stems on load (vocals, drums, bass, other)</li><li>High-quality stems with HTDemucs, prepared in the background</li><li>Stem pads: acapella, instrumental, kick, hi-hat and more</li><li>Stem FX: echo out or reverb a single stem</li><li>Runs fully on your computer; reads NI STEM files</li></ul></div>
-        <div class="spec"><h3>Analysis</h3><ul><li>Neural beat detection (Beat This!) with downbeats</li><li>Straight or dynamic grids for real tempo changes; grid lock</li><li>Key detection with Harmonic or Fuzzy key mixing and ±1 semitone marks</li><li>Phrase detection: intro, verse, build, drop, break, outro</li><li>Colour GPU waveforms, mini waveforms in the browser</li><li>Analyze Track or All, with cover art lookup</li></ul></div>
-        <div class="spec"><h3>Automix and remote</h3><ul><li>Beatmatched blends in seconds, bars or Intro over outro (phrases)</li><li>Smooth or quick styles, and an Order menu with harmonic order</li><li>Gapless joins for live albums and DJ mixes</li><li>Phone remote over Wi-Fi: QR or PIN pairing, queue, search, sleep timer</li><li>Now-playing feed and OBS overlay</li></ul></div>
-        <div class="spec"><h3>Collection</h3><ul><li>Your music folders, with stages: Inbox, In Prep, Play Ready</li><li>Crates, playlists, smart lists, sets, history by day</li><li>Tag groups, batch editing, ratings, colours, forgiving search syntax</li><li>Albums and Recordings views</li><li>Backups to one .opendjbackup file, daily by default</li></ul></div>
-        <div class="spec"><h3>Collection Health</h3><ul><li>Dashboard with how ready your collection is, in five areas</li><li>Missing files relinked, duplicates merged, strays and non-music found</li><li>Names, tags, genres and covers fixed from MusicBrainz and Discogs</li><li>Auto-fix the sure ones, review the rest one card at a time</li><li>Quarantine instead of delete; every fix can be undone</li></ul></div>
-        <div class="spec"><h3>Imports and exports</h3><ul><li>Import rekordbox (6/7 database or XML), VirtualDJ, Traktor and Mixxx</li><li>Keeps hot cues, loops, grids, keys, playlists and history</li><li>M3U8, PLS and XSPF playlists in; M3U8 out</li><li>rekordbox XML export with grids, cues and colours</li><li>Experimental Pioneer USB export</li></ul></div>
-        <div class="spec"><h3>Sources</h3><ul><li>Browse Spotify, TIDAL, Apple Music, SoundCloud and Mixcloud (read only)</li><li>Tracks you own as files play from your collection</li><li>Play from your Plex, Navidrome or Jellyfin server</li><li>Buy Wanted tracks from Bandcamp, Beatport, Qobuz and more</li><li>Export your history to a Spotify playlist</li></ul></div>
-        <div class="spec"><h3>Jam</h3><ul><li>CLAP, VST3 and Audio Unit instruments on a deck</li><li>Groove Box: 8-track drum machine with classic analog kits</li><li>Play from the pads, a MIDI keyboard or the sequencer</li><li>Scale, chord and arpeggiator modes, in key with the track</li><li>Plugin presets, input trim and a safety limiter</li></ul></div>
-        <div class="spec"><h3>Controllers</h3><ul><li>140+ MIDI controllers via Mixxx mappings, unchanged</li><li>openDJ's own mappings for DDJ-FLX6, XDJ-RX3, Xone:K2 and Maschine Mikro MK3</li><li>USB HID: Traktor Kontrol S2, S3, S4, F1, Z1, MX2</li><li>Controller Editor, MIDI map (learn), Quick map and a mapping wizard</li><li>Import mappings from VirtualDJ, Traktor, rekordbox and djay</li></ul></div>
-        <div class="spec"><h3>Recording and sync</h3><ul><li>Record to WAV or FLAC with a .cue tracklist</li><li>Stream to Icecast or Shoutcast with a LUFS loudness meter</li><li>Mixcloud export with the tracklist</li><li>Ableton Link, MIDI clock in and out, OSC with feedback</li><li>Per-deck outputs for a DAW or an external mixer</li></ul></div>
-        <div class="spec"><h3>Under the hood</h3><ul><li>Written in Rust; Slint interface, wgpu waveforms</li><li>macOS (Apple Silicon and Intel), Windows, Linux</li><li>CoreAudio, WASAPI, ASIO, ALSA; buffer and sample rate settings</li><li>Audio health meter for dropouts</li><li>Signed, notarized macOS app that updates itself</li><li>Free software under the GPL 2.0 or later</li></ul></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- What it isn't -->
-  <section class="nots" id="free">
-    <div class="wrap">
-      <p class="eyebrow">Free means free</p>
-      <h2>Less fine print. More music.</h2>
-      <ul class="not-grid">
-        <li><h3>No subscription</h3><p>Every feature, free, for good.</p></li>
-        <li><h3>No hidden AI plan</h3><p>Stems and beat detection run on your computer. No tokens, no credits.</p></li>
-        <li><h3>No ads</h3><p>Nothing to sell you inside the app.</p></li>
-        <li><h3>No lock-in</h3><p>Open source under the GPL, and your music stays your files.</p></li>
-      </ul>
-    </div>
-  </section>
-
-  <!-- Steward -->
-  <section class="steward" id="steward">
-    <div class="wrap">
-      <div class="steward-panel">
-        <div>
-          <p class="eyebrow">Become an openDJ Steward</p>
-          <h2>Play it on your gear. Tell us how it went.</h2>
-          <p>Test your controller, report bugs and vote on features. Stewards are thanked by name in the release notes, and their controllers get fixed first.</p>
-        </div>
-        <div class="cta-col">
-          <a class="btn btn-primary" href="https://github.com/openwave-studio/opendj/issues/new?template=controller.yml">Report your controller</a>
-          <a class="btn btn-ghost" href="https://github.com/openwave-studio/opendj/issues/new/choose">Send feedback</a>
-          <a class="text-link" href="https://github.com/openwave-studio/opendj/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement+sort%3Areactions-%2B1-desc">Vote on features →</a>
+      <div id="about">
+        <h2>About</h2>
+        <div class="about-row">
+          <img class="headshot-sm" src="assets/dj-nahuel.webp" width="72" height="72" alt="">
+          <div>
+            <p>openDJ is built with love in Oakland, CA by <a href="about/">DJ Nahuel</a>, and grows with the people who use it. Bugs and ideas go to <a href="https://github.com/openwave-studio/opendj/issues/new/choose">GitHub</a>; the <a href="docs/">docs</a> cover every part of the app.</p>
+            <p>If openDJ plays a part in your sets, you can support its development: <a href="https://buymeacoffee.com/opendj">☕ Buy me a coffee</a></p>
+            <p>Want to try new builds early? <a href="about/#stewards">Become an openDJ Steward</a>: test your controller, report bugs and vote on features.</p>
+          </div>
         </div>
       </div>
-    </div>
-  </section>
-
-  <!-- FAQ -->
-  <section class="faq" id="faq">
-    <div class="wrap narrow">
-      <h2>Frequently asked questions.</h2>
-      <details><summary>Is openDJ really free?</summary><p>Yes. openDJ is open source under the GPL, with no subscription, no paid tier and no account. If it plays a part in your sets, you can <a href="https://buymeacoffee.com/opendj">buy us a coffee</a>.</p></details>
-      <details><summary>Will my controller work?</summary><p>Most likely. openDJ runs Mixxx's mappings for more than 140 MIDI and HID controllers, and the most popular ones get their own mapping and a drawing in the Controller Editor. If yours misbehaves, <a href="https://github.com/openwave-studio/opendj/issues/new?template=controller.yml">tell us which one</a>.</p></details>
-      <details><summary>Can I bring my rekordbox, VirtualDJ or Mixxx library?</summary><p>Yes. openDJ reads the other app's library where it lives, with hot cues, loops, grids, playlists and history. Your other app's library is never changed, so you can keep using both. <a href="docs/guide/music.html">How importing works →</a></p></details>
-      <details><summary>Is it ready to play a gig?</summary><p>openDJ is in public beta. Plenty of sets are played on it, but play yours at home first on your own laptop, audio interface and controller, and tell us what you find.</p></details>
-    </div>
-  </section>
-
-  <!-- Download -->
-  <section class="download" id="download">
-    <div class="wrap">
-      <h2 class="center">Prep the music. Play the set.</h2>
-      <p class="sub center">Free, for macOS, Linux and Windows. <span data-version-text>Version 0.6.0.</span></p>
-      <div class="dl-rows">
-        <div class="dl-card" data-os="mac">
-          <div class="dl-os"><h3>macOS</h3><p>Apple Silicon and Intel, macOS 11 or newer. Signed and notarized, updates itself.</p></div>
-          <div class="dl-actions"><a class="btn btn-primary" data-asset="macos" href="https://github.com/openwave-studio/opendj/releases/latest">Download for Mac</a></div>
-        </div>
-        <div class="dl-card" data-os="windows">
-          <div class="dl-os"><h3>Windows <span class="soon">Preview</span></h3><p>64-bit Windows 10 or 11, with Windows Audio and ASIO. Not signed yet: More info → Run anyway.</p></div>
-          <div class="dl-actions"><a class="btn btn-primary" data-asset="winsetup" href="https://github.com/openwave-studio/opendj/releases/latest">Download for Windows</a><a class="text-link small" data-asset="winzip" href="https://github.com/openwave-studio/opendj/releases/latest">Portable .zip</a></div>
-        </div>
-        <div class="dl-card" data-os="linux">
-          <div class="dl-os"><h3>Linux</h3><p>x86_64, glibc 2.35 or newer (Ubuntu 22.04+, Fedora 36+, Debian 12+).</p></div>
-          <div class="dl-actions"><a class="btn btn-primary" data-asset="appimage" href="https://github.com/openwave-studio/opendj/releases/latest">AppImage</a><a class="text-link small" data-asset="deb" href="https://github.com/openwave-studio/opendj/releases/latest">.deb</a><a class="text-link small" data-asset="rpm" href="https://github.com/openwave-studio/opendj/releases/latest">.rpm</a><a class="text-link small" data-asset="tarball" href="https://github.com/openwave-studio/opendj/releases/latest">.tar.gz</a></div>
-        </div>
-      </div>
-      <div class="support">
-        <p>openDJ is free and always will be. If it plays a part in your sets, a coffee helps keep it going.</p>
-        <a class="btn btn-ghost btn-sm" href="https://buymeacoffee.com/opendj">☕ Buy me a coffee</a>
-      </div>
-      <p class="small center"><a href="https://github.com/openwave-studio/opendj/releases">All releases and release notes</a> · <a href="https://github.com/openwave-studio/opendj#building-from-source">Build from source</a></p>
-    </div>
-  </section>
-
+    </section>
+  </div>
 </main>
 
 <footer class="footer">
@@ -344,9 +126,7 @@
     <div class="footer-col">
       <h4>Product</h4>
       <a href="#features">Features</a>
-      <a href="#all-features">Full feature list</a>
-      <a href="#faq">FAQ</a>
-      <a href="#steward">Become a Steward</a>
+      <a href="#screenshots">Screenshots</a>
       <a href="#download">Download</a>
       <a href="https://github.com/openwave-studio/opendj/releases">Release notes</a>
     </div>

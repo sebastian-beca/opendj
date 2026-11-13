@@ -27,8 +27,8 @@ use opendj_engine::{
 use opendj_library::Library;
 use opendj_plugins::source::{QueryKind, SourceQuery};
 use opendj_waveform::{
-    steady_grid, wgpu, Frame, GpuTrack, GridSection, Mode, Palette, PhraseKind, WaveformRenderer,
-    WaveformView, GRID_SECTIONS,
+    steady_grid, wgpu, Extras, Frame, GpuTrack, GridSection, Mode, Palette, PhraseKind,
+    WaveformRenderer, WaveformView, GRID_SECTIONS,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use smooth::SmoothClock;
@@ -37,6 +37,7 @@ slint::include_modules!();
 
 mod analysis_queue;
 mod app_menu;
+mod appearance;
 mod apple_music;
 mod art;
 mod audio_plugins;
@@ -77,6 +78,7 @@ mod midi_clock;
 mod mini_player;
 mod mixcloud;
 mod mixcloud_upload;
+mod mixer_picker;
 mod now_playing;
 mod now_playing_view;
 mod osc;
@@ -84,6 +86,7 @@ mod osc_events;
 mod prefs;
 mod prep_click;
 mod presets;
+mod put_back;
 mod quality;
 mod quick_search;
 mod remote;
@@ -96,6 +99,7 @@ mod smooth;
 mod soundcloud;
 mod sources;
 mod spotify;
+mod stem_levels;
 mod step_lanes;
 mod storage;
 mod stores;
@@ -109,6 +113,8 @@ mod ui_font;
 mod update;
 mod vocal_pass;
 mod wave_look;
+mod waveform_height;
+mod waveform_zoom;
 mod waves;
 
 /// Fills the master and headphone output menus and switches devices when
@@ -482,7 +488,7 @@ fn update_rows(model: &VecModel<OutputRow>, rows: Vec<OutputRow>) {
 #[cfg(target_os = "macos")]
 const TOP_BAR_HEIGHT: f64 = 52.0;
 
-/// The 4-Deck layout's value of `layout` (0 is 2-Deck Pro, 1 Player).
+/// The 4-Deck layout's value of `layout` (0 is 2-Deck, 1 Player).
 const FOUR_DECK_LAYOUT: i32 = 2;
 /// Deck 1 alone, for preparing tracks (prep.slint).
 pub(crate) const PREP_LAYOUT: i32 = 3;
@@ -495,7 +501,7 @@ const PLAYER_OVERVIEW_BACKGROUND: [f32; 4] = [0.102, 0.102, 0.110, 1.0];
 /// Checklist tabs, the checklist settings). Offered from v0.6, under More
 /// layouts: the DJ adds it to the layout menu.
 pub(crate) const PREP_OFFERED: bool = true;
-/// 2-Deck, the lighter two-deck layout (lite.slint): no jogs or tempo
+/// 2-Deck Basic, the lighter two-deck layout (lite.slint): no jogs or tempo
 /// faders, the pads and loop in a bar under the decks.
 const LITE_LAYOUT: i32 = 4;
 /// The last layout the menu and controllers can pick.
@@ -518,9 +524,10 @@ const DECK_COLORS: [[f32; 4]; NUM_DECKS] = [
     [1.0, 0.839, 0.039, 1.0],
 ];
 
-/// Seconds of audio shown across the scrolling waveform at normal speed.
-/// Dragging the waveform (`Waveform` in main.slint) uses the same figure.
-const VISIBLE_SECONDS: f64 = 10.0;
+/// Seconds shown across a live deck's scrolling waveform (an input, an
+/// instrument, the Groove Box), whose trace keeps about this much. Track
+/// decks follow the shared zoom (waveform_zoom.rs), which starts here too.
+const VISIBLE_SECONDS: f64 = waveform_zoom::DEFAULT_SECONDS;
 
 /// Opens the window filling the screen when its preferred size (1680 x 1050
 /// in main.slint) doesn't fit, as on a 1512 x 982 MacBook: left at that
@@ -631,8 +638,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // An image dropped on a deck playing an instrument becomes its art.
         let dropped = file_drop.files();
         instrument_art::install(&app, move || std::mem::take(&mut *dropped.borrow_mut()));
+        // Dark, Light or Match system, as last picked.
+        appearance::install(&app);
+        let theme_app = app.as_weak();
         app.window().on_winit_window_event(move |window, event| {
             file_drop.window_event(window, event);
+            if let slint::winit_030::winit::event::WindowEvent::ThemeChanged(theme) = event {
+                if let Some(app) = theme_app.upgrade() {
+                    appearance::system_changed(&app, *theme);
+                }
+            }
             // The traffic lights, centred in the top bar after anything that
             // might have moved them back.
             #[cfg(target_os = "macos")]
@@ -650,14 +665,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             EventResult::Propagate
         });
     }
-    // 2-Deck Pro, Player, 4-Deck, Prep or 2-Deck, as last picked.
+    // 2-Deck, Player, 4-Deck, Prep or 2-Deck Basic, as last picked.
     app.global::<PrepUi>().set_offered(PREP_OFFERED);
-    // A layout no longer offered (Prep, while hidden) opens 2-Deck Pro.
+    // A layout no longer offered (Prep, while hidden) opens 2-Deck.
     let layout = settings::number("layout", 0.0) as i32;
     app.set_layout(if layout_offered(layout) { layout } else { 0 });
     // `[Skin],layout` lets controllers and the tour set it by number: 0
-    // 2-Deck Pro, 1 Player, 2 4-Deck, 3 Prep, 4 2-Deck. Pressed as a
-    // toggle, it goes between 2-Deck Pro and Player.
+    // 2-Deck, 1 Player, 2 4-Deck, 3 Prep, 4 2-Deck Basic. Pressed as a
+    // toggle, it goes between 2-Deck and Player.
     let layout_control = registry.create(
         "[Skin]",
         "layout",
@@ -698,9 +713,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // saved again as it changes.
     groove_box::install(&app);
     instruments::install(&app);
+    mixer_picker::install(&app, engine.clone());
     presets::install(&app, engine.clone(), registry.clone());
     instrument_knobs::install(&app, engine.clone());
     let groove_keeper = RefCell::new(groove_box::Keeper::new(&registry));
+    // The large waveforms' zoom, from the window and controllers.
+    let _zoom_timer = waveform_zoom::install(&app, &registry);
+    // How tall they are, per layout, likewise.
+    let _height_timer = waveform_height::install(&app, &registry);
     let groove_timer = slint::Timer::default();
     {
         let app = app.as_weak();
@@ -725,6 +745,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         wave_look::load();
         let app_weak = app.as_weak();
         vocal_pass::start(move || {
+            let _ = app_weak.upgrade_in_event_loop(|app| app.window().request_redraw());
+        });
+        let app_weak = app.as_weak();
+        stem_levels::start(move || {
             let _ = app_weak.upgrade_in_event_loop(|app| app.window().request_redraw());
         });
         counter.set_decks(ModelRc::new(VecModel::from(vec![
@@ -836,21 +860,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    // Settings › Layouts switches layout as the menu does.
+    // The layout menu's chooser and Settings › Layouts.
     {
         let app_weak = app.as_weak();
-        layouts::install(
-            &app,
-            move |layout| {
-                if let Some(app) = app_weak.upgrade() {
-                    if app.get_layout() != layout && layout_offered(layout) {
-                        app.set_layout(layout);
-                        app.invoke_layout_changed(layout);
-                    }
+        layouts::install(&app, move |layout| {
+            if let Some(app) = app_weak.upgrade() {
+                if app.get_layout() != layout && layout_offered(layout) {
+                    app.set_layout(layout);
+                    app.invoke_layout_changed(layout);
                 }
-            },
-            prefs::LAYOUTS_PAGE,
-        );
+            }
+        });
     }
     let sources = sources::Sources::install(&app, library_path.clone());
     {
@@ -1130,7 +1150,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(3600),
         backup::run_if_due,
     );
-    instruments::show_routes(&app, &engine.input_status());
+    instruments::show_routes(&app, &engine.input_status(), &engine.status());
     let prefs = prefs::Prefs::install(
         &app,
         registry.clone(),
@@ -1143,7 +1163,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         {
             let engine = engine.clone();
-            Box::new(move || engine.set_outputs(&settings::audio_setup()))
+            let weak = app.as_weak();
+            Box::new(move || {
+                engine.set_outputs(&settings::audio_setup());
+                // The main output's interface sets which strips run on
+                // their own clock.
+                if let Some(app) = weak.upgrade() {
+                    instruments::show_routes(&app, &engine.input_status(), &engine.status());
+                }
+            })
         },
         prefs::InputHooks {
             changed: {
@@ -1152,7 +1180,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Box::new(move || {
                     engine.set_inputs(&settings::audio_setup());
                     if let Some(app) = weak.upgrade() {
-                        instruments::show_routes(&app, &engine.input_status());
+                        instruments::show_routes(&app, &engine.input_status(), &engine.status());
                     }
                 })
             },
@@ -1403,6 +1431,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let prep_shown = Cell::new(false);
     // Prep's metronome, on while its grid is open.
     let prep_click = RefCell::new(prep_click::PrepClick::new(&registry, "[Channel1]"));
+    let put_back = Rc::new(RefCell::new(put_back::PutBack::new(&registry)));
+    {
+        let put_back = put_back.clone();
+        let engine = engine.clone();
+        app.global::<DeckActions>().on_put_back(move |deck| {
+            put_back
+                .borrow_mut()
+                .put_back(deck.max(0) as usize, &engine);
+        });
+    }
     // Switched off or on from the crossfader's menu, a controller or a
     // script: remembered for next time, as the Settings switch is.
     let xfader_enabled = registry.create(
@@ -1602,6 +1640,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 let tracks = loaded.read().unwrap().clone();
+                put_back.borrow_mut().tick(&app, &tracks);
                 let camelot = app.global::<KeyNotation>().get_camelot();
                 let mut b = browser.borrow_mut();
                 b.set_camelot(camelot);
@@ -1975,6 +2014,8 @@ fn control_list() -> String {
     broadcast::create_controls(&registry);
     browser::LibraryControls::create(&registry);
     automix::AutoMix::new(&registry);
+    waveform_zoom::create_controls(&registry);
+    waveform_height::create_controls(&registry);
     let mut keys = registry.keys();
     keys.extend(registry.alias_keys());
     keys.sort();
@@ -2427,21 +2468,17 @@ impl Decks {
         }
     }
 
-    /// `bars`: how many bars the scrolling waveform shows, when set (Prep's
-    /// zoom); else it shows VISIBLE_SECONDS.
+    /// `seconds`: what the scrolling waveform shows across at normal speed
+    /// (the shared zoom's).
     fn frame(
         &self,
         deck: usize,
         t: &Track,
         play_seconds: f64,
         phrases: Phrases,
-        bars: Option<f64>,
+        seconds: f64,
     ) -> Frame {
         let h = &self.0[deck];
-        let seconds = match bars {
-            Some(bars) if t.bpm > 0.0 => bars * 4.0 * 60.0 / t.bpm,
-            _ => VISIBLE_SECONDS,
-        };
         Frame {
             play_seconds,
             // Show more of the track when it plays faster, so synced decks'
@@ -2531,8 +2568,14 @@ fn same_deck_info(old: &DeckInfo, new: &DeckInfo) -> bool {
 /// Where each phrase starts and its kind, as the waveforms draw them.
 type Phrases = Vec<(f64, PhraseKind)>;
 
-/// A track on the GPU, with the waveform and vocal levels it came from.
-type Uploaded = (Arc<GpuTrack>, Arc<Waveform>, Option<Arc<Levels>>);
+/// A track on the GPU, with the waveform, vocal levels and stem levels it
+/// came from.
+type Uploaded = (
+    Arc<GpuTrack>,
+    Arc<Waveform>,
+    Option<Arc<Levels>>,
+    Option<Arc<stem_levels::Levels>>,
+);
 
 struct Gpu {
     /// The [`wave_look::version`] the views were last set to.
@@ -2674,9 +2717,16 @@ impl Gpu {
         self.moving = false;
         let four = app.get_layout() == FOUR_DECK_LAYOUT;
         let macros_shown = app.global::<MacroLanes>().get_shown();
-        // Prep zooms deck 1's waveform to a number of bars.
-        let prep_bars = (app.get_layout() == PREP_LAYOUT && !app.get_library_expanded())
-            .then(|| app.global::<PrepUi>().get_bars().max(1) as f64);
+        // The large waveforms' shared zoom, gliding to a new step: the next
+        // frame comes at once until it gets there.
+        let (zoom, gliding) = waveform_zoom::now(now);
+        self.moving |= gliding;
+        // Prep's large waveform (deck 1) shows, always editing the grid.
+        let prep_shown = app.get_layout() == PREP_LAYOUT && !app.get_library_expanded();
+        let ui_zoom = app.global::<WaveZoom>();
+        if ui_zoom.get_seconds() != zoom as f32 {
+            ui_zoom.set_seconds(zoom as f32);
+        }
         // The Player bar shows the waveform alone, without the phrase bar.
         let show_phrases =
             app.global::<PhraseView>().get_visible() && app.get_layout() != PLAYER_LAYOUT;
@@ -2724,44 +2774,79 @@ impl Gpu {
             changed |= self.overview[d].resize(&self.device, ow, oh);
             self.overview[d].set_background(overview_background);
             let track = track.as_ref().filter(|t| !t.waveform.is_empty());
-            // Show vocals: the file's vocal levels once the pass has them.
-            let vocals = match track.map(|t| &t.source) {
-                Some(Source::File(path)) if wave_look::show_vocals() => vocal_pass::levels(path),
-                _ => None,
+            let show_vocals = wave_look::show_vocals();
+            let stems_look = wave_look::style() == opendj_waveform::Style::Stems;
+            // The stems' levels once they are complete: for the Stems look,
+            // and for Show vocals from high-quality stems' vocal stem.
+            let found = track
+                .and_then(|t| t.audio.as_ref()?.stems())
+                .filter(|s| {
+                    stems_look || (show_vocals && s.current().quality == stems::Quality::High)
+                })
+                .and_then(stem_levels::levels);
+            // Show vocals: the vocal stem's level, else the vocal pass's
+            // once it has the file.
+            let hq_vocals = found
+                .as_ref()
+                .filter(|_| show_vocals)
+                .and_then(|f| f.vocals.clone());
+            let (vocals, vocal_rate) = match (hq_vocals, track.map(|t| &t.source)) {
+                (Some(v), _) => (Some(v), stem_levels::RATE),
+                (None, Some(Source::File(path))) if show_vocals => {
+                    (vocal_pass::levels(path), opendj_engine::vocals::RATE)
+                }
+                _ => (None, opendj_engine::vocals::RATE),
             };
             let same_vocals = |v: &Option<Arc<Levels>>| match (v, &vocals) {
                 (Some(a), Some(b)) => Arc::ptr_eq(a, b),
                 (None, None) => true,
                 // Kept on the GPU when Show vocals is off: the view hides them.
-                (Some(_), None) => !wave_look::show_vocals(),
+                (Some(_), None) => !show_vocals,
+                _ => false,
+            };
+            let stems = found.filter(|_| stems_look);
+            let same_stems = |v: &Option<Arc<stem_levels::Levels>>| match (v, &stems) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                // Kept on the GPU in other looks, which don't draw them.
+                (Some(_), None) => !stems_look,
                 _ => false,
             };
             let gpu_track = match (track, &self.tracks[d]) {
                 (None, _) => None,
                 // Uploaded already, unless the waveform has grown since or
-                // its vocals have come.
-                (Some(t), Some((g, w, v)))
-                    if g.id() == t.id && Arc::ptr_eq(w, &t.waveform) && same_vocals(v) =>
+                // its vocals or stem levels have come.
+                (Some(t), Some((g, w, v, s)))
+                    if g.id() == t.id
+                        && Arc::ptr_eq(w, &t.waveform)
+                        && same_vocals(v)
+                        && same_stems(s) =>
                 {
-                    Some((g.clone(), w.clone(), v.clone()))
+                    Some((g.clone(), w.clone(), v.clone(), s.clone()))
                 }
                 (Some(t), _) => Some((
-                    Arc::new(GpuTrack::with_vocals(
+                    Arc::new(GpuTrack::with_extras(
                         &self.device,
                         &self.queue,
                         &self.renderer,
                         t.id,
                         &t.waveform.levels,
                         t.waveform.bins_per_second,
-                        vocals.as_deref().map_or(&[], |v| v.as_slice()),
-                        opendj_engine::vocals::RATE,
+                        Extras {
+                            vocals: vocals.as_deref().map_or(&[], |v| v.as_slice()),
+                            vocal_rate,
+                            stems: stems.as_deref().map_or(&[], |s| s.levels.as_slice()),
+                            stem_rate: stem_levels::RATE,
+                            stem_colors: stems.as_deref().map_or(&[], |s| s.colors.as_slice()),
+                        },
                     )),
                     t.waveform.clone(),
                     vocals.clone(),
+                    stems.clone(),
                 )),
             };
             self.tracks[d] = gpu_track.clone();
-            let gpu_track = gpu_track.map(|(g, _, _)| g);
+            let gpu_track = gpu_track.map(|(g, ..)| g);
             let (play_seconds, speed) = clocks[d];
             self.moving |= track.is_some() && speed != 0.0;
             // A slip's silent playhead runs on even while the deck is paused.
@@ -2777,13 +2862,7 @@ impl Gpu {
                 Vec::new()
             };
             let phrases = if show_phrases { phrases } else { Vec::new() };
-            let bars = prep_bars.filter(|_| d == 0);
-            if let Some(bars) = bars {
-                let bpm = track.map_or(0.0, |t| t.bpm);
-                let seconds = if bpm > 0.0 { bars * 240.0 / bpm } else { 0.0 };
-                app.global::<PrepUi>().set_seconds(seconds as f32);
-            }
-            let frame = track.map(|t| decks.frame(d, t, play_seconds, phrases, bars));
+            let frame = track.map(|t| decks.frame(d, t, play_seconds, phrases, zoom));
             // The jog marker turns with the same smoothed clock as the
             // waveform, set here as each frame is drawn rather than on the UI
             // timer, whose ticks beat against the display. A 33 rpm record
@@ -2834,7 +2913,7 @@ impl Gpu {
                 w
             });
             // Or an instrument deck's knobs as macro lanes, where its switch
-            // is on (2-Deck only).
+            // is on (2-Deck Basic only).
             let page = (held.is_some() && !groove[d] && !four)
                 .then(|| app.global::<InstrumentsUi>().get_knob_page().max(0) as usize)
                 .filter(|_| macros_shown.row_data(d).unwrap_or(false));
@@ -2860,7 +2939,7 @@ impl Gpu {
             };
             self.scrolling[d].set_live(window.is_some());
             // Grid edit mode (Prep's deck 1 always), while the grid is unlocked.
-            let prep_deck = prep_bars.is_some() && d == 0;
+            let prep_deck = prep_shown && d == 0;
             let h = &decks.0[d];
             self.scrolling[d]
                 .set_grid_edit((h.beats_edit.get_bool() || prep_deck) && !h.bpmlock.get_bool());

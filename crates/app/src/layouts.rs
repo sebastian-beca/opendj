@@ -1,17 +1,29 @@
 //! The DJ's layouts: which of openDJ's layouts the layout menu at the top
-//! left offers, in their order (`layouts` in settings.json), and Settings ›
-//! Layouts where they are added, taken out and reordered. A controller's
-//! VIEW (`[Skin],layout_next`) steps through them.
+//! left offers, in their order, and the menu's chooser (its pencil) where
+//! each is switched on or off and dragged into place. Settings › Layouts
+//! shows the same list with drawings. A controller's VIEW
+//! (`[Skin],layout_next`) steps through the ones switched on.
+//!
+//! settings.json keeps the layouts switched on, in menu order, under
+//! `layouts` (as before the chooser), and every layout's place under
+//! `layouts_order`, so one switched off keeps its row.
 
 use slint::{ComponentHandle, ModelRc, VecModel};
 
 use crate::{settings, AppWindow, LayoutEntry, LayoutsUi};
 
-/// The setting holding the DJ's layouts, as layout numbers in menu order.
-const KEY: &str = "layouts";
+/// A layout in the chooser: its number and whether it is switched on.
+type Row = (i32, bool);
 
-/// Every layout, in the order More layouts shows them: its number (the
-/// value of `layout`), its name and what it's for.
+/// The layouts switched on, as layout numbers in menu order.
+const KEY: &str = "layouts";
+/// Every layout's place in the chooser, on or off.
+const ORDER_KEY: &str = "layouts_order";
+
+/// Every layout, in the chooser's starting order: its number (the value of
+/// `layout`, which never changes so saved settings keep working), its name
+/// and what it's for. Layout 0, the full decks, was "2-Deck Pro" and 4 was
+/// "2-Deck" until 0.7.
 const ALL: [(i32, &str, &str); 5] = [
     (
         1,
@@ -19,13 +31,8 @@ const ALL: [(i32, &str, &str); 5] = [
         "A music player that mixes for you, with one bar along the bottom.",
     ),
     (
-        4,
-        "2-Deck",
-        "Two light decks without jogs, with pads and loops in a bar under them.",
-    ),
-    (
         0,
-        "2-Deck Pro",
+        "2-Deck",
         "Two full decks with jogs, tempo faders and pads.",
     ),
     (2, "4-Deck", "Four deck strips around the mixer."),
@@ -34,45 +41,80 @@ const ALL: [(i32, &str, &str); 5] = [
         "Prep",
         "Deck 1 alone, for getting tracks ready: grid, cues and a checklist.",
     ),
+    (
+        4,
+        "2-Deck Basic",
+        "Two light decks without jogs, with pads and loops in a bar under them.",
+    ),
 ];
 
-/// The list a DJ starts with: the layouts the menu offered before it could
-/// be changed. Prep, and layouts added later, start under More layouts.
-const START: [i32; 4] = [1, 4, 0, 2];
+/// The layouts switched on at first, in order: Player, 2-Deck, 4-Deck and
+/// Prep. 2-Deck Basic starts off.
+const START: [i32; 4] = [1, 0, 2, 3];
 
 /// Whether layout `l` exists and is offered (Prep only once it is).
 fn offered(l: i32) -> bool {
     ALL.iter().any(|&(n, _, _)| n == l) && (l != crate::PREP_LAYOUT || crate::PREP_OFFERED)
 }
 
-/// The saved list made safe: known, offered layouts, each once; the
-/// starting list when nothing usable is saved.
-fn clean(saved: Option<Vec<i32>>, offered: impl Fn(i32) -> bool) -> Vec<i32> {
-    let mut list: Vec<i32> = Vec::new();
-    for l in saved.unwrap_or_default() {
-        if offered(l) && !list.contains(&l) {
-            list.push(l);
+/// Every offered layout once, each with its switch: the saved order first
+/// (`order`, or failing that the saved `on` list), then the ones it
+/// doesn't know in ALL's order. Nothing usable saved gives the start.
+fn clean(
+    on: Option<Vec<i32>>,
+    order: Option<Vec<i32>>,
+    offered: impl Fn(i32) -> bool,
+) -> Vec<(i32, bool)> {
+    let on: Vec<i32> = on
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|&l| offered(l))
+        .collect();
+    let on = if on.is_empty() {
+        START.into_iter().filter(|&l| offered(l)).collect()
+    } else {
+        on
+    };
+    let mut list: Vec<(i32, bool)> = Vec::new();
+    let saved_order = order.unwrap_or_else(|| on.clone());
+    for l in saved_order
+        .into_iter()
+        .chain(ALL.iter().map(|&(n, _, _)| n))
+    {
+        if offered(l) && !list.iter().any(|&(x, _)| x == l) {
+            list.push((l, on.contains(&l)));
         }
-    }
-    if list.is_empty() {
-        list = START.into_iter().filter(|&l| offered(l)).collect();
     }
     list
 }
 
-/// The DJ's layouts, in menu order.
-pub fn chosen() -> Vec<i32> {
-    let saved = settings::load()[KEY].as_array().map(|a| {
-        a.iter()
-            .filter_map(|v| v.as_i64())
-            .map(|v| v as i32)
-            .collect()
-    });
-    clean(saved, offered)
+fn load() -> Vec<(i32, bool)> {
+    let s = settings::load();
+    let ints = |key: &str| {
+        s[key].as_array().map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_i64())
+                .map(|v| v as i32)
+                .collect()
+        })
+    };
+    clean(ints(KEY), ints(ORDER_KEY), offered)
 }
 
-fn save(list: &[i32]) {
-    settings::set(KEY, serde_json::json!(list));
+/// The layouts switched on, in `list`'s order.
+fn on_of(list: &[(i32, bool)]) -> Vec<i32> {
+    list.iter().filter(|t| t.1).map(|t| t.0).collect()
+}
+
+/// The DJ's layouts, in menu order.
+pub fn chosen() -> Vec<i32> {
+    on_of(&load())
+}
+
+fn save(list: &[(i32, bool)]) {
+    settings::set(KEY, serde_json::json!(on_of(list)));
+    let order: Vec<i32> = list.iter().map(|t| t.0).collect();
+    settings::set(ORDER_KEY, serde_json::json!(order));
 }
 
 /// The layout after `current` in `list`, back to the first after the last
@@ -89,27 +131,31 @@ pub fn next(current: i32) -> i32 {
     next_in(&chosen(), current)
 }
 
-/// `list` with `l` taken out, unless it is the one in use or the last one.
-fn removed(list: &[i32], l: i32, current: i32) -> Vec<i32> {
-    if l == current || list.len() <= 1 {
+/// Whether `l`'s switch can't be turned off: it is the one in use, or the
+/// last one on.
+fn locked(list: &[(i32, bool)], l: i32, current: i32) -> bool {
+    let on = list.iter().filter(|t| t.1).count();
+    list.iter()
+        .any(|&(x, o)| x == l && o && (x == current || on <= 1))
+}
+
+/// `list` with `l` switched off, unless it is locked on.
+fn switched_off(list: &[(i32, bool)], l: i32, current: i32) -> Vec<(i32, bool)> {
+    if locked(list, l, current) {
         return list.to_vec();
     }
-    list.iter().copied().filter(|&x| x != l).collect()
+    list.iter().map(|&(x, o)| (x, o && x != l)).collect()
 }
 
-/// `list` with `l` added at the end.
-fn added(list: &[i32], l: i32) -> Vec<i32> {
-    let mut list = list.to_vec();
-    if !list.contains(&l) {
-        list.push(l);
-    }
-    list
+/// `list` with `l` switched on, where it is.
+fn switched_on(list: &[(i32, bool)], l: i32) -> Vec<(i32, bool)> {
+    list.iter().map(|&(x, o)| (x, o || x == l)).collect()
 }
 
-/// `list` with `l` moved `by` places (−1 up, 1 down), kept in bounds.
-fn moved(list: &[i32], l: i32, by: i32) -> Vec<i32> {
+/// `list` with `l` moved `by` rows, kept in bounds.
+fn moved(list: &[(i32, bool)], l: i32, by: i32) -> Vec<(i32, bool)> {
     let mut list = list.to_vec();
-    if let Some(i) = list.iter().position(|&x| x == l) {
+    if let Some(i) = list.iter().position(|&(x, _)| x == l) {
         let j = (i as i32 + by).clamp(0, list.len() as i32 - 1) as usize;
         let x = list.remove(i);
         list.insert(j, x);
@@ -117,30 +163,55 @@ fn moved(list: &[i32], l: i32, by: i32) -> Vec<i32> {
     list
 }
 
-fn entry(l: i32) -> LayoutEntry {
+/// `list` with `l` moved `by` places among the layouts switched on (Settings
+/// › Layouts' ↑ and ↓), the ones off keeping their rows.
+fn moved_among_on(list: &[(i32, bool)], l: i32, by: i32) -> Vec<(i32, bool)> {
+    let slots: Vec<usize> = (0..list.len()).filter(|&k| list[k].1).collect();
+    let Some(from) = slots.iter().position(|&k| list[k].0 == l) else {
+        return list.to_vec();
+    };
+    let to = (from as i32 + by).clamp(0, slots.len() as i32 - 1) as usize;
+    let mut on: Vec<(i32, bool)> = slots.iter().map(|&k| list[k]).collect();
+    let item = on.remove(from);
+    on.insert(to, item);
+    let mut list = list.to_vec();
+    for (&k, t) in slots.iter().zip(on) {
+        list[k] = t;
+    }
+    list
+}
+
+/// The starting list, for Reset to default; the layout in use stays on.
+fn reset(current: i32) -> Vec<(i32, bool)> {
+    let list = clean(None, None, offered);
+    switched_on(&list, current)
+}
+
+fn entry(l: i32, on: bool, locked: bool) -> LayoutEntry {
     let (_, name, detail) = ALL
         .iter()
         .find(|&&(n, _, _)| n == l)
         .copied()
-        .unwrap_or(ALL[2]);
+        .unwrap_or(ALL[1]);
     LayoutEntry {
         layout: l,
         name: name.into(),
         detail: detail.into(),
+        on,
+        locked,
     }
 }
 
-fn model(list: impl IntoIterator<Item = i32>) -> ModelRc<LayoutEntry> {
-    ModelRc::new(VecModel::from(
-        list.into_iter().map(entry).collect::<Vec<_>>(),
-    ))
+fn model(list: impl IntoIterator<Item = LayoutEntry>) -> ModelRc<LayoutEntry> {
+    ModelRc::new(VecModel::from(list.into_iter().collect::<Vec<_>>()))
 }
 
-/// Fills the layout menu and Settings › Layouts from the saved list and
-/// the layout showing. Call it whenever either changes.
+/// Fills the layout menu, its chooser and Settings › Layouts from the saved
+/// list and the layout showing. Call it whenever either changes.
 pub fn refresh(app: &AppWindow) {
     let current = app.get_layout();
-    let mine = chosen();
+    let list = load();
+    let mine = on_of(&list);
     let ui = app.global::<LayoutsUi>();
     ui.set_current(current);
     // The menu also shows the layout in use when it isn't one of the DJ's
@@ -149,18 +220,23 @@ pub fn refresh(app: &AppWindow) {
     if !shown.contains(&current) && ALL.iter().any(|&(n, _, _)| n == current) {
         shown.push(current);
     }
-    ui.set_menu(model(shown));
-    ui.set_mine(model(mine.clone()));
+    ui.set_menu(model(shown.into_iter().map(|l| entry(l, true, false))));
+    ui.set_mine(model(mine.iter().map(|&l| entry(l, true, false))));
     ui.set_more(model(
-        ALL.iter()
-            .map(|&(n, _, _)| n)
-            .filter(|&n| offered(n) && !mine.contains(&n)),
+        list.iter()
+            .filter(|t| !t.1)
+            .map(|&(l, _)| entry(l, false, false)),
+    ));
+    ui.set_all(model(
+        list.iter()
+            .map(|&(l, on)| entry(l, on, locked(&list, l, current))),
     ));
 }
 
-/// Wires Settings › Layouts and the menu's cog. `switch` changes the layout
-/// as the menu does; `settings_page` is Settings › Layouts.
-pub fn install(app: &AppWindow, switch: impl Fn(i32) + 'static, settings_page: i32) {
+/// Wires the menu's chooser, its Dark / Light / Auto row and Settings ›
+/// Layouts. `switch` changes the
+/// layout as the menu does.
+pub fn install(app: &AppWindow, switch: impl Fn(i32) + 'static) {
     let ui = app.global::<LayoutsUi>();
     let weak = app.as_weak();
     ui.on_pick(move |l| {
@@ -170,24 +246,37 @@ pub fn install(app: &AppWindow, switch: impl Fn(i32) + 'static, settings_page: i
         }
     });
     let weak = app.as_weak();
-    let change = move |f: &dyn Fn(&[i32], i32) -> Vec<i32>| {
+    let change = move |f: &dyn Fn(&[Row], i32) -> Vec<Row>| {
         if let Some(app) = weak.upgrade() {
-            save(&f(&chosen(), app.get_layout()));
+            save(&f(&load(), app.get_layout()));
             refresh(&app);
         }
     };
     let change = std::rc::Rc::new(change);
     let c = change.clone();
-    ui.on_add(move |l| c(&|list, _| added(list, l)));
+    ui.on_add(move |l| c(&|list, _| switched_on(list, l)));
     let c = change.clone();
-    ui.on_remove(move |l| c(&|list, current| removed(list, l, current)));
+    ui.on_remove(move |l| c(&|list, current| switched_off(list, l, current)));
     let c = change.clone();
-    ui.on_move(move |l, by| c(&|list, _| moved(list, l, by)));
+    ui.on_toggled(move |l| {
+        c(&|list, current| {
+            if list.iter().any(|&(x, on)| x == l && on) {
+                switched_off(list, l, current)
+            } else {
+                switched_on(list, l)
+            }
+        })
+    });
+    let c = change.clone();
+    ui.on_move(move |l, by| c(&|list, _| moved_among_on(list, l, by)));
+    let c = change.clone();
+    ui.on_moved(move |l, by| c(&|list, _| moved(list, l, by)));
+    let c = change.clone();
+    ui.on_reset(move || c(&|_, current| reset(current)));
     let weak = app.as_weak();
-    ui.on_edit(move || {
+    ui.on_appearance_picked(move |m| {
         if let Some(app) = weak.upgrade() {
-            app.global::<crate::Preferences>()
-                .invoke_show(settings_page);
+            crate::appearance::choose(&app, m.max(0) as usize);
         }
     });
     refresh(app);
@@ -201,19 +290,45 @@ mod tests {
         true
     }
 
+    fn ons(list: &[(i32, bool)]) -> Vec<i32> {
+        on_of(list)
+    }
+
     #[test]
-    fn starts_with_the_old_menu() {
-        assert_eq!(clean(None, all), vec![1, 4, 0, 2]);
-        assert_eq!(clean(Some(vec![]), all), vec![1, 4, 0, 2]);
+    fn starts_with_player_2deck_4deck_prep() {
+        let list = clean(None, None, all);
+        assert_eq!(ons(&list), vec![1, 0, 2, 3]);
+        assert_eq!(list.last(), Some(&(4, false)));
+        assert_eq!(ons(&clean(Some(vec![]), None, all)), vec![1, 0, 2, 3]);
+    }
+
+    #[test]
+    fn keeps_a_list_saved_before_the_chooser() {
+        // 0.6 saved only the layouts in the menu.
+        let list = clean(Some(vec![1, 4, 0, 2]), None, all);
+        assert_eq!(
+            list,
+            vec![(1, true), (4, true), (0, true), (2, true), (3, false)]
+        );
+    }
+
+    #[test]
+    fn keeps_the_places_of_ones_switched_off() {
+        let list = clean(Some(vec![2, 1]), Some(vec![4, 2, 0, 1, 3]), all);
+        assert_eq!(
+            list,
+            vec![(4, false), (2, true), (0, false), (1, true), (3, false)]
+        );
+        assert_eq!(ons(&list), vec![2, 1]);
     }
 
     #[test]
     fn drops_unknown_hidden_and_repeated() {
-        assert_eq!(
-            clean(Some(vec![2, 9, 2, 3, 1]), |l| (0..=4).contains(&l)
-                && l != 3),
-            vec![2, 1]
-        );
+        let offered = |l: i32| (0..=4).contains(&l) && l != 3;
+        let list = clean(Some(vec![2, 9, 2, 3, 1]), None, offered);
+        assert_eq!(ons(&list), vec![2, 1]);
+        assert!(!list.iter().any(|t| t.0 == 3 || t.0 == 9));
+        assert_eq!(list.len(), 4);
     }
 
     #[test]
@@ -225,23 +340,43 @@ mod tests {
     }
 
     #[test]
-    fn the_layout_in_use_stays() {
-        assert_eq!(removed(&[1, 4, 0], 4, 4), vec![1, 4, 0]);
-        assert_eq!(removed(&[1, 4, 0], 0, 4), vec![1, 4]);
-        assert_eq!(removed(&[4], 4, 1), vec![4]);
+    fn the_layout_in_use_and_the_last_one_stay_on() {
+        let list = vec![(1, true), (4, true), (0, false)];
+        assert_eq!(ons(&switched_off(&list, 4, 4)), vec![1, 4]);
+        assert_eq!(ons(&switched_off(&list, 1, 4)), vec![4]);
+        let one = vec![(4, true), (1, false)];
+        assert_eq!(ons(&switched_off(&one, 4, 1)), vec![4]);
+        assert!(locked(&one, 4, 1));
+        assert!(!locked(&one, 1, 1));
     }
 
     #[test]
-    fn adds_at_the_end_once() {
-        assert_eq!(added(&[1, 4], 2), vec![1, 4, 2]);
-        assert_eq!(added(&[1, 4], 4), vec![1, 4]);
+    fn switching_on_keeps_the_row() {
+        let list = vec![(1, true), (4, false), (0, true)];
+        assert_eq!(switched_on(&list, 4), vec![(1, true), (4, true), (0, true)]);
     }
 
     #[test]
     fn moves_within_bounds() {
-        assert_eq!(moved(&[1, 4, 0], 0, -1), vec![1, 0, 4]);
-        assert_eq!(moved(&[1, 4, 0], 1, -1), vec![1, 4, 0]);
-        assert_eq!(moved(&[1, 4, 0], 1, 1), vec![4, 1, 0]);
-        assert_eq!(moved(&[1, 4, 0], 0, 1), vec![1, 4, 0]);
+        let list = vec![(1, true), (4, false), (0, true)];
+        assert_eq!(moved(&list, 0, -1), vec![(1, true), (0, true), (4, false)]);
+        assert_eq!(moved(&list, 1, -1), list);
+        assert_eq!(moved(&list, 1, 5), vec![(4, false), (0, true), (1, true)]);
+    }
+
+    #[test]
+    fn settings_arrows_skip_the_ones_off() {
+        let list = vec![(1, true), (4, false), (0, true)];
+        assert_eq!(
+            moved_among_on(&list, 0, -1),
+            vec![(0, true), (4, false), (1, true)]
+        );
+        assert_eq!(moved_among_on(&list, 1, -1), list);
+    }
+
+    #[test]
+    fn reset_keeps_the_layout_in_use() {
+        assert!(reset(4).contains(&(4, true)));
+        assert!(reset(1).contains(&(4, false)));
     }
 }

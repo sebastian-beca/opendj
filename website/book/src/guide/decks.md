@@ -27,6 +27,14 @@ left and the track's tempo and key, with the overview waveform of the whole
 track. Click the overview to jump; dragging it moves without playing what it
 passes.
 
+To empty a deck, point at its cover and click the small **⏏** in the
+corner (the Mixer has it at the end of its title bar instead). It works on
+whatever the deck holds: a track, the Groove Box, the Looper, an input or
+the Mixer. It only shows while the deck isn't playing. Right-clicking the
+cover has **Unload deck** too, and <kbd>⇧</kbd> <kbd>⌥</kbd> <kbd>←</kbd> /
+<kbd>→</kbd> unload decks 1 and 2. If it was a mistake, click
+**↺ Put back** on the empty deck: a track comes back where it was.
+
 ### Waveform colors
 
 **Settings › Decks › Waveform color** picks how the waveforms are colored:
@@ -37,18 +45,70 @@ passes.
   widest, as on rekordbox. **Palette** picks **Blue-Orange-White** (rekordbox's
   colors) or **Lilac-Cyan-White**.
 - **Blue**: one blue shape, lighter where the highs are loud.
+- **Stems**: each stem (kick, hi-hats, bass, instruments, vocals) in the
+  color of its stem pad, the loudest at the back, so you can see where the
+  vocals come in or the bass drops out. A track shows RGB until its stems
+  are ready.
 
 **Overview** draws the overview under each deck **Full**, mirrored about its
 middle, or **Half**, growing from the bottom edge as on rekordbox. The big
 scrolling waveform is always whole.
 
-**Show vocals**, on at first, tints the sung parts of the waveforms green,
+**Show vocals**, off at first, tints the sung parts of the waveforms green,
 as on VirtualDJ. openDJ checks each track for vocals the first time you load
-it, in the background, so the green shows up a few seconds after the
-waveform; after that it's there straight away.
+it (or when it's analyzed), in the background, so the green shows up a few
+seconds after the waveform; after that it's there straight away. Tracks with
+HQ stems use their vocal stem instead.
 
 **Size follows gain**, off at first, makes a deck's waveforms taller or
 shorter as you turn its gain knob, as on VirtualDJ.
+
+### Waveform zoom
+
+The large scrolling waveforms zoom in twenty steps of 5%, from **5%** (about
+40 seconds across) to **100%** (under a second, close enough to line a grid
+up with a kick). They start at **40%**, ten seconds across. Every large
+waveform zooms together, in every layout, so beats stay the same distance
+apart on each deck; the overviews under the decks always show the whole
+track.
+
+- Scroll the mouse wheel or swipe on the trackpad over a large waveform: up
+  zooms in, down zooms out. The zoom follows smoothly and settles on the
+  nearest step when you stop.
+- Use the bar at the edge of the waveform under the pointer (the side away
+  from the grid pencil), widest at the top: click the grey track to move the lilac marker there, or drag the
+  marker up and down.
+- **⌘=** and **⌘−** (**Ctrl** on Windows and Linux) step in and out, **⌘0**
+  goes back to 40%. They are also in **View** and in a large waveform's
+  right-click menu.
+- On a controller, map **Zoom waveform in**, **Zoom waveform out**, **Reset
+  waveform zoom** or **Waveform zoom** (1 to 20).
+
+The step shows for a moment on the waveform under the pointer (or the top
+one). openDJ remembers it for next time. Decks playing an input, an
+instrument or the Groove Box keep ten seconds across.
+
+### Waveform height
+
+The large scrolling waveforms have ten heights, **1** to **10**; **3** is the
+usual one. Each layout remembers its own, so tall waveforms in 2-Deck don't
+make 4-Deck taller.
+
+- Drag the line under the waveforms: a lilac grip shows when the pointer is
+  on it. The waveforms stretch with the pointer and settle on the nearest
+  height when you let go, with the number in the middle. Double-click the
+  line to go back to 3.
+- Click the arrow on the right of the waveforms button in the top bar and
+  pick a number.
+- Right-click a large waveform and use **−** and **+** under Height.
+- **⌥⌘↑** and **⌥⌘↓** (**Ctrl+Alt** on Windows and Linux) make them taller
+  or shorter. They are also in **View**.
+- On a controller, map **Taller waveforms**, **Shorter waveforms**, **Reset
+  waveform height** or **Waveform height** (1 to 10).
+
+The library always keeps room for about five tracks. When the window is too
+short for the height you chose, the waveforms show the highest one that
+fits, and grow back when the window does. The decks never shrink.
 
 ### Beat counter
 
@@ -84,11 +144,17 @@ the rail at the far left (the keyboard icon) and drag one onto a deck:
 - A **Groove Box** kit: a drum machine in time with the mix (see
   [Groove Box](groove-box.md)).
 - An **instrument plugin** you ticked in **Settings › Plugins**, played with
-  a MIDI keyboard or the **KEYBOARD** pads. **EDIT** on the deck opens its
+  a MIDI keyboard or the **KEYBOARD** pads. **OPEN** on the deck opens its
   own window for its sounds and presets (see
   [Instruments](fx.md#instruments)).
-- The **Microphone** or the **Aux input**, from the inputs picked in
-  **Settings › Audio**: turntables, a drum machine or a singer.
+- The **Looper**: four layers you record in time with the mix and play
+  back (see [Looper](#looper)).
+- The **Microphone**, from the input picked in **Settings › Audio**.
+- The **Mixer**: up to eight aux inputs from **Settings › Audio**
+  (turntables, a drum machine, a phone, another DJ's mixer) summed into the
+  one deck. The numbers on the deck turn each input on and off; a new
+  input starts off. The deck's fader is the Mixer's master, and one deck
+  holds the Mixer at a time.
 
 It plays through that deck's channel, so the EQ, filter, effects, fader and
 crossfader all work on it. A track on the deck is stopped and ejected
@@ -128,6 +194,34 @@ only; a Groove Box deck always shows its step lanes.
 
 To go back to a track deck, load a track onto it, or press EJECT while it is
 stopped. openDJ remembers what each deck plays for next time.
+
+### Looper
+
+Drag **Looper** from the **Jam** list onto a deck. In 2-Deck the deck shows
+four layers, two by two, with **▶ PLAY** and four beat lights under them. The
+header shows the tempo the Looper plays at, and whether it is in time with
+the mix.
+
+- **FROM** picks what it records: **Mix** (the main mix), **Mic**,
+  **Aux**, **Instr.** (the instrument plugin), **Aux 2** or **Aux 3**.
+- **BARS** sets how long a new layer is: 1, 2, 4, 8 or 16 bars.
+- Tap a layer's **● REC** to record it. It shows **NEXT BAR** until the
+  next bar starts, then **RECORDING**, then **▶ PLAY** with its length once
+  the bars are done. Tapping a layer on a stopped deck starts the deck.
+- Tap a playing layer to **OVERDUB**: what comes in is added on top of
+  it. Tap it again to go back to playing. With **THEN OVERDUB** on, a layer
+  goes straight on to overdub when it finishes recording.
+- **CAPTURE** puts the bars just heard into the first empty layer, even if
+  you weren't recording. **LAST** picks how many: 1, 2, 4 or 8 bars.
+- Each layer has **M** to mute it, a level knob, and **×** to clear it.
+- **UNDO** takes back the last recording or overdub, and **REDO** brings
+  it back. While a layer waits for the bar or records, **UNDO** cancels it.
+- **▶ PLAY** under the layers starts all of them together, and **■ STOP**
+  stops them.
+
+A layer holds up to about 48 seconds, 16 bars at 80 BPM. If what you pick
+is longer, the deck says **Too long to fit: pick fewer bars.** To go back
+to a track deck, drop a track on it.
 
 ## Slip, bend and censor
 

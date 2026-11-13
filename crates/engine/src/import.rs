@@ -89,8 +89,8 @@ impl ImportedEntry {
 /// id there and what the app knew of it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StreamedTrack {
-    /// "tidal", "spotify", "soundcloud", "beatport", "beatsource" or
-    /// "deezer"; "online" when the app didn't say which.
+    /// "tidal", "spotify", "soundcloud", "beatport", "beatsource",
+    /// "deezer" or "applemusic"; "online" when the app didn't say which.
     pub service: String,
     /// The service's id for the track; empty when not known.
     pub id: String,
@@ -199,6 +199,7 @@ impl StreamedTrack {
             "beatport" => "Beatport",
             "beatsource" => "Beatsource",
             "deezer" => "Deezer",
+            "applemusic" => "Apple Music",
             _ => "Online",
         }
     }

@@ -25,7 +25,7 @@ The Jam source SHALL offer a Mixer that loads onto one deck at a time. A Mixer d
 - **THEN** both strips go quiet in the master
 
 ### Requirement: Strip solo, mute and FX
-Solo SHALL silence the other strips of the same Mixer and no other deck; several strips MAY be soloed, and solo SHALL win over off. Strips with FX on SHALL go through the deck's effects and the others SHALL stay dry. A new strip SHALL start off.
+Solo SHALL silence the other strips of the same Mixer and no other deck; several strips MAY be soloed, and solo SHALL win over off. Strips with FX on SHALL go through the deck's effects and the others SHALL stay dry. A new strip SHALL start off, with FX on, so the deck's effects act on it as they do on a track.
 
 #### Scenario: Echo on the mic only
 - **WHEN** the Mic strip has FX on, the Turntable strip has FX off, and the deck's echo is on

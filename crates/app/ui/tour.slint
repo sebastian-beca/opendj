@@ -51,7 +51,7 @@ component PartRow inherits Rectangle {
         }
         Text {
             text: name;
-            color: current ? Theme.text : #c8c8cd;
+            color: current ? Theme.text : Theme.n-c8c8cd;
             font-size: 14px;
             font-weight: current ? 600 : 400;
             vertical-alignment: center;
@@ -62,7 +62,7 @@ component PartRow inherits Rectangle {
 // The setup dialog: the parts down the left, the part's words and settings
 // rows on the right, Back, Skip and Next along the bottom.
 export component TourSetupDialog inherits Rectangle {
-    background: #000000a0;
+    background: Theme.s-000000a0;
     // The app behind waits; clicks there do nothing.
     TouchArea { }
     Rectangle {
@@ -73,12 +73,12 @@ export component TourSetupDialog inherits Rectangle {
         border-width: 1px;
         border-color: Theme.border;
         drop-shadow-blur: 40px;
-        drop-shadow-color: #000000c0;
+        drop-shadow-color: Theme.s-000000c0;
         clip: true;
         HorizontalLayout {
             Rectangle {
                 width: 200px;
-                background: #141416;
+                background: Theme.n-141416;
                 VerticalLayout {
                     padding: 20px;
                     spacing: 4px;
@@ -121,7 +121,7 @@ export component TourSetupDialog inherits Rectangle {
                 }
                 if TourSetup.body != "": Text {
                     text: TourSetup.body;
-                    color: #c8c8cd;
+                    color: Theme.n-c8c8cd;
                     font-size: 14px;
                     wrap: word-wrap;
                 }
@@ -168,7 +168,7 @@ component LinkButton inherits Rectangle {
     height: 26px;
     width: label.preferred-width + 12px;
     border-radius: 4px;
-    background: ta.has-hover ? #ffffff10 : transparent;
+    background: ta.has-hover ? Theme.n-ffffff10 : transparent;
     label := Text {
         text: root.text;
         color: ta.has-hover ? Theme.text : Theme.text-dim;
@@ -202,14 +202,14 @@ export component TourTip inherits Rectangle {
         border-width: 1px;
         border-color: Tour.done ? #4cd07d : Theme.lilac;
         drop-shadow-blur: 20px;
-        drop-shadow-color: #000000c0;
+        drop-shadow-color: Theme.s-000000c0;
         TouchArea { }
         content := VerticalLayout {
             padding: 16px;
             padding-bottom: 12px;
             spacing: 6px;
             HorizontalLayout {
-                Text { text: Tour.step; color: Theme.lilac; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; vertical-alignment: center; horizontal-stretch: 1; }
+                Text { text: Tour.step; color: Theme.lilac-text; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; vertical-alignment: center; horizontal-stretch: 1; }
                 CloseButton { clicked => { Tour.end(); } }
             }
             Text { text: Tour.title; color: Theme.text; font-size: 16px; font-weight: 700; wrap: word-wrap; }
@@ -224,7 +224,7 @@ export component TourTip inherits Rectangle {
                 spacing: 6px;
                 if Tour.can-back: LinkButton { text: "Back"; clicked => { Tour.back(); } }
                 Rectangle { horizontal-stretch: 1; }
-                if Tour.done: Text { text: "✓ Nice"; color: #4cd07d; font-size: 12px; font-weight: 600; vertical-alignment: center; }
+                if Tour.done: Text { text: "✓ Nice"; color: Theme.c-4cd07d; font-size: 12px; font-weight: 600; vertical-alignment: center; }
                 if Tour.waiting && !Tour.done: Text { text: "Your turn"; color: Theme.text-dim; font-size: 12px; vertical-alignment: center; }
                 if Tour.waiting && !Tour.done: LinkButton { text: "Skip"; clicked => { Tour.next(); } }
                 if !Tour.waiting: Button { text: Tour.next-label; primary: true; clicked => { Tour.next(); } }
@@ -243,7 +243,7 @@ export component TourOffer inherits Rectangle {
     border-width: 1px;
     border-color: Theme.lilac;
     drop-shadow-blur: 12px;
-    drop-shadow-color: #000000a0;
+    drop-shadow-color: Theme.s-000000a0;
     row := HorizontalLayout {
         padding-left: 14px;
         padding-right: 6px;

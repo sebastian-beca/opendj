@@ -3,11 +3,13 @@
 // row: the beat grid tools on the left, transport in the middle and eight
 // big hot cue pads on the right, with the track's stage and Play Ready,
 // next track above them. The large scrolling waveform above is deck 1's,
-// zoomed to a number of bars (PrepUi.bars). No mixer, crossfader or FX.
+// at the zoom every large waveform shares (zoom.slint). No mixer,
+// crossfader or FX.
 import { Theme } from "theme.slint";
 import { ControlButton, ControlKnob, Controls, CueHeadphones } from "controls.slint";
 import { DeckInfo, Header, PlayButton } from "deck.slint";
 import { CueList } from "cues.slint";
+import { WaveZoom } from "zoom.slint";
 
 export global PrepUi {
     // Whether the Prep layout is offered (off until v0.6).
@@ -17,11 +19,6 @@ export global PrepUi {
     in property <int> stage;
     // Tracks still In Prep, the one loaded included.
     in property <int> left;
-    // How many bars the large waveform shows.
-    in-out property <int> bars: 8;
-    // The track seconds those bars take at normal speed (0: no tempo),
-    // for dragging the waveform.
-    in property <float> seconds;
     // Checklist lines ticked on the loaded track, of how many: Play Ready
     // lights up when all are (see checklist.slint).
     in property <int> done;
@@ -184,7 +181,7 @@ component PrepPad inherits Rectangle {
     property <int> tenths: floor(mod(seconds * 10, 10));
     property <string> time: minutes + ":" + (secs < 10 ? "0" : "") + floor(secs) + "." + tenths;
     border-radius: Theme.radius;
-    background: set ? (touch.pressed ? tint.darker(0.3) : tint) : touch.pressed ? Theme.control-pressed : touch.has-hover ? #1d1d20 : Theme.control;
+    background: set ? (touch.pressed ? tint.darker(0.3) : tint) : touch.pressed ? Theme.control-pressed : touch.has-hover ? Theme.n-1d1d20 : Theme.control;
     border-width: set ? 0px : 1px;
     border-color: Theme.border;
     VerticalLayout {
@@ -195,7 +192,7 @@ component PrepPad inherits Rectangle {
             if set: Text { text: name; color: #ffffff; font-size: 12px; font-weight: 600; overflow: elide; horizontal-stretch: 1; }
         }
         Rectangle { vertical-stretch: 1; }
-        Text { text: set ? time : "Click to set"; color: set ? #ffffffd0 : Theme.text-dim; font-family: "Inter Tabular"; font-size: 11px; overflow: elide; }
+        Text { text: set ? time : "Click to set"; color: set ? Theme.n-ffffffd0 : Theme.text-dim; font-family: "Inter Tabular"; font-size: 11px; overflow: elide; }
     }
     touch := TouchArea {
         mouse-cursor: pointer;
@@ -261,16 +258,16 @@ component ReadyBar inherits HorizontalLayout {
         vertical-alignment: center;
     }
     Rectangle { horizontal-stretch: 1; }
-    ZoomButton { text: "−"; clicked => { PrepUi.bars = min(32, PrepUi.bars * 2); } }
+    ZoomButton { text: "−"; clicked => { WaveZoom.step(-1); } }
     Text {
-        text: PrepUi.bars + " bars";
+        text: "Zoom " + WaveZoom.percent(WaveZoom.level);
         color: Theme.text;
         font-size: 12px;
         horizontal-alignment: center;
         vertical-alignment: center;
-        width: 52px;
+        width: 72px;
     }
-    ZoomButton { text: "+"; clicked => { PrepUi.bars = max(2, PrepUi.bars / 2); } }
+    ZoomButton { text: "+"; clicked => { WaveZoom.step(1); } }
     Rectangle { width: 8px; }
     // Lit when every checklist line is ticked; outlined until then (it
     // still works, for a track that is fine as it is).
@@ -291,7 +288,7 @@ component ReadyBar inherits HorizontalLayout {
         background: all-done
             ? (ready-touch.pressed ? Theme.stage-ready.darker(0.2) : ready-touch.has-hover ? Theme.stage-ready.brighter(0.1) : Theme.stage-ready)
             : (ready-touch.pressed ? Theme.stage-ready.with-alpha(0.3) : ready-touch.has-hover ? Theme.stage-ready.with-alpha(0.2) : Theme.stage-ready.with-alpha(0.1));
-        ready-text := Text { text: "✓ Play Ready, next  ⏎"; color: all-done ? #0e0e10 : Theme.stage-ready; font-size: 13px; font-weight: 700; }
+        ready-text := Text { text: "✓ Play Ready, next  ⏎"; color: all-done ? Theme.n-0e0e10 : Theme.stage-ready; font-size: 13px; font-weight: 700; }
         ready-touch := TouchArea { mouse-cursor: pointer; clicked => { PrepUi.ready(); } }
     }
 }

@@ -190,6 +190,93 @@ impl Stems {
         self.complete.load(Ordering::Acquire)
     }
 
+    /// How much of the track is sung along it, `rate` a second, 0 to 255,
+    /// from the vocal stem of complete high-quality stems: its loudness
+    /// relative to its loudest stretch. None for fast stems, stems without
+    /// a vocal stem, or before they are complete.
+    pub fn vocal_levels(&self, rate: f64) -> Option<Vec<u8>> {
+        let s = self.current();
+        if s.quality != Quality::High || !s.is_complete() || rate <= 0.0 {
+            return None;
+        }
+        let k = s
+            .info
+            .iter()
+            .take(s.count())
+            .position(|i| i.name.to_ascii_lowercase().starts_with("vocal"))?;
+        let window = ((f64::from(s.sample_rate) / rate).round() as usize).max(1);
+        let mut power: Vec<f64> = Vec::new();
+        let mut at = 0usize;
+        for chunk in s.chunks.iter() {
+            let Some(frames) = chunk.get() else {
+                at += CHUNK;
+                continue;
+            };
+            for f in frames.iter() {
+                let w = at / window;
+                if power.len() <= w {
+                    power.resize(w + 1, 0.0);
+                }
+                let [l, r] = f[k];
+                power[w] += f64::from(l) * f64::from(l) + f64::from(r) * f64::from(r);
+                at += 1;
+            }
+        }
+        let loudest = power.iter().copied().fold(0.0, f64::max);
+        if loudest <= 0.0 {
+            return Some(vec![0; power.len()]);
+        }
+        // Loudness as amplitude: under about a seventh of the loudest
+        // (-17 dB) is bleed and breaths, full from a little over half.
+        Some(
+            power
+                .iter()
+                .map(|p| {
+                    let a = (p / loudest).sqrt();
+                    (((a - 0.15) / 0.45).clamp(0.0, 1.0) * 255.0).round() as u8
+                })
+                .collect(),
+        )
+    }
+
+    /// Each stem's peak along the stems that play (see [`Stems::current`]),
+    /// `rate` a second, as waveform slices hold levels: the square root of
+    /// the peak relative to the loudest stem's, scaled to 0..255. None
+    /// until they are complete.
+    pub fn levels(&self, rate: f64) -> Option<Vec<[u8; MAX_STEMS]>> {
+        let s = self.current();
+        if !s.is_complete() || rate <= 0.0 {
+            return None;
+        }
+        let window = ((f64::from(s.sample_rate) / rate).round() as usize).max(1);
+        let n = s.count();
+        let mut peaks: Vec<[u16; MAX_STEMS]> = Vec::new();
+        let mut at = 0usize;
+        for chunk in s.chunks.iter() {
+            let Some(frames) = chunk.get() else {
+                at += CHUNK;
+                continue;
+            };
+            for f in frames.iter() {
+                let w = at / window;
+                if peaks.len() <= w {
+                    peaks.resize(w + 1, [0; MAX_STEMS]);
+                }
+                for (k, [l, r]) in f.iter().enumerate().take(n) {
+                    let v = l.unsigned_abs().max(r.unsigned_abs());
+                    peaks[w][k] = peaks[w][k].max(v);
+                }
+                at += 1;
+            }
+        }
+        let loudest = peaks.iter().flatten().copied().max().unwrap_or(0);
+        if loudest == 0 {
+            return Some(Vec::new());
+        }
+        let scale = |v: u16| ((f32::from(v) / f32::from(loudest)).sqrt() * 255.0).round() as u8;
+        Some(peaks.into_iter().map(|p| p.map(scale)).collect())
+    }
+
     /// The mix of frame `i` with each stem scaled by its gain. Separated
     /// stems play as `original() − Σ (1 − gain) × stem`: the track itself
     /// at full gains, and the original where the stems aren't separated
@@ -936,6 +1023,51 @@ pub(crate) fn run_demucs(path: &Path) -> Result<StemSource, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vocal_levels_come_from_the_vocal_stem() {
+        let rate = 1000;
+        let frames: Vec<[[f32; 2]; MAX_STEMS]> = (0..3 * rate)
+            .map(|i| {
+                let mut f = [[0.0; 2]; MAX_STEMS];
+                f[1] = [0.8, 0.8];
+                // Silent, then singing, then a whisper.
+                f[3] = match i / rate {
+                    0 => [0.0, 0.0],
+                    1 => [0.5, -0.5],
+                    _ => [0.02, 0.02],
+                };
+                f
+            })
+            .collect();
+        let stems = Stems::from_frames(default_info(), rate as u32, &frames);
+        let v = stems.vocal_levels(10.0).unwrap();
+        assert_eq!(v.len(), 30);
+        assert_eq!((v[5], v[15], v[25]), (0, 255, 0));
+    }
+
+    #[test]
+    fn levels_follow_each_stem() {
+        // One second each: bass loud then vocals at a quarter.
+        let rate = 1000;
+        let frames: Vec<[[f32; 2]; MAX_STEMS]> = (0..2 * rate)
+            .map(|i| {
+                let mut f = [[0.0; 2]; MAX_STEMS];
+                if i < rate {
+                    f[1] = [0.8, -0.8];
+                } else {
+                    f[3] = [0.2, 0.2];
+                }
+                f
+            })
+            .collect();
+        let stems = Stems::from_frames(default_info(), rate as u32, &frames);
+        let levels = stems.levels(10.0).unwrap();
+        assert_eq!(levels.len(), 20);
+        assert_eq!(levels[0], [0, 255, 0, 0, 0]);
+        // A quarter of the loudest: half, as a square root.
+        assert_eq!(levels[15], [0, 0, 0, 128, 0]);
+    }
     use crate::decode::tests::write_wav;
 
     #[test]

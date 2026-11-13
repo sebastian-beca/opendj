@@ -309,6 +309,31 @@ pub fn set_source_searches(source: &str, searches: &[SavedSearch]) {
     });
 }
 
+/// The Mixer's channel names, by aux input from 0; "" keeps the
+/// default ("Ch N").
+pub fn mixer_names() -> Vec<String> {
+    let v = load();
+    let mut names: Vec<String> = v["mixer_names"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|n| n.as_str().unwrap_or("").to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.resize(8, String::new());
+    names
+}
+
+/// Names the Mixer's channel `n` (from 0); "" goes back to "Ch N".
+pub fn set_mixer_name(n: usize, name: &str) {
+    let mut names = mixer_names();
+    if let Some(slot) = names.get_mut(n) {
+        *slot = name.trim().chars().take(24).collect();
+    }
+    set("mixer_names", json!(names));
+}
+
 /// A saved number, or `default`.
 pub fn number(key: &str, default: f64) -> f64 {
     load()[key].as_f64().unwrap_or(default)

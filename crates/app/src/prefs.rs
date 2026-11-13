@@ -80,8 +80,6 @@ const BROADCAST: i32 = 8;
 const KEYBOARD: i32 = 9;
 /// Your layouts and the others (layouts.rs).
 const LAYOUTS: i32 = 10;
-/// Settings › Layouts, for the layout menu's cog.
-pub const LAYOUTS_PAGE: i32 = LAYOUTS;
 const FEEDBACK: i32 = 11;
 
 /// Bitrates offered for a broadcast, in kb/s.
@@ -245,7 +243,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
     set("[Master]", "deck_tap", settings::number("deck_tap", 1.0));
     // An Auxiliary input taken away since falls back to the mix.
     let source = settings::number("record_source", 0.0) as u8;
-    let source = if record_sources(&settings::audio_setup())
+    let source = if record_sources(&settings::audio_setup(), &settings::mixer_names())
         .iter()
         .any(|(v, _)| *v == source)
     {
@@ -445,6 +443,11 @@ impl WizardState {
 
     fn set_database(&mut self, importer: &dyn LibraryImport, database: Option<PathBuf>) {
         self.preview = match &database {
+            None if !importer.missing_hint().is_empty() => format!(
+                "No {} library was found where it is usually kept. {}",
+                importer.title(),
+                importer.missing_hint()
+            ),
             None => format!(
                 "No {} library was found where it is usually kept. Choose its database file.",
                 importer.title()
@@ -1419,7 +1422,9 @@ impl Prefs {
                             "How the decks' waveforms are colored. RGB: one shape, red where \
                              the bass is loudest, amber for the mids, blue for the highs. \
                              3-Band: bass, mids and highs stacked in their own colors, as on \
-                             rekordbox. Blue: one blue shape, lighter where the highs are loud.",
+                             rekordbox. Blue: one blue shape, lighter where the highs are loud. \
+                             Stems: each stem in its pad color once a track has stems, RGB \
+                             until then.",
                         )
                     },
                 ]
@@ -1460,7 +1465,7 @@ impl Prefs {
                         "Tints the sung parts of the waveforms green, as on VirtualDJ. \
                          Each track is checked once, in the background, the first time \
                          it is loaded.",
-                        settings::flag(crate::wave_look::VOCALS_KEY, true),
+                        settings::flag(crate::wave_look::VOCALS_KEY, false),
                     ),
                     PrefItem {
                         choices: strings(&["Off", "Beats", "Beats and phrases"]),
@@ -1539,12 +1544,26 @@ impl Prefs {
                 items
             }
             KEYBOARD => self.keyboard_page(),
-            LAYOUTS => vec![item(
-                "layouts",
-                LAYOUTS_ROW,
-                "Your layouts",
-                "The layouts the layout menu offers: add, remove and reorder them.",
-            )],
+            LAYOUTS => vec![
+                PrefItem {
+                    choices: strings(&crate::appearance::LABELS),
+                    chosen: crate::appearance::mode() as i32,
+                    ..item(
+                        crate::appearance::KEY,
+                        SEGMENTED,
+                        "Appearance",
+                        "Light is easier to read in daylight and at outdoor gigs; the \
+                         waveforms stay on black in both. Match system follows your \
+                         computer's light or dark setting.",
+                    )
+                },
+                item(
+                    "layouts",
+                    LAYOUTS_ROW,
+                    "Your layouts",
+                    "The layouts the layout menu offers: add, remove and reorder them.",
+                ),
+            ],
             FEEDBACK => vec![
                 item("", HEADING, "GUIDED TOUR", ""),
                 PrefItem {
@@ -1774,20 +1793,16 @@ impl Prefs {
     /// The auxiliary rows after the first that the inputs table shows: those
     /// set up, and those + added.
     fn extra_aux_rows(&self, setup: &AudioSetup) -> usize {
-        let has = |role| setup.inputs.iter().any(|r| r.role == role);
-        let set_up = if has(InputRole::Auxiliary3) {
-            2
-        } else if has(InputRole::Auxiliary2) {
-            1
-        } else {
-            0
-        };
-        set_up.max(self.aux_added).min(2)
+        let set_up = InputRole::AUXILIARIES
+            .iter()
+            .rposition(|role| setup.inputs.iter().any(|r| r.role == *role))
+            .unwrap_or(0);
+        set_up.max(self.aux_added).min(MAX_EXTRA_AUX)
     }
 
     /// The inputs table: fills its rows (see InputsTable in mixer.slint)
     /// and returns the settings row that shows it. The microphone and the
-    /// first auxiliary input are always there; + adds up to two more.
+    /// first auxiliary input are always there; + adds up to seven more.
     fn inputs_item(&mut self) -> PrefItem {
         let setup = settings::audio_setup();
         let status = (self.inputs.status)();
@@ -1823,7 +1838,13 @@ impl Prefs {
                             &r.device
                         };
                         names.push(r.device.clone());
-                        shown.push(format!("{name} (not connected)"));
+                        // A Mixer channel playing the Mixer deck's Groove
+                        // Box: no interface to connect.
+                        if r.device == opendj_engine::inputs::GROOVE_BOX {
+                            shown.push(name.to_string());
+                        } else {
+                            shown.push(format!("{name} (not connected)"));
+                        }
                         device = names.len() - 1;
                         starts = vec![(r.channel, r.mono)];
                     }
@@ -1876,7 +1897,7 @@ impl Prefs {
         if let Some(app) = self.app.upgrade() {
             let g = app.global::<InputSettings>();
             g.set_rows(ModelRc::new(VecModel::from(rows)));
-            g.set_can_add(extra < 2);
+            g.set_can_add(extra < MAX_EXTRA_AUX);
         }
         item(
             "inputs_table",
@@ -1923,32 +1944,25 @@ impl Prefs {
         self.refresh();
     }
 
-    /// + under the inputs table: one more auxiliary row, up to three.
+    /// + under the inputs table: one more auxiliary row, up to eight.
     fn input_added(&mut self) {
         let setup = settings::audio_setup();
-        self.aux_added = (self.extra_aux_rows(&setup) + 1).min(2);
+        self.aux_added = (self.extra_aux_rows(&setup) + 1).min(MAX_EXTRA_AUX);
         self.refresh();
     }
 
     /// × on an auxiliary row after the first: forgets that input. The ones
-    /// after it move up, so they keep being Auxiliary 2 and 3 in order.
+    /// after it move up, so they keep their order without a gap.
     fn input_removed(&mut self, row: usize) {
         let Some(&(role, ..)) = self.input_menus.get(row) else {
             return;
         };
-        if !matches!(role, InputRole::Auxiliary2 | InputRole::Auxiliary3) {
+        if !role.aux_number().is_some_and(|n| n >= 2) {
             return;
         }
         let mut setup = settings::audio_setup();
         let extra = self.extra_aux_rows(&setup);
-        setup.inputs.retain(|r| r.role != role);
-        if role == InputRole::Auxiliary2 {
-            for r in &mut setup.inputs {
-                if r.role == InputRole::Auxiliary3 {
-                    r.role = InputRole::Auxiliary2;
-                }
-            }
-        }
+        remove_aux(&mut setup, role);
         self.aux_added = extra.saturating_sub(1);
         settings::set_audio_setup(&setup);
         (self.inputs.changed)();
@@ -3036,6 +3050,11 @@ impl Prefs {
                 key::set_mixing(m);
             }
             crate::track_end::KEY => crate::track_end::choose(index),
+            crate::appearance::KEY => {
+                if let Some(app) = self.app.upgrade() {
+                    crate::appearance::choose(&app, index);
+                }
+            }
             crate::wave_look::COLOR_KEY
             | crate::wave_look::PALETTE_KEY
             | crate::wave_look::HALF_KEY => {
@@ -3135,7 +3154,7 @@ impl Prefs {
                 }
             }
             "record_source" => {
-                let list = record_sources(&settings::audio_setup());
+                let list = record_sources(&settings::audio_setup(), &settings::mixer_names());
                 let value = list.get(index).map_or(0, |(v, _)| *v);
                 settings::set("record_source", json!(value));
                 self.set("[Master]", "record_source", value as f64);
@@ -3716,33 +3735,49 @@ fn deck_output_items() -> Vec<PrefItem> {
     items
 }
 
+/// Auxiliary rows the inputs table can add after the first.
+const MAX_EXTRA_AUX: usize = InputRole::AUXILIARIES.len() - 1;
+
+/// Forgets the auxiliary input `role`; the ones after it move up one.
+fn remove_aux(setup: &mut AudioSetup, role: InputRole) {
+    setup.inputs.retain(|r| r.role != role);
+    let Some(from) = role.aux_number() else {
+        return;
+    };
+    for r in &mut setup.inputs {
+        if let Some(n) = r.role.aux_number().filter(|&n| n > from) {
+            r.role = InputRole::AUXILIARIES[n - 2];
+        }
+    }
+}
+
 /// What recording and going on air take: the master mix, or one of the
-/// Auxiliary inputs set up (a hardware mixer's record out). Each choice
-/// with its `[Master],record_source` value.
-fn record_sources(setup: &AudioSetup) -> Vec<(u8, String)> {
+/// Mixer's channels as it comes in (with an external mixer, its record
+/// out), by the channel's name as the Mixer shows it (`names`, "Ch N"
+/// until renamed). Each choice with its `[Master],record_source` value.
+fn record_sources(setup: &AudioSetup, names: &[String]) -> Vec<(u8, String)> {
     let first = if setup.external_mixer {
-        "Auxiliary inputs, as mixed"
+        "All channels, as mixed"
     } else {
         "Master mix"
     };
     let mut list = vec![(0, first.to_string())];
-    for (n, role) in [
-        (1, InputRole::Auxiliary),
-        (2, InputRole::Auxiliary2),
-        (3, InputRole::Auxiliary3),
-    ] {
+    for (n, role) in (1..).zip(InputRole::AUXILIARIES) {
         if let Some(r) = setup.inputs.iter().find(|r| r.role == role) {
             let device = if r.device.is_empty() {
                 "System default"
             } else {
                 &r.device
             };
-            let name = if n == 1 {
-                "Auxiliary".to_string()
-            } else {
-                format!("Auxiliary {n}")
-            };
-            list.push((n, format!("{name} · {device}")));
+            let name = names
+                .get(usize::from(n) - 1)
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map_or_else(|| format!("Ch {n}"), String::from);
+            let channels = channel_names(r.channel, r.channels())
+                .trim_start_matches("In ")
+                .replace(" & ", "/");
+            list.push((n, format!("{name} · {device} {channels}")));
         }
     }
     list
@@ -3750,7 +3785,7 @@ fn record_sources(setup: &AudioSetup) -> Vec<(u8, String)> {
 
 fn record_source_item() -> PrefItem {
     let setup = settings::audio_setup();
-    let list = record_sources(&setup);
+    let list = record_sources(&setup, &settings::mixer_names());
     let chosen = settings::number("record_source", 0.0) as u8;
     let names: Vec<String> = list.iter().map(|(_, n)| n.clone()).collect();
     PrefItem {
@@ -3760,8 +3795,8 @@ fn record_source_item() -> PrefItem {
             "record_source",
             MENU,
             "Recording input",
-            "What recordings and broadcasts take. With an external mixer, pick the input \
-             its record out comes in on.",
+            "What recordings and broadcasts take: the master mix, or one Mixer channel as it \
+             comes in. With an external mixer, pick the channel its record out comes in on.",
         )
     }
 }
@@ -4231,7 +4266,7 @@ fn applescript_string(text: &str) -> String {
 /// The channels an input can take from a device with `channels` of them:
 /// each one for the microphone; each pair, then each one (mono), for an
 /// auxiliary input.
-fn channel_choices(role: InputRole, channels: u16) -> Vec<(u16, bool)> {
+pub(crate) fn channel_choices(role: InputRole, channels: u16) -> Vec<(u16, bool)> {
     let mut out = Vec::new();
     if role.can_be_stereo() {
         out.extend(
@@ -4256,6 +4291,66 @@ fn capitalized(s: &str) -> String {
 mod tests {
     use super::*;
     use opendj_engine::plugins::Plugin;
+
+    #[test]
+    fn removing_an_auxiliary_input_moves_the_later_ones_up() {
+        let aux = |n: usize, channel: u16| InputRoute {
+            role: InputRole::AUXILIARIES[n - 1],
+            device: "M4".into(),
+            channel,
+            mono: false,
+        };
+        let mut setup = AudioSetup {
+            inputs: vec![aux(1, 0), aux(2, 2), aux(5, 4), aux(8, 6)],
+            ..AudioSetup::default()
+        };
+        remove_aux(&mut setup, InputRole::Auxiliary2);
+        let left: Vec<_> = setup
+            .inputs
+            .iter()
+            .map(|r| (r.role.aux_number().unwrap(), r.channel))
+            .collect();
+        assert_eq!(left, [(1, 0), (4, 4), (7, 6)]);
+        let recording: Vec<u8> = record_sources(&setup, &[])
+            .iter()
+            .map(|(v, _)| *v)
+            .collect();
+        assert_eq!(recording, [0, 1, 4, 7]);
+    }
+
+    #[test]
+    fn recording_offers_the_mixer_channels_by_name() {
+        let mut setup = AudioSetup {
+            inputs: vec![
+                InputRoute {
+                    role: InputRole::AUXILIARIES[0],
+                    device: "M4".into(),
+                    channel: 0,
+                    mono: false,
+                },
+                InputRoute {
+                    role: InputRole::AUXILIARIES[2],
+                    device: "iPhone".into(),
+                    channel: 2,
+                    mono: true,
+                },
+            ],
+            ..AudioSetup::default()
+        };
+        let names = ["".to_string(), "".into(), "Vocals".into()];
+        let labels = |setup: &AudioSetup| -> Vec<String> {
+            record_sources(setup, &names)
+                .into_iter()
+                .map(|(_, l)| l)
+                .collect()
+        };
+        assert_eq!(
+            labels(&setup),
+            ["Master mix", "Ch 1 · M4 1/2", "Vocals · iPhone 3"]
+        );
+        setup.external_mixer = true;
+        assert_eq!(labels(&setup)[0], "All channels, as mixed");
+    }
 
     #[test]
     fn applescript_prompt_keeps_quotes_inside() {

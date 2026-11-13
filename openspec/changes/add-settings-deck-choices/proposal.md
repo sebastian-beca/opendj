@@ -1,6 +1,8 @@
 # Proposal
 
 Planned for: **v0.6 · Buy it from the artist** (second step of the split `add-settings-layers`, 2026-11-05; issue #365; follows
+
+The tasks still open moved to **v0.8 · From the booth to the studio** on 2026-11-12, so v0.7 ships with what is built.
 `add-settings-table`)
 
 ## Why

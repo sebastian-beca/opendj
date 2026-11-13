@@ -19,7 +19,7 @@ Settings › Decks › Overview SHALL draw each deck's overview Full (mirrored a
 - **THEN** each deck's overview grows from its bottom edge, its cue and hot cue flags at the top
 
 ### Requirement: Show vocals
-Settings › Decks › Show vocals, on at first, SHALL tint the parts of the waveforms where a track is sung green on the RGB, 3-Band and Blue looks. The vocal level along the track SHALL come from a vocal-detection pass (Spleeter's vocal network on its own) run in the background the first time a file is loaded on a deck, and kept beside its analysis so it runs once per file. The waveforms SHALL draw without the tint until it is found.
+Settings › Decks › Show vocals, off at first, SHALL tint the parts of the waveforms where a track is sung green on the RGB, 3-Band and Blue looks. The vocal level along the track SHALL come from a vocal-detection pass (Spleeter's vocal network on its own) run in the background the first time a file is loaded on a deck or analysed, and kept beside its analysis so it runs once per file. When a track has high-quality stems, the level SHALL come from its vocal stem instead. The waveforms SHALL draw without the tint until it is found.
 
 #### Scenario: Chorus
 - **WHEN** Show vocals is on and a deck's track has a sung chorus at 1:00
