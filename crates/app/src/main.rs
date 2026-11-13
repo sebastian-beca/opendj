@@ -488,7 +488,7 @@ fn update_rows(model: &VecModel<OutputRow>, rows: Vec<OutputRow>) {
 #[cfg(target_os = "macos")]
 const TOP_BAR_HEIGHT: f64 = 52.0;
 
-/// The 4-Deck layout's value of `layout` (0 is 2-Deck Pro, 1 Player).
+/// The 4-Deck layout's value of `layout` (0 is 2-Deck, 1 Player).
 const FOUR_DECK_LAYOUT: i32 = 2;
 /// Deck 1 alone, for preparing tracks (prep.slint).
 pub(crate) const PREP_LAYOUT: i32 = 3;
@@ -501,7 +501,7 @@ const PLAYER_OVERVIEW_BACKGROUND: [f32; 4] = [0.102, 0.102, 0.110, 1.0];
 /// Checklist tabs, the checklist settings). Offered from v0.6, under More
 /// layouts: the DJ adds it to the layout menu.
 pub(crate) const PREP_OFFERED: bool = true;
-/// 2-Deck, the lighter two-deck layout (lite.slint): no jogs or tempo
+/// 2-Deck Basic, the lighter two-deck layout (lite.slint): no jogs or tempo
 /// faders, the pads and loop in a bar under the decks.
 const LITE_LAYOUT: i32 = 4;
 /// The last layout the menu and controllers can pick.
@@ -665,14 +665,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             EventResult::Propagate
         });
     }
-    // 2-Deck Pro, Player, 4-Deck, Prep or 2-Deck, as last picked.
+    // 2-Deck, Player, 4-Deck, Prep or 2-Deck Basic, as last picked.
     app.global::<PrepUi>().set_offered(PREP_OFFERED);
-    // A layout no longer offered (Prep, while hidden) opens 2-Deck Pro.
+    // A layout no longer offered (Prep, while hidden) opens 2-Deck.
     let layout = settings::number("layout", 0.0) as i32;
     app.set_layout(if layout_offered(layout) { layout } else { 0 });
     // `[Skin],layout` lets controllers and the tour set it by number: 0
-    // 2-Deck Pro, 1 Player, 2 4-Deck, 3 Prep, 4 2-Deck. Pressed as a
-    // toggle, it goes between 2-Deck Pro and Player.
+    // 2-Deck, 1 Player, 2 4-Deck, 3 Prep, 4 2-Deck Basic. Pressed as a
+    // toggle, it goes between 2-Deck and Player.
     let layout_control = registry.create(
         "[Skin]",
         "layout",
@@ -860,21 +860,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    // Settings › Layouts switches layout as the menu does.
+    // The layout menu's chooser and Settings › Layouts.
     {
         let app_weak = app.as_weak();
-        layouts::install(
-            &app,
-            move |layout| {
-                if let Some(app) = app_weak.upgrade() {
-                    if app.get_layout() != layout && layout_offered(layout) {
-                        app.set_layout(layout);
-                        app.invoke_layout_changed(layout);
-                    }
+        layouts::install(&app, move |layout| {
+            if let Some(app) = app_weak.upgrade() {
+                if app.get_layout() != layout && layout_offered(layout) {
+                    app.set_layout(layout);
+                    app.invoke_layout_changed(layout);
                 }
-            },
-            prefs::LAYOUTS_PAGE,
-        );
+            }
+        });
     }
     let sources = sources::Sources::install(&app, library_path.clone());
     {
@@ -2917,7 +2913,7 @@ impl Gpu {
                 w
             });
             // Or an instrument deck's knobs as macro lanes, where its switch
-            // is on (2-Deck only).
+            // is on (2-Deck Basic only).
             let page = (held.is_some() && !groove[d] && !four)
                 .then(|| app.global::<InstrumentsUi>().get_knob_page().max(0) as usize)
                 .filter(|_| macros_shown.row_data(d).unwrap_or(false));

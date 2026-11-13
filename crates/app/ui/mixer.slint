@@ -625,7 +625,7 @@ component ChannelGrid inherits HorizontalLayout {
 // for its mixer channel. Kept as wide as the mixer, so the FX bar under it
 // still lines up.
 export component ExternalMixer inherits Rectangle {
-    // The decks shown, left to right: 0 and 1 in 2-Deck.
+    // The decks shown, left to right: 0 and 1 in 2-Deck and 2-Deck Basic.
     in property <[int]> decks: [0, 1];
     background: Theme.panel;
     width: 254px;

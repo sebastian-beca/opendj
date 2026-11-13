@@ -4,12 +4,16 @@
 import { Theme } from "theme.slint";
 
 export struct LayoutEntry {
-    // The value of `layout`: 0 2-Deck Pro, 1 Player, 2 4-Deck, 3 Prep,
-    // 4 2-Deck.
+    // The value of `layout`: 0 2-Deck, 1 Player, 2 4-Deck, 3 Prep,
+    // 4 2-Deck Basic.
     layout: int,
     name: string,
     // What it's for, on Settings › Layouts.
     detail: string,
+    // Switched on: in the layout menu.
+    on: bool,
+    // Its switch can't be turned off: the layout in use, or the last on.
+    locked: bool,
 }
 
 export global LayoutsUi {
@@ -20,6 +24,8 @@ export global LayoutsUi {
     in property <[LayoutEntry]> mine;
     // The other layouts, under More layouts.
     in property <[LayoutEntry]> more;
+    // Every layout, on or off, in the chooser's order (the menu's pencil).
+    in property <[LayoutEntry]> all;
     // The layout showing.
     in property <int> current;
     // Switch to a layout.
@@ -28,8 +34,15 @@ export global LayoutsUi {
     callback remove(layout: int);
     // Moves a layout `by` places in the list: −1 up, 1 down.
     callback move(layout: int, by: int);
-    // Opens Settings › Layouts (the cog in the layout menu).
-    callback edit();
+    // The chooser: switches a layout on or off, drags one `by` rows, and
+    // goes back to the starting list.
+    callback toggled(layout: int);
+    callback moved(layout: int, by: int);
+    callback reset();
+    // Appearance, as Settings › Layouts › Appearance saves it: 0 Dark,
+    // 1 Light, 2 Match system (Auto in the menu). Set by appearance.rs.
+    in property <int> appearance;
+    callback appearance-picked(mode: int);
 }
 
 // A part of a preview, on a 160 x 100 grid scaled to the preview's size.
@@ -114,7 +127,7 @@ export component LayoutPreview inherits Rectangle {
     if kind == 1: Part { pw: root.pw; ph: root.ph; gx: 17; gy: 94; gw: 20; gh: 2; background: Theme.text-dim; }
     if kind == 1: Part { pw: root.pw; ph: root.ph; gx: 77; gy: 86.5; gw: 6; gh: 6; background: Theme.text; border-radius: self.height / 2; }
     if kind == 1: Part { pw: root.pw; ph: root.ph; gx: 55; gy: 96; gw: 50; gh: 1; background: Theme.text-dim; }
-    // 2-Deck Pro: waveforms, full decks with pads and jogs, the mixer.
+    // 2-Deck: waveforms, full decks with pads and jogs, the mixer.
     if kind == 0: WavePart { pw: root.pw; ph: root.ph; gx: 0; gy: 8; gw: 160; gh: 9; tint: Theme.deck1; }
     if kind == 0: WavePart { pw: root.pw; ph: root.ph; gx: 0; gy: 18; gw: 160; gh: 9; tint: Theme.deck2; }
     if kind == 0: Part { pw: root.pw; ph: root.ph; gx: 0; gy: 28; gw: 160; gh: 30; background: Theme.panel; }
@@ -124,7 +137,7 @@ export component LayoutPreview inherits Rectangle {
     if kind == 0: JogPart { pw: root.pw; ph: root.ph; gw: 22 * 1.6 * root.ph / root.pw; gx: 112 - self.gw / 2; gy: 32; gh: 22; tint: Theme.deck2; }
     if kind == 0: Part { pw: root.pw; ph: root.ph; gx: 66; gy: 30; gw: 28; gh: 26; background: Theme.n-2c2c30; }
     if kind == 0: LibraryPart { pw: root.pw; ph: root.ph; gx: 0; gy: 60; gw: 160; gh: 40; }
-    // 2-Deck: waveforms, slim decks, the pad bar under them.
+    // 2-Deck Basic: waveforms, slim decks, the pad bar under them.
     if kind == 4: WavePart { pw: root.pw; ph: root.ph; gx: 0; gy: 8; gw: 160; gh: 10; tint: Theme.deck1; }
     if kind == 4: WavePart { pw: root.pw; ph: root.ph; gx: 0; gy: 19; gw: 160; gh: 10; tint: Theme.deck2; }
     if kind == 4: Part { pw: root.pw; ph: root.ph; gx: 0; gy: 30; gw: 160; gh: 15; background: Theme.panel; }
