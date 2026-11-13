@@ -12,6 +12,7 @@ import { Theme } from "theme.slint";
 import { NowPlayingUi } from "nowplaying.slint";
 import { PageUi } from "pages.slint";
 import { LineEdit } from "std-widgets.slint";
+import { ScrollView } from "scroll.slint";
 import { ControlButton, ControlFader, Controls, StereoMeter, SyncButton } from "controls.slint";
 import { Cover, DeckInfo, Header, Jog, PlayButton } from "deck.slint";
 import { LevelSlider } from "toppanels.slint";
@@ -797,7 +798,7 @@ export struct QuickRow {
 export global QuickSearch {
     in-out property <string> text;
     in property <[QuickRow]> rows;
-    // Matches in the whole collection; the dropdown shows the first few.
+    // Matches in the whole collection.
     in property <int> total;
     // The row the arrow keys are on.
     in-out property <int> current: 0;
@@ -806,7 +807,8 @@ export global QuickSearch {
     // The dropdown shows: something typed and the box (or a row) in use.
     in-out property <bool> open;
     callback search(string);
-    // mode 0 Play next, 1 Add to queue, 2 Play now.
+    // mode 0 opens the row (a track's album, playing from the track; an
+    // album's or artist's page), 1 Add to queue, 2 Play next.
     callback act(int, int);
     // Bumped to ask the box to take the keyboard (⌘F).
     in-out property <int> focus-asks;
@@ -823,8 +825,9 @@ export global QuickSearch {
 }
 
 // The search box in the centre of the top bar. Typing opens the dropdown
-// (QuickResults); ↑ ↓ move, ↵ plays the match next, ⇧↵ adds it to the
-// end of Up Next, ⌘↵ plays it now, and Esc clears.
+// (QuickResults); ↑ ↓ move, ↵ opens the match (a track plays from its
+// album), ⇧↵ adds it to the end of Up Next, ⌘↵ plays it next, and Esc
+// clears.
 export component TopSearch inherits Rectangle {
     min-width: 180px;
     preferred-width: 560px;
@@ -870,6 +873,7 @@ export component TopSearch inherits Rectangle {
             // `accepted` above.
             if e.text == Key.Return && QuickSearch.rows.length > 0 && (e.modifiers.shift || e.modifiers.control) {
                 QuickSearch.act(QuickSearch.rows[QuickSearch.current].id, e.modifiers.control ? 2 : 1);
+                QuickSearch.open = false;
                 return accept;
             }
             reject
@@ -877,22 +881,16 @@ export component TopSearch inherits Rectangle {
     }
 }
 
-// A small button on a dropdown row.
-component RowAction inherits Rectangle {
+// A choice on a result's right-click menu.
+component QuickChoice inherits Rectangle {
     in property <string> text;
-    in property <bool> primary;
     callback clicked();
-    height: 24px;
-    width: label.preferred-width + 16px;
-    border-radius: 6px;
-    background: primary ? (ta.has-hover ? Theme.accent.brighter(0.1) : Theme.accent) : ta.has-hover ? Theme.n-ffffff26 : Theme.n-ffffff14;
-    label := Text {
-        text: root.text;
-        color: primary ? Theme.on-selection : Theme.text;
-        font-size: 11px;
-        font-weight: primary ? 600 : 500;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    height: 28px;
+    border-radius: 5px;
+    background: ta.has-hover ? Theme.n-ffffff14 : transparent;
+    HorizontalLayout {
+        padding-left: 12px;
+        Text { text: root.text; color: Theme.text; font-size: 13px; vertical-alignment: center; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -900,98 +898,121 @@ component RowAction inherits Rectangle {
     }
 }
 
-// The dropdown under the top-bar search: the best matches, each with
-// Play next, Add to queue and Play now on the row under the pointer or the
-// arrow keys, and the keys in a line at the bottom.
+// The dropdown under the top-bar search: artists, albums and tracks in a
+// list that scrolls, as streaming players show them. A click opens the
+// row: a track's album, playing from that track on; an album's or artist's
+// page. Play next and Add to queue are on a right-click.
 export component QuickResults inherits Rectangle {
+    // The tallest the list may be: the window's height under the box.
+    in property <length> max-list-height: 480px;
+    // The row the right-click menu is for.
+    property <int> menu-id;
+    property <length> menu-x;
+    property <length> menu-y;
     width: 560px;
-    height: list.preferred-height;
+    height: frame.preferred-height;
     background: Theme.panel-raised;
     border-radius: 12px;
     border-width: 1px;
     border-color: Theme.border;
     drop-shadow-blur: 24px;
     drop-shadow-color: Theme.s-000000c0;
-    // Swallows clicks between the rows, so they don't reach the list below.
-    TouchArea { }
-    list := VerticalLayout {
+    // Swallows clicks and the wheel between the rows, so they don't reach
+    // the list below.
+    TouchArea {
+        scroll-event(e) => { accept }
+    }
+    frame := VerticalLayout {
         padding: 6px;
         spacing: 2px;
-        for r[i] in QuickSearch.rows: VerticalLayout {
-            // A heading where the kind of row changes: Artists, Albums,
-            // Tracks.
-            if i == 0 || QuickSearch.rows[i - 1].kind != r.kind: Text {
-                height: 24px;
-                x: 10px;
-                text: r.kind == 1 ? "ARTISTS" : r.kind == 2 ? "ALBUMS" : "TRACKS";
-                color: Theme.text-dim;
-                font-size: 10px;
-                font-weight: 700;
-                letter-spacing: 0.6px;
-                vertical-alignment: center;
-            }
-            Rectangle {
-                height: 46px;
-                border-radius: 8px;
-                property <bool> lit: i == QuickSearch.current;
-                background: lit ? Theme.n-ffffff12 : transparent;
-                rta := TouchArea {
-                    mouse-cursor: pointer;
-                    moved => { QuickSearch.current = i; }
-                    changed has-hover => {
-                        if self.has-hover {
-                            QuickSearch.current = i;
+        scroll := ScrollView {
+            height: min(rows.preferred-height, max(120px, root.max-list-height));
+            vertical-stretch: 0;
+            rows := VerticalLayout {
+                spacing: 2px;
+                for r[i] in QuickSearch.rows: item := VerticalLayout {
+                    // A heading where the kind of row changes: Artists,
+                    // Albums, Tracks.
+                    if i == 0 || QuickSearch.rows[i - 1].kind != r.kind: Text {
+                        height: 24px;
+                        x: 10px;
+                        text: r.kind == 1 ? "ARTISTS" : r.kind == 2 ? "ALBUMS" : "TRACKS";
+                        color: Theme.text-dim;
+                        font-size: 10px;
+                        font-weight: 700;
+                        letter-spacing: 0.6px;
+                        vertical-alignment: center;
+                    }
+                    line := Rectangle {
+                        height: 46px;
+                        border-radius: 8px;
+                        property <bool> lit: i == QuickSearch.current;
+                        background: lit ? Theme.n-ffffff12 : transparent;
+                        // The arrow keys keep the row they are on in view.
+                        changed lit => {
+                            if lit && !rta.has-hover {
+                                let top = item.y + self.y;
+                                if top + scroll.content-y < 0px {
+                                    scroll.content-y = -top;
+                                } else if top + self.height + scroll.content-y > scroll.visible-height {
+                                    scroll.content-y = scroll.visible-height - top - self.height;
+                                }
+                            }
+                        }
+                        rta := TouchArea {
+                            mouse-cursor: pointer;
+                            moved => { QuickSearch.current = i; }
+                            changed has-hover => {
+                                if self.has-hover {
+                                    QuickSearch.current = i;
+                                }
+                            }
+                            clicked => { QuickSearch.act(r.id, 0); }
+                            pointer-event(e) => {
+                                if r.kind != 1 && e.kind == PointerEventKind.down && e.button == PointerEventButton.right {
+                                    root.menu-id = r.id;
+                                    root.menu-x = self.absolute-position.x - root.absolute-position.x + self.mouse-x;
+                                    root.menu-y = self.absolute-position.y - root.absolute-position.y + self.mouse-y;
+                                    menu.show();
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 10px;
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 34px;
+                                    height: 34px;
+                                    // Artists round, as other players show them.
+                                    border-radius: r.kind == 1 ? 17px : 5px;
+                                    clip: true;
+                                    background: @linear-gradient(135deg, Theme.accent 0%, Theme.accent.darker(0.6) 60%, #101012 100%);
+                                    if !r.has-cover: Text { text: r.initials; color: #ffffffe0; font-size: 12px; font-weight: 700; }
+                                    if r.has-cover: Image { width: parent.width; height: parent.height; source: r.cover; image-fit: cover; }
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                horizontal-stretch: 1;
+                                min-width: 0px;
+                                Text { text: r.title; color: Theme.text; font-size: 13px; overflow: elide; }
+                                Text { text: r.artist + " · " + r.detail; color: Theme.text-dim; font-size: 12px; overflow: elide; }
+                            }
                         }
                     }
-                    // A double-click plays the track (or album) next, or
-                    // shows the artist's tracks, like ↵.
-                    double-clicked => { QuickSearch.act(r.id, 0); }
                 }
-                HorizontalLayout {
-                    padding-left: 8px;
-                    padding-right: 8px;
-                    spacing: 10px;
-                    VerticalLayout {
-                        alignment: center;
-                        Rectangle {
-                            width: 34px;
-                            height: 34px;
-                            // Artists round, as other players show them.
-                            border-radius: r.kind == 1 ? 17px : 5px;
-                            clip: true;
-                            background: @linear-gradient(135deg, Theme.accent 0%, Theme.accent.darker(0.6) 60%, #101012 100%);
-                            if !r.has-cover: Text { text: r.initials; color: #ffffffe0; font-size: 12px; font-weight: 700; }
-                            if r.has-cover: Image { width: parent.width; height: parent.height; source: r.cover; image-fit: cover; }
-                        }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        horizontal-stretch: 1;
-                        min-width: 0px;
-                        Text { text: r.title; color: Theme.text; font-size: 13px; overflow: elide; }
-                        Text { text: r.artist + " · " + r.detail; color: Theme.text-dim; font-size: 12px; overflow: elide; }
-                    }
-                    if lit && r.kind == 1: HorizontalLayout {
-                        alignment: end;
-                        VerticalLayout { alignment: center; RowAction { text: "Show tracks"; primary: true; clicked => { QuickSearch.act(r.id, 0); } } }
-                    }
-                    if lit && r.kind != 1: HorizontalLayout {
-                        alignment: end;
-                        spacing: 6px;
-                        VerticalLayout { alignment: center; RowAction { text: "Play next"; primary: true; clicked => { QuickSearch.act(r.id, 0); } } }
-                        VerticalLayout { alignment: center; RowAction { text: "Add to queue"; clicked => { QuickSearch.act(r.id, 1); } } }
-                        VerticalLayout { alignment: center; RowAction { text: "Play now"; clicked => { QuickSearch.act(r.id, 2); } } }
-                    }
+                if QuickSearch.rows.length == 0: Text {
+                    height: 40px;
+                    x: 10px;
+                    text: "Nothing matches.";
+                    color: Theme.text-dim;
+                    font-size: 13px;
+                    vertical-alignment: center;
                 }
             }
-        }
-        if QuickSearch.rows.length == 0: Text {
-            height: 40px;
-            x: 10px;
-            text: "Nothing matches.";
-            color: Theme.text-dim;
-            font-size: 13px;
-            vertical-alignment: center;
         }
         Rectangle { height: 1px; background: Theme.separator; }
         Text {
@@ -1000,12 +1021,29 @@ export component QuickResults inherits Rectangle {
             width: parent.width - 20px;
             text: QuickSearch.note != "" ? QuickSearch.note
                 : QuickSearch.rows.length == 0 ? "Esc clears"
-                : (QuickSearch.total > QuickSearch.rows.length ? "First " + QuickSearch.rows.length + " of " + QuickSearch.total + " · " : "")
-                    + "↵ play next · ⇧↵ add to queue · ⌘↵ play now · Esc clears";
+                : "↵ play from album · right-click for Play next and Add to queue · Esc clears";
             color: QuickSearch.note != "" ? Theme.lilac-text : Theme.text-dim;
             font-size: 11px;
             vertical-alignment: center;
             overflow: elide;
+        }
+    }
+    menu := PopupWindow {
+        x: min(root.menu-x, root.width - 170px);
+        y: root.menu-y;
+        width: 160px;
+        Rectangle {
+            background: Theme.panel-raised;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 10px;
+            drop-shadow-color: Theme.s-00000090;
+        }
+        VerticalLayout {
+            padding: 5px;
+            QuickChoice { text: "Play next"; clicked => { QuickSearch.act(root.menu-id, 2); } }
+            QuickChoice { text: "Add to queue"; clicked => { QuickSearch.act(root.menu-id, 1); } }
         }
     }
 }
