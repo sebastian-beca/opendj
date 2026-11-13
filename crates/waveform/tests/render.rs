@@ -358,6 +358,53 @@ fn draws_phrase_bars() {
     assert!(dot > 120, "minute dot above the bar: {dot}");
 }
 
+/// An overview too short for its strips (a placeholder size, as when the
+/// deck it is measured on hides its overview) draws no phrase bar, so it
+/// never shows up stretched as solid phrase colour.
+#[test]
+fn short_overview_draws_no_phrase_bar() {
+    let Some((device, queue)) = gpu() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let renderer = WaveformRenderer::new(&device, &queue);
+    let track = Arc::new(GpuTrack::new(
+        &device,
+        &queue,
+        &renderer,
+        1,
+        &levels(vec![[0; 8]; 100_000]),
+        1000.0,
+    ));
+    let (w, h) = (512u32, 4u32);
+    let mut view = WaveformView::new(&device, Mode::Overview, w, h);
+    view.set_track(&device, &renderer, Some(&track));
+    let frame = Frame {
+        play_seconds: 0.0,
+        visible_seconds: 8.0,
+        duration: 100.0,
+        first_bar_beat: 0.0,
+        grid: steady_grid(120.0, 0.0),
+        cue: None,
+        loop_range: None,
+        loop_marking: None,
+        hotcues: [None; 8],
+        slip: None,
+        gain: 1.0,
+        phrases: vec![(0.0, PhraseKind::Intro), (50.0, PhraseKind::Drop)],
+    };
+    view.render(&device, &queue, &renderer, Some(&frame), 1.0);
+    let data = read_back(&device, &queue, &view);
+    for y in 0..h {
+        let i = ((y * w + 384) * 4) as usize; // under the drop
+        let c = [data[i], data[i + 1], data[i + 2]];
+        // The same under the intro and under the drop: the waveform only.
+        let j = ((y * w + 128) * 4) as usize;
+        let intro = [data[j], data[j + 1], data[j + 2]];
+        assert_eq!(c, intro, "no phrase colour at row {y}");
+    }
+}
+
 /// The Mono style, the Player's scrubber: lilac up to the play position,
 /// grey after it, and a dim lilac across the next mix.
 #[test]

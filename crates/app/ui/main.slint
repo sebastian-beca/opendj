@@ -1366,8 +1366,14 @@ export component AppWindow inherits Window {
     property <int> wave-fits: strip-heights[3] <= strip-room ? 4 : strip-heights[2] <= strip-room ? 3 : strip-heights[1] <= strip-room ? 2 : 1;
     property <int> wave-level: min(WaveHeight.level, max(wave-fits, min(WaveHeight.level, 2)));
     // From whichever layout's deck A is showing.
-    out property <length> overview-width: player ? 1px : four ? strip-1.overview-width : compact ? player-a.overview-width : prep ? prep-deck.overview-width : lite ? lite-a.overview-width : deck-a.overview-width;
-    out property <length> overview-height: player ? 1px : four ? strip-1.overview-height : compact ? player-a.overview-height : prep ? prep-deck.overview-height : lite ? lite-a.overview-height : deck-a.overview-height;
+    // 2-Deck Pro measures the overviews on deck 1, or on deck 2 while deck 1
+    // is a Mixer deck: that has no overview, and its zero height would draw
+    // every overview as only its phrase bar, stretched to fill.
+    property <bool> pro-overview-b: deck-a.overview-height < 1px && deck-b.overview-height >= 1px;
+    property <length> pro-overview-width: pro-overview-b ? deck-b.overview-width : deck-a.overview-width;
+    property <length> pro-overview-height: pro-overview-b ? deck-b.overview-height : deck-a.overview-height;
+    out property <length> overview-width: player ? 1px : four ? strip-1.overview-width : compact ? player-a.overview-width : prep ? prep-deck.overview-width : lite ? lite-a.overview-width : pro-overview-width;
+    out property <length> overview-height: player ? 1px : four ? strip-1.overview-height : compact ? player-a.overview-height : prep ? prep-deck.overview-height : lite ? lite-a.overview-height : pro-overview-height;
     property <bool> four: layout == 2 && !library-expanded;
     // 2-Deck, the lighter two-deck layout (lite.slint). A deck there holding
     // a Groove Box or an instrument shows the full deck, and the row is as
@@ -1911,7 +1917,7 @@ export component AppWindow inherits Window {
                     deck-a := Deck { deck: 0; info: decks[0]; spin: spin-1; overview: overview-1; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
                     if !external-mixer: Mixer { }
                     if external-mixer: ExternalMixer { }
-                    Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
+                    deck-b := Deck { deck: 1; info: decks[1]; spin: spin-2; overview: overview-2; mirrored: true; horizontal-stretch: 1; min-width: 400px; preferred-width: 400px; }
                 }
 
                 // 2-Deck: the lighter decks either side of the slim mixer, each
