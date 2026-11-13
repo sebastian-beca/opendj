@@ -1304,6 +1304,11 @@ export component AppWindow inherits Window {
     in property <int> sort-column: 1;
     in property <bool> sort-ascending: true;
     in-out property <int> current-track <=> browser.current-row;
+    // The track list's scroll, kept per list while openDJ runs.
+    out property <length> track-scroll-y: browser.list-scroll-y;
+    public function show-tracks-at(row: int, offset: length, y: length) {
+        browser.show-list-at(row, offset, y);
+    }
     in property <[SideRow]> side-rows;
     in property <string> side-total;
     in-out property <int> side-tab <=> browser.side-tab;
