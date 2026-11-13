@@ -14,11 +14,47 @@ use rbox_masterdb::{
 };
 
 use super::common::{self, Condition, Mood};
+use super::dates;
 use super::{HISTORY, PLAYLISTS, SMART};
 use crate::ImportedLibrary;
 
-fn open(path: &Path) -> Result<MasterDb, String> {
-    MasterDb::new(path).map_err(|e| format!("can't open rekordbox's database: {e}"))
+/// An open library: rekordbox's own file, or a private copy with its dates
+/// fixed when rbox can't read some of them (see [`dates`]).
+struct Db {
+    db: MasterDb,
+    _copy: Option<dates::FixedCopy>,
+}
+
+impl std::ops::Deref for Db {
+    type Target = MasterDb;
+    fn deref(&self) -> &MasterDb {
+        &self.db
+    }
+}
+
+impl std::ops::DerefMut for Db {
+    fn deref_mut(&mut self) -> &mut MasterDb {
+        &mut self.db
+    }
+}
+
+fn open(path: &Path) -> Result<Db, String> {
+    let cant = |e: &dyn std::fmt::Display| format!("can't open rekordbox's database: {e}");
+    // A check that fails (an unexpected layout) leaves it to rbox.
+    if !dates::needs_fixing(path).unwrap_or(false) {
+        let db = MasterDb::new(path).map_err(|e| cant(&e))?;
+        return Ok(Db { db, _copy: None });
+    }
+    let copy = dates::FixedCopy::of(path).map_err(|e| cant(&e))?;
+    // Analysis files stay next to rekordbox's own database.
+    let share = path.parent().unwrap_or(Path::new(".")).join("share");
+    let options = rbox_core::RekordboxOptions::new(copy.db.clone(), share, PathBuf::new())
+        .map_err(|e| cant(&e))?;
+    let db = MasterDb::from_options(&options).map_err(|e| cant(&e))?;
+    Ok(Db {
+        db,
+        _copy: Some(copy),
+    })
 }
 
 fn err(e: impl std::fmt::Display) -> String {

@@ -29,7 +29,7 @@ use cpal::{BufferSize, ErrorKind, FromSample, SampleFormat, SizedSample, Support
 use opendj_control::{ControlHandle, ControlRegistry};
 
 use crate::engine::{Engine, MIX_CHANNELS, OUTPUT_CHANNELS};
-use crate::inputs::{InputFeed, AUXILIARIES, MICROPHONE, NUM_AUXILIARIES, NUM_INPUTS};
+use crate::inputs::{InputFeed, AUXILIARIES, GROOVE_BOX, MICROPHONE, NUM_AUXILIARIES, NUM_INPUTS};
 
 /// What an output plays, each a stereo pair of the buffer the engine
 /// renders: the mixes, or one deck or the sampler on its own (for a DAW or
@@ -613,6 +613,9 @@ pub(crate) struct Outputs {
     /// Whether each open input has sent anything but silence yet. macOS
     /// sends silence to an app not allowed to use the microphone.
     heard: [Option<Arc<AtomicBool>>; NUM_INPUTS],
+    /// Each open input's queue and callback size, in frames (see
+    /// [`InputFeed`]): how far behind it is heard.
+    delays: [Option<(Arc<AtomicUsize>, Arc<AtomicUsize>)>; NUM_INPUTS],
     health: Arc<Health>,
     /// The setup the outputs were last opened with, to reopen a lost device.
     setup: AudioSetup,
@@ -643,6 +646,7 @@ impl Outputs {
             watched: None,
             input_status: Default::default(),
             heard: Default::default(),
+            delays: Default::default(),
             health,
             setup: setup.clone(),
             retry_at: None,
@@ -667,11 +671,18 @@ impl Outputs {
         self.inputs.clear();
         self.levels.clear();
         self.heard = Default::default();
+        self.delays = Default::default();
         self.input_lost.store(false, Ordering::Release);
         // Kept for reopening them after their device resets.
         self.setup.inputs = setup.inputs.clone();
         let mut feeds: [Option<InputFeed>; NUM_INPUTS] = Default::default();
         self.input_status = Default::default();
+        // Strips playing the Mixer deck's Groove Box open no device.
+        let mut grooves = [false; NUM_INPUTS];
+        for r in setup.inputs.iter().filter(|r| r.device == GROOVE_BOX) {
+            grooves[r.role.index()] = true;
+            self.input_status[r.role.index()] = GROOVE_BOX.to_string();
+        }
         for (device, routes) in group_inputs(&setup.inputs) {
             if no_audio() {
                 for r in routes {
@@ -682,6 +693,7 @@ impl Outputs {
             for (i, opened) in self.open_inputs(&device, &routes, setup.buffer_frames) {
                 match opened {
                     Ok((feed, status, heard)) => {
+                        self.delays[i] = Some((feed.queued.clone(), feed.period.clone()));
                         feeds[i] = Some(feed);
                         self.heard[i] = Some(heard);
                         self.input_status[i] = status;
@@ -693,6 +705,7 @@ impl Outputs {
         let mut old = Vec::new();
         if let Ok(mut engine) = self.engine.lock() {
             for (i, feed) in feeds.into_iter().enumerate() {
+                engine.set_input_groove(i, grooves[i]);
                 old.push(engine.set_input(i, feed));
             }
         }
@@ -719,6 +732,21 @@ impl Outputs {
                     }
                 ),
                 _ => status.clone(),
+            })
+            .collect()
+    }
+
+    /// How far behind each input is heard, in milliseconds, by
+    /// [`InputRole::index`]: what waits in its queue plus one callback of
+    /// the device. `None` for an input that isn't open.
+    pub(crate) fn input_delays(&self) -> Vec<Option<f64>> {
+        self.delays
+            .iter()
+            .map(|d| {
+                d.as_ref().map(|(queued, period)| {
+                    let frames = queued.load(Ordering::Relaxed) + period.load(Ordering::Relaxed);
+                    frames as f64 * 1000.0 / self.rate
+                })
             })
             .collect()
     }
@@ -844,6 +872,7 @@ impl Outputs {
             let feed = InputFeed {
                 rx,
                 period: period.clone(),
+                queued: Arc::default(),
             };
             opened.push((r.role.index(), feed, status, heard));
         }
@@ -1222,7 +1251,11 @@ fn buffer_frames(config: &cpal::SupportedStreamConfig, frames: Option<u32>) -> B
 fn group_inputs(inputs: &[InputRoute]) -> Vec<(String, Vec<InputRoute>)> {
     let mut groups: Vec<(String, Vec<InputRoute>)> = Vec::new();
     for role in InputRole::ALL {
-        let Some(r) = inputs.iter().find(|r| r.role == role) else {
+        // A strip playing the Groove Box opens no device.
+        let Some(r) = inputs
+            .iter()
+            .find(|r| r.role == role && r.device != GROOVE_BOX)
+        else {
             continue;
         };
         match groups.iter_mut().find(|(d, _)| *d == r.device) {

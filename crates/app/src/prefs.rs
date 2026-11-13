@@ -80,8 +80,6 @@ const BROADCAST: i32 = 8;
 const KEYBOARD: i32 = 9;
 /// Your layouts and the others (layouts.rs).
 const LAYOUTS: i32 = 10;
-/// Settings › Layouts, for the layout menu's cog.
-pub const LAYOUTS_PAGE: i32 = LAYOUTS;
 const FEEDBACK: i32 = 11;
 
 /// Bitrates offered for a broadcast, in kb/s.
@@ -245,7 +243,7 @@ pub fn apply_saved(registry: &ControlRegistry) {
     set("[Master]", "deck_tap", settings::number("deck_tap", 1.0));
     // An Auxiliary input taken away since falls back to the mix.
     let source = settings::number("record_source", 0.0) as u8;
-    let source = if record_sources(&settings::audio_setup())
+    let source = if record_sources(&settings::audio_setup(), &settings::mixer_names())
         .iter()
         .any(|(v, _)| *v == source)
     {
@@ -445,6 +443,11 @@ impl WizardState {
 
     fn set_database(&mut self, importer: &dyn LibraryImport, database: Option<PathBuf>) {
         self.preview = match &database {
+            None if !importer.missing_hint().is_empty() => format!(
+                "No {} library was found where it is usually kept. {}",
+                importer.title(),
+                importer.missing_hint()
+            ),
             None => format!(
                 "No {} library was found where it is usually kept. Choose its database file.",
                 importer.title()
@@ -1462,7 +1465,7 @@ impl Prefs {
                         "Tints the sung parts of the waveforms green, as on VirtualDJ. \
                          Each track is checked once, in the background, the first time \
                          it is loaded.",
-                        settings::flag(crate::wave_look::VOCALS_KEY, true),
+                        settings::flag(crate::wave_look::VOCALS_KEY, false),
                     ),
                     PrefItem {
                         choices: strings(&["Off", "Beats", "Beats and phrases"]),
@@ -1541,12 +1544,26 @@ impl Prefs {
                 items
             }
             KEYBOARD => self.keyboard_page(),
-            LAYOUTS => vec![item(
-                "layouts",
-                LAYOUTS_ROW,
-                "Your layouts",
-                "The layouts the layout menu offers: add, remove and reorder them.",
-            )],
+            LAYOUTS => vec![
+                PrefItem {
+                    choices: strings(&crate::appearance::LABELS),
+                    chosen: crate::appearance::mode() as i32,
+                    ..item(
+                        crate::appearance::KEY,
+                        SEGMENTED,
+                        "Appearance",
+                        "Light is easier to read in daylight and at outdoor gigs; the \
+                         waveforms stay on black in both. Match system follows your \
+                         computer's light or dark setting.",
+                    )
+                },
+                item(
+                    "layouts",
+                    LAYOUTS_ROW,
+                    "Your layouts",
+                    "The layouts the layout menu offers: add, remove and reorder them.",
+                ),
+            ],
             FEEDBACK => vec![
                 item("", HEADING, "GUIDED TOUR", ""),
                 PrefItem {
@@ -1821,7 +1838,13 @@ impl Prefs {
                             &r.device
                         };
                         names.push(r.device.clone());
-                        shown.push(format!("{name} (not connected)"));
+                        // A Mixer channel playing the Mixer deck's Groove
+                        // Box: no interface to connect.
+                        if r.device == opendj_engine::inputs::GROOVE_BOX {
+                            shown.push(name.to_string());
+                        } else {
+                            shown.push(format!("{name} (not connected)"));
+                        }
                         device = names.len() - 1;
                         starts = vec![(r.channel, r.mono)];
                     }
@@ -3027,6 +3050,11 @@ impl Prefs {
                 key::set_mixing(m);
             }
             crate::track_end::KEY => crate::track_end::choose(index),
+            crate::appearance::KEY => {
+                if let Some(app) = self.app.upgrade() {
+                    crate::appearance::choose(&app, index);
+                }
+            }
             crate::wave_look::COLOR_KEY
             | crate::wave_look::PALETTE_KEY
             | crate::wave_look::HALF_KEY => {
@@ -3126,7 +3154,7 @@ impl Prefs {
                 }
             }
             "record_source" => {
-                let list = record_sources(&settings::audio_setup());
+                let list = record_sources(&settings::audio_setup(), &settings::mixer_names());
                 let value = list.get(index).map_or(0, |(v, _)| *v);
                 settings::set("record_source", json!(value));
                 self.set("[Master]", "record_source", value as f64);
@@ -3724,11 +3752,12 @@ fn remove_aux(setup: &mut AudioSetup, role: InputRole) {
 }
 
 /// What recording and going on air take: the master mix, or one of the
-/// Auxiliary inputs set up (a hardware mixer's record out). Each choice
-/// with its `[Master],record_source` value.
-fn record_sources(setup: &AudioSetup) -> Vec<(u8, String)> {
+/// Mixer's channels as it comes in (with an external mixer, its record
+/// out), by the channel's name as the Mixer shows it (`names`, "Ch N"
+/// until renamed). Each choice with its `[Master],record_source` value.
+fn record_sources(setup: &AudioSetup, names: &[String]) -> Vec<(u8, String)> {
     let first = if setup.external_mixer {
-        "Auxiliary inputs, as mixed"
+        "All channels, as mixed"
     } else {
         "Master mix"
     };
@@ -3740,12 +3769,15 @@ fn record_sources(setup: &AudioSetup) -> Vec<(u8, String)> {
             } else {
                 &r.device
             };
-            let name = if n == 1 {
-                "Auxiliary".to_string()
-            } else {
-                format!("Auxiliary {n}")
-            };
-            list.push((n, format!("{name} · {device}")));
+            let name = names
+                .get(usize::from(n) - 1)
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map_or_else(|| format!("Ch {n}"), String::from);
+            let channels = channel_names(r.channel, r.channels())
+                .trim_start_matches("In ")
+                .replace(" & ", "/");
+            list.push((n, format!("{name} · {device} {channels}")));
         }
     }
     list
@@ -3753,7 +3785,7 @@ fn record_sources(setup: &AudioSetup) -> Vec<(u8, String)> {
 
 fn record_source_item() -> PrefItem {
     let setup = settings::audio_setup();
-    let list = record_sources(&setup);
+    let list = record_sources(&setup, &settings::mixer_names());
     let chosen = settings::number("record_source", 0.0) as u8;
     let names: Vec<String> = list.iter().map(|(_, n)| n.clone()).collect();
     PrefItem {
@@ -3763,8 +3795,8 @@ fn record_source_item() -> PrefItem {
             "record_source",
             MENU,
             "Recording input",
-            "What recordings and broadcasts take. With an external mixer, pick the input \
-             its record out comes in on.",
+            "What recordings and broadcasts take: the master mix, or one Mixer channel as it \
+             comes in. With an external mixer, pick the channel its record out comes in on.",
         )
     }
 }
@@ -4234,7 +4266,7 @@ fn applescript_string(text: &str) -> String {
 /// The channels an input can take from a device with `channels` of them:
 /// each one for the microphone; each pair, then each one (mono), for an
 /// auxiliary input.
-fn channel_choices(role: InputRole, channels: u16) -> Vec<(u16, bool)> {
+pub(crate) fn channel_choices(role: InputRole, channels: u16) -> Vec<(u16, bool)> {
     let mut out = Vec::new();
     if role.can_be_stereo() {
         out.extend(
@@ -4279,8 +4311,45 @@ mod tests {
             .map(|r| (r.role.aux_number().unwrap(), r.channel))
             .collect();
         assert_eq!(left, [(1, 0), (4, 4), (7, 6)]);
-        let recording: Vec<u8> = record_sources(&setup).iter().map(|(v, _)| *v).collect();
+        let recording: Vec<u8> = record_sources(&setup, &[])
+            .iter()
+            .map(|(v, _)| *v)
+            .collect();
         assert_eq!(recording, [0, 1, 4, 7]);
+    }
+
+    #[test]
+    fn recording_offers_the_mixer_channels_by_name() {
+        let mut setup = AudioSetup {
+            inputs: vec![
+                InputRoute {
+                    role: InputRole::AUXILIARIES[0],
+                    device: "M4".into(),
+                    channel: 0,
+                    mono: false,
+                },
+                InputRoute {
+                    role: InputRole::AUXILIARIES[2],
+                    device: "iPhone".into(),
+                    channel: 2,
+                    mono: true,
+                },
+            ],
+            ..AudioSetup::default()
+        };
+        let names = ["".to_string(), "".into(), "Vocals".into()];
+        let labels = |setup: &AudioSetup| -> Vec<String> {
+            record_sources(setup, &names)
+                .into_iter()
+                .map(|(_, l)| l)
+                .collect()
+        };
+        assert_eq!(
+            labels(&setup),
+            ["Master mix", "Ch 1 · M4 1/2", "Vocals · iPhone 3"]
+        );
+        setup.external_mixer = true;
+        assert_eq!(labels(&setup)[0], "All channels, as mixed");
     }
 
     #[test]

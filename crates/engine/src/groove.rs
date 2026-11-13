@@ -1385,8 +1385,8 @@ mod tests {
         let (_reg, mut g) = groove_box();
         // One kit, only the kick, four to the bar.
         g.c.kit.set(1.0);
-        for r in 1..ROWS {
-            g.c.patterns[0][r].set(0.0);
+        for c in &g.c.patterns[0][1..] {
+            c.set(0.0);
         }
         g.c.patterns[0][0].set(kits::parse_steps("x...x...x...x...") as f64);
         let mut out = vec![[0.0; 2]; 6000 * 4];
@@ -1408,9 +1408,9 @@ mod tests {
 
     /// Renders one bar of only `row`'s first step and returns the output.
     fn one_hit(g: &mut GrooveBox, row: usize) -> Vec<[f32; 2]> {
-        for p in 0..GROOVES {
-            for r in 0..ROWS {
-                g.c.patterns[p][r].set(if r == row { 1.0 } else { 0.0 });
+        for pattern in &g.c.patterns {
+            for (r, c) in pattern.iter().enumerate() {
+                c.set(if r == row { 1.0 } else { 0.0 });
             }
         }
         let mut out = vec![[0.0; 2]; 6000];
@@ -1508,8 +1508,8 @@ mod tests {
     #[test]
     fn a_maybe_step_plays_about_half_the_bars() {
         let (_reg, mut g) = groove_box();
-        for r in 0..ROWS {
-            g.c.patterns[0][r].set(0.0);
+        for c in &g.c.patterns[0] {
+            c.set(0.0);
         }
         g.c.patterns[0][0].set(1.0);
         g.c.maybe[0][0].set(1.0);
@@ -1621,8 +1621,8 @@ mod tests {
     #[test]
     fn play_mode_records_into_the_nearest_step_once() {
         let (_reg, mut g) = groove_box();
-        for r in 0..ROWS {
-            g.c.patterns[0][r].set(0.0);
+        for c in &g.c.patterns[0] {
+            c.set(0.0);
         }
         g.pads.c.mode.set(mode::PLAY as f64);
         g.pads.c.record.set_bool(true);
@@ -1765,15 +1765,15 @@ mod tests {
     #[test]
     fn soft_steps_play_quieter() {
         let (_reg, mut g) = groove_box();
-        for r in 0..ROWS {
-            g.c.patterns[0][r].set(0.0);
+        for c in &g.c.patterns[0] {
+            c.set(0.0);
         }
         g.c.patterns[0][0].set(1.0);
         let mut loud = vec![[0.0; 2]; 2000];
         g.render(true, own(120.0), &mut loud, |_| {});
         let (_reg, mut g) = groove_box();
-        for r in 0..ROWS {
-            g.c.patterns[0][r].set(0.0);
+        for c in &g.c.patterns[0] {
+            c.set(0.0);
         }
         g.c.patterns[0][0].set(1.0);
         g.c.soft[0][0].set(1.0);

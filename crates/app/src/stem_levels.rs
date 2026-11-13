@@ -1,6 +1,7 @@
 //! Each stem's level along a track, for the Stems waveform look: worked
 //! out on a background thread once a deck's stems are complete (and again
-//! when better stems replace them), then uploaded with the waveform.
+//! when better stems replace them), then uploaded with the waveform. Show
+//! vocals reads the vocal stem's level from here too.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -16,10 +17,13 @@ pub const RATE: f64 = 100.0;
 /// them; None while they are being worked out.
 type Found = HashMap<usize, (Weak<Stems>, Option<Arc<Levels>>)>;
 
-/// A track's stem levels and each stem's colour.
+/// A track's stem levels and each stem's colour, and for high-quality
+/// stems the vocal stem's level for Show vocals (see
+/// [`Stems::vocal_levels`]).
 pub struct Levels {
     pub levels: Vec<[u8; MAX_STEMS]>,
     pub colors: Vec<u32>,
+    pub vocals: Option<Arc<Vec<u8>>>,
 }
 
 /// Levels kept at most; older ones are dropped (decks reload them).
@@ -69,6 +73,7 @@ pub fn levels(stems: &Arc<Stems>) -> Option<Arc<Levels>> {
             let levels = Levels {
                 levels: current.levels(RATE).unwrap_or_default(),
                 colors: current.info.iter().map(|i| i.color).collect(),
+                vocals: current.vocal_levels(RATE).map(Arc::new),
             };
             if let Some(m) = FOUND.get() {
                 let mut guard = m.lock().unwrap();

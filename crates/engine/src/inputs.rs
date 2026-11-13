@@ -59,6 +59,10 @@ pub const AUXILIARIES: [usize; NUM_AUXILIARIES] = [
 /// inputs' own values, 1 + each input.
 pub const MIXER: usize = NUM_INPUTS + 1;
 
+/// The device an auxiliary input's route names when the strip plays the
+/// Mixer deck's own Groove Box instead of an interface's channels.
+pub const GROOVE_BOX: &str = "Groove Box";
+
 /// Where an input's sound goes this buffer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Routing {
@@ -70,6 +74,10 @@ pub(crate) enum Routing {
     /// for the deck to sum. A soloed strip plays whether on or off; while
     /// any strip of the Mixer is soloed (`any_solo`), only soloed ones do.
     Mixer { any_solo: bool },
+    /// Not heard: an aux input or the instrument that no deck plays, on
+    /// its own or in the Mixer. Its on switch is a Mixer strip's, so it
+    /// doesn't put it in the main mix by itself.
+    Off,
 }
 
 /// Knobs the instrument's plugin parameters show on:
@@ -103,6 +111,9 @@ pub(crate) struct InputFeed {
     pub(crate) rx: rtrb::Consumer<f32>,
     /// Frames the device delivered in its last callback.
     pub(crate) period: Arc<AtomicUsize>,
+    /// Frames left waiting in the queue after the engine's last read: with
+    /// `period`, how far behind the input is heard.
+    pub(crate) queued: Arc<AtomicUsize>,
 }
 
 /// `[Master],talkover_ducking`, as in Mixxx: off, ducking while the
@@ -190,6 +201,14 @@ impl Pads {
 const VU_FALL: f32 = 1.5;
 /// Seconds a clip light stays on.
 const PEAK_HOLD: f32 = 0.5;
+/// The floor of a strip's `peak_db` readout, in dBFS.
+const PEAK_DB_FLOOR: f32 = -60.0;
+/// The top of it: how far over full scale it can read.
+const PEAK_DB_TOP: f32 = 24.0;
+/// Seconds a strip's peak readout holds its highest before it falls.
+const PEAK_DB_HOLD: f32 = 2.0;
+/// How fast it then falls, in dB per second (the meter's own fall).
+const PEAK_DB_FALL: f32 = 60.0;
 
 struct InputControls {
     /// `talkover` for the microphone, `main_mix` for the auxiliary input.
@@ -210,6 +229,11 @@ struct InputControls {
     solo: Option<ControlHandle>,
     /// An auxiliary input's `fx` in the Mixer: through the deck's effects.
     fx: Option<ControlHandle>,
+    /// The microphone's and the instrument's `mixer`: a strip of the Mixer.
+    mixer: Option<ControlHandle>,
+    /// A strip's `peak_db`: its highest peak lately, in dBFS, read past
+    /// full scale, for the readout over its meter.
+    peak_db: Option<ControlHandle>,
 }
 
 impl InputControls {
@@ -298,15 +322,29 @@ impl InputControls {
             reg.create(g, "arp_octaves", 1.0, 1.0, 4.0, Behavior::Free);
             reg.create(g, "arp_hold", 0.0, 0.0, 1.0, Behavior::Free);
         }
-        let pan = AUXILIARIES.contains(&input).then(|| {
-            // The Mixer deck's strip controls: whatever feeds the strip (an
-            // interface's channels today; later the Groove Box or a plugin).
-            // `solo` and `fx` are the Mixer's: solo within the Mixer, and
-            // the strip through the deck's effects.
-            reg.create(g, "pan", 0.0, -1.0, 1.0, Behavior::Linear)
+        // The Mixer deck's strip controls, for the auxiliary inputs (fed by
+        // an interface's channels), the microphone and the instrument
+        // plugin: `solo` within the Mixer, and `fx` for the strip through
+        // the deck's effects.
+        let strip = AUXILIARIES.contains(&input) || input == MICROPHONE || input == INSTRUMENT;
+        let pan = strip.then(|| reg.create(g, "pan", 0.0, -1.0, 1.0, Behavior::Linear));
+        let solo = strip.then(|| reg.toggle(g, "solo"));
+        // On from the start: a strip sounds through its deck's effects as
+        // a track does, and FX off takes it out of them.
+        let fx = strip.then(|| {
+            let fx = reg.toggle(g, "fx");
+            fx.set_bool(true);
+            fx
         });
-        let solo = AUXILIARIES.contains(&input).then(|| reg.toggle(g, "solo"));
-        let fx = AUXILIARIES.contains(&input).then(|| reg.toggle(g, "fx"));
+        // The microphone and the instrument as strips of the Mixer too,
+        // while a deck plays it: off by default, so each stays on its own
+        // channel (or deck).
+        let mixer = (input == MICROPHONE || input == INSTRUMENT).then(|| reg.toggle(g, "mixer"));
+        let peak_db = strip.then(|| {
+            let top = f64::from(PEAK_DB_TOP);
+            let floor = f64::from(PEAK_DB_FLOOR);
+            reg.create(g, "peak_db", floor, floor, top, Behavior::Indicator)
+        });
         let configured = reg.indicator(g, "input_configured", 1.0);
         alias(reg, g, "enabled", g, "input_configured");
         Self {
@@ -333,6 +371,8 @@ impl InputControls {
             pan,
             solo,
             fx,
+            mixer,
+            peak_db,
         }
     }
 }
@@ -355,6 +395,12 @@ pub(crate) struct Input {
     /// The master deck's key, for Auto.
     master_key: Option<crate::key::Key>,
     feed: Option<InputFeed>,
+    /// It plays the Mixer deck's Groove Box (see [`GROOVE_BOX`]) instead of
+    /// a device.
+    groove: bool,
+    /// The Groove Box's sound for this buffer, when the engine rendered it.
+    groove_block: Vec<[f32; 2]>,
+    groove_got: usize,
     /// How full its queue runs.
     queue: Queue,
     eq: Isolator,
@@ -365,6 +411,8 @@ pub(crate) struct Input {
     pan: [f32; 2],
     vu: [f32; 2],
     peak_hold: f32,
+    /// The strip's peak readout in dBFS, and the seconds it still holds.
+    peak_db: (f32, f32),
     /// This buffer's audio after gain, EQ and effects, before the fader.
     pub(crate) buf: Vec<[f32; 2]>,
     /// This buffer's audio as it came in, for a deck playing the input.
@@ -429,6 +477,9 @@ impl Input {
                 Vec::new()
             },
             feed: None,
+            groove: false,
+            groove_block: vec![[0.0; 2]; 4096],
+            groove_got: 0,
             queue: Queue::default(),
             eq: Isolator::new(sample_rate),
             eq_gains: [1.0; 3],
@@ -437,6 +488,7 @@ impl Input {
             pan: [1.0; 2],
             vu: [0.0; 2],
             peak_hold: 0.0,
+            peak_db: (PEAK_DB_FLOOR, 0.0),
             buf: vec![[0.0; 2]; 4096],
             raw: vec![[0.0; 2]; 4096],
             level_ramp: (0.0, 0.0),
@@ -450,6 +502,32 @@ impl Input {
     /// units; off, it skips them.
     pub(crate) fn through_fx(&self) -> bool {
         self.c.fx.as_ref().is_some_and(|s| s.get_bool())
+    }
+
+    /// A strip of the Mixer while a deck plays it: every auxiliary input,
+    /// and the microphone or the instrument when its `mixer` is on.
+    pub(crate) fn mixer_strip(&self) -> bool {
+        AUXILIARIES.contains(&self.index) || self.c.mixer.as_ref().is_some_and(|m| m.get_bool())
+    }
+
+    /// It plays the Mixer deck's Groove Box.
+    pub(crate) fn plays_groove(&self) -> bool {
+        self.groove
+    }
+
+    /// Plays the Mixer deck's Groove Box from now on, or not.
+    pub(crate) fn set_groove(&mut self, on: bool) {
+        self.groove = on;
+        self.c.configured.set_bool(on || self.feed.is_some());
+    }
+
+    /// The Groove Box's sound for the coming [`Input::render`].
+    pub(crate) fn take_groove(&mut self, block: &[[f32; 2]]) {
+        if self.groove_block.len() < block.len() {
+            self.groove_block.resize(block.len(), [0.0; 2]);
+        }
+        self.groove_block[..block.len()].copy_from_slice(block);
+        self.groove_got = block.len();
     }
 
     /// Soloed in the Mixer.
@@ -466,7 +544,7 @@ impl Input {
     /// to be dropped off the audio thread.
     pub(crate) fn set_feed(&mut self, feed: Option<InputFeed>) -> Option<InputFeed> {
         self.queue = Queue::default();
-        self.c.configured.set_bool(feed.is_some());
+        self.c.configured.set_bool(self.groove || feed.is_some());
         std::mem::replace(&mut self.feed, feed)
     }
 
@@ -551,6 +629,12 @@ impl Input {
             let playing = fx.finish_instrument(buf);
             self.c.configured.set_bool(fx.has_instrument());
             playing
+        } else if self.groove {
+            // Silent while no deck plays the Mixer to render it.
+            let got = std::mem::take(&mut self.groove_got).min(frames);
+            buf[..got].copy_from_slice(&self.groove_block[..got]);
+            buf[got..].fill([0.0; 2]);
+            true
         } else {
             let got = match &mut self.feed {
                 Some(feed) => pull(feed, &mut self.queue, buf),
@@ -564,7 +648,7 @@ impl Input {
         let on = self.c.on.get_bool();
         let (on, live) = match routing {
             Routing::Main => (on && !self.c.mute.get_bool(), on),
-            Routing::Deck => (false, false),
+            Routing::Deck | Routing::Off => (false, false),
             Routing::Mixer { any_solo } => {
                 let solo = self.c.solo.as_ref().is_some_and(|s| s.get_bool());
                 let heard = if any_solo { solo } else { on };
@@ -577,7 +661,8 @@ impl Input {
         self.level_ramp = (self.level, level);
         self.level = level;
         self.live = live && source;
-        self.pfl = self.c.pfl.get_bool() && routing != Routing::Deck;
+        self.pfl =
+            self.c.pfl.get_bool() && matches!(routing, Routing::Main | Routing::Mixer { .. });
         self.in_mixer = matches!(routing, Routing::Mixer { .. });
         let pre = (self.pregain, self.c.pregain.get() as f32);
         self.pregain = pre.1;
@@ -628,6 +713,29 @@ impl Input {
             control.set(*vu as f64);
         }
         self.c.vu.set(self.vu[0].max(self.vu[1]) as f64);
+        if let Some(control) = &self.c.peak_db {
+            self.peak_db = hold_peak(self.peak_db, peak[0].max(peak[1]), dt);
+            control.set(f64::from(self.peak_db.0));
+        }
+    }
+}
+
+/// A peak readout after a buffer whose peak was `peak` (linear) and which
+/// lasted `dt` seconds, from `(db, held)`: a new high jumps up and holds
+/// for [`PEAK_DB_HOLD`]; after that it falls at [`PEAK_DB_FALL`], never
+/// below the buffer's own peak.
+fn hold_peak((db, held): (f32, f32), peak: f32, dt: f32) -> (f32, f32) {
+    let now = if peak > 0.0 {
+        (20.0 * peak.log10()).clamp(PEAK_DB_FLOOR, PEAK_DB_TOP)
+    } else {
+        PEAK_DB_FLOOR
+    };
+    if now >= db {
+        (now, PEAK_DB_HOLD)
+    } else if held > 0.0 {
+        (db, (held - dt).max(0.0))
+    } else {
+        ((db - PEAK_DB_FALL * dt).max(now), 0.0)
     }
 }
 
@@ -682,6 +790,12 @@ fn skip(feed: &mut InputFeed, frames: usize) {
 /// needed, the queue's low point less [`QUEUE_SLACK`]. A device running
 /// ahead is cut back at once.
 fn pull(feed: &mut InputFeed, q: &mut Queue, out: &mut [[f32; 2]]) -> usize {
+    let n = pull_inner(feed, q, out);
+    feed.queued.store(feed.rx.slots() / 2, Ordering::Relaxed);
+    n
+}
+
+fn pull_inner(feed: &mut InputFeed, q: &mut Queue, out: &mut [[f32; 2]]) -> usize {
     let frames = out.len();
     let enough = feed.period.load(Ordering::Relaxed).max(frames);
     let queued = feed.rx.slots() / 2;
@@ -807,10 +921,32 @@ mod tests {
         assert_eq!(pan_gains(0.5), [0.5, 1.0]);
     }
 
+    #[test]
+    fn the_peak_readout_holds_then_falls_and_reads_past_full_scale() {
+        let close = |a: f32, b: f32| (a - b).abs() < 0.01;
+        // Twice full scale reads +6 dB.
+        let (db, held) = hold_peak((PEAK_DB_FLOOR, 0.0), 2.0, 0.01);
+        assert!(close(db, 6.02) && held == PEAK_DB_HOLD);
+        // Quieter buffers keep it while it holds...
+        let mut p = (db, held);
+        for _ in 0..199 {
+            p = hold_peak(p, 0.1, 0.01);
+        }
+        assert!(close(p.0, 6.02), "{p:?}");
+        // ...then it falls, no lower than what plays (-20 dB).
+        for _ in 0..100 {
+            p = hold_peak(p, 0.1, 0.01);
+        }
+        assert!(close(p.0, -20.0), "{p:?}");
+        // Silence reads the floor.
+        assert_eq!(hold_peak((PEAK_DB_FLOOR, 0.0), 0.0, 0.01).0, PEAK_DB_FLOOR);
+    }
+
     fn feed(period: usize) -> (InputFeed, rtrb::Producer<f32>) {
         let (tx, rx) = rtrb::RingBuffer::new(16_384);
         let period = Arc::new(AtomicUsize::new(period));
-        (InputFeed { rx, period }, tx)
+        let queued = Arc::default();
+        (InputFeed { rx, period, queued }, tx)
     }
 
     fn push(tx: &mut rtrb::Producer<f32>, frames: usize, v: f32) {

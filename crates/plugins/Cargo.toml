@@ -17,6 +17,7 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 rbox-masterdb = { version = "0.3.0", default-features = false }
 rbox-anlz = "0.3.0"
 rbox-core = "0.3.0"
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 
 # rekordbox's master.db is SQLCipher, built as in opendj-export: on
 # CommonCrypto on macOS, with OpenSSL built in elsewhere.

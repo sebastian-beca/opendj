@@ -21,8 +21,8 @@ The rail at the far left picks where the tree and the track list come from:
 - **Spotify**, **TIDAL**, **Apple Music**, **SoundCloud** and
   **Mixcloud**: your playlists and saved tracks on those services, for
   browsing (see [Streaming services](#streaming-services)).
-- **Jam**: the Groove Box, your instrument plugins and the Mic and
-  Aux inputs, dragged onto a deck to play there instead of a track (see
+- **Jam**: the Groove Box, your instrument plugins, the Mic and the
+  Mixer (your aux inputs), dragged onto a deck to play there instead of a track (see
   [Jam on a deck](decks.md#jam-on-a-deck)).
 - **Plex**, **Navidrome** and **Jellyfin**: your own music server, searched from openDJ
   with its tracks downloaded into your collection (see
@@ -498,6 +498,35 @@ grid starts there. Playlists come in a **djay Pro** folder, in djay's order
 and with djay's folders, and djay's history comes as one session per set.
 Tracks streamed from TIDAL, Beatport, SoundCloud or Spotify show in their
 lists as streamed tracks, with their artist, title and length.
+
+## Bringing in an iTunes or Music library
+
+**Import from iTunes** works the same way for iTunes and the Music app on a
+Mac, and iTunes on Windows. openDJ reads the library's XML file (only
+reading it):
+
+- **Music app:** choose **Music › Settings › Advanced** and turn on **Share
+  Library XML with other applications**, so Music keeps
+  `Music/Music/Library.xml` up to date. Or choose **File › Library › Export
+  Library…** once and save `Library.xml`.
+- **iTunes:** it keeps `iTunes Library.xml` (or `iTunes Music Library.xml`)
+  in its `Music/iTunes` folder by itself.
+
+openDJ looks in those places, and for an exported `Library.xml` in your Music
+folder or on the Desktop. If yours is elsewhere, choose the file in the first
+step. When Music's file changes, openDJ reads it again at its next start.
+
+Each track keeps its title, artist, album, genre, grouping, composer,
+comments, year, track and disc number, BPM, stars (not the ones Music worked
+out from the album), play count, date added and when it was last played. The
+file has no cues or beat grids, so openDJ analyses the tracks as usual.
+Playlists come in their folders, folders within folders. Music's own lists
+(Library, Music, Purchased, Genius and the like) stay out. Smart playlists
+are off at first; ticked, each comes in as a plain list of the tracks it held
+when Music last wrote the file. Podcasts, audiobooks, videos and voice memos
+stay out. Apple Music songs you added but don't have as files (and protected
+downloads, which openDJ can't play) show in their lists as streamed tracks,
+with their artist, title and length.
 
 ### The same song from two apps
 

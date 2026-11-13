@@ -20,6 +20,7 @@
 [Auxiliary1],mute
 [Auxiliary1],orientation
 [Auxiliary1],pan
+[Auxiliary1],peak_db
 [Auxiliary1],peak_indicator
 [Auxiliary1],pfl
 [Auxiliary1],pregain
@@ -40,6 +41,7 @@
 [Auxiliary2],mute
 [Auxiliary2],orientation
 [Auxiliary2],pan
+[Auxiliary2],peak_db
 [Auxiliary2],peak_indicator
 [Auxiliary2],pfl
 [Auxiliary2],pregain
@@ -60,6 +62,7 @@
 [Auxiliary3],mute
 [Auxiliary3],orientation
 [Auxiliary3],pan
+[Auxiliary3],peak_db
 [Auxiliary3],peak_indicator
 [Auxiliary3],pfl
 [Auxiliary3],pregain
@@ -80,6 +83,7 @@
 [Auxiliary4],mute
 [Auxiliary4],orientation
 [Auxiliary4],pan
+[Auxiliary4],peak_db
 [Auxiliary4],peak_indicator
 [Auxiliary4],pfl
 [Auxiliary4],pregain
@@ -100,6 +104,7 @@
 [Auxiliary5],mute
 [Auxiliary5],orientation
 [Auxiliary5],pan
+[Auxiliary5],peak_db
 [Auxiliary5],peak_indicator
 [Auxiliary5],pfl
 [Auxiliary5],pregain
@@ -120,6 +125,7 @@
 [Auxiliary6],mute
 [Auxiliary6],orientation
 [Auxiliary6],pan
+[Auxiliary6],peak_db
 [Auxiliary6],peak_indicator
 [Auxiliary6],pfl
 [Auxiliary6],pregain
@@ -140,6 +146,7 @@
 [Auxiliary7],mute
 [Auxiliary7],orientation
 [Auxiliary7],pan
+[Auxiliary7],peak_db
 [Auxiliary7],peak_indicator
 [Auxiliary7],pfl
 [Auxiliary7],pregain
@@ -160,6 +167,7 @@
 [Auxiliary8],mute
 [Auxiliary8],orientation
 [Auxiliary8],pan
+[Auxiliary8],peak_db
 [Auxiliary8],peak_indicator
 [Auxiliary8],pfl
 [Auxiliary8],pregain
@@ -3590,11 +3598,13 @@
 [Instrument1],chord_mode
 [Instrument1],chord_shape
 [Instrument1],enabled
+[Instrument1],fx
 [Instrument1],input_configured
 [Instrument1],instrument
 [Instrument1],keyboard_pads
 [Instrument1],main_mix
 [Instrument1],master
+[Instrument1],mixer
 [Instrument1],mute
 [Instrument1],num_parameters
 [Instrument1],octave
@@ -3615,6 +3625,7 @@
 [Instrument1],pad_7
 [Instrument1],pad_8
 [Instrument1],pad_9
+[Instrument1],pan
 [Instrument1],parameter1
 [Instrument1],parameter10
 [Instrument1],parameter11
@@ -3647,6 +3658,7 @@
 [Instrument1],parameter7
 [Instrument1],parameter8
 [Instrument1],parameter9
+[Instrument1],peak_db
 [Instrument1],peak_indicator
 [Instrument1],pfl
 [Instrument1],pregain
@@ -3656,6 +3668,7 @@
 [Instrument1],scale_root
 [Instrument1],scale_type
 [Instrument1],show_editor
+[Instrument1],solo
 [Instrument1],volume
 [Instrument1],vu_meter
 [Instrument1],vu_meter_left
@@ -3890,12 +3903,17 @@
 [Microphone],VuMeterL
 [Microphone],VuMeterR
 [Microphone],enabled
+[Microphone],fx
 [Microphone],input_configured
+[Microphone],mixer
 [Microphone],mute
 [Microphone],orientation
+[Microphone],pan
+[Microphone],peak_db
 [Microphone],peak_indicator
 [Microphone],pfl
 [Microphone],pregain
+[Microphone],solo
 [Microphone],talkover
 [Microphone],volume
 [Microphone],vu_meter
@@ -4186,3 +4204,7 @@
 [Sculpt_[Channel4]],lpf
 [Shoutcast],enabled
 [Shoutcast],status
+[Skin],waveform_height
+[Skin],waveform_height_down
+[Skin],waveform_height_set_default
+[Skin],waveform_height_up

@@ -2,6 +2,8 @@
 
 Planned for: **v0.6 · Buy it from the artist** (moved from v0.7 2026-11-06, with add-phrase-aware-automix, which needs its edges)
 
+The tasks still open moved to **v0.8 · From the booth to the studio** on 2026-11-12, so v0.7 ships with what is built.
+
 ## Why
 
 Phrases (intro, build, drop, breakdown, outro) feed automatic cues, phrase-aware Automix and lighting later. rekordbox, VirtualDJ and Traktor 4 have them; djay does not. openDJ already has what detection needs (beat grid, 3-band waveform, chroma), so it can be done in Rust inside the normal analysis pass, with no model to download. Research: `notes/phrase-analysis-review.md` in the project files.

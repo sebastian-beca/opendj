@@ -1,0 +1,217 @@
+// How tall the large scrolling waveforms are: ten steps, 1 to 10, 3 being
+// the height they always had, kept per layout. Set from the grip under the
+// waveforms, the waveforms button's arrow, a waveform's right-click menu,
+// ⌥⌘↑ / ⌥⌘↓, View and controllers; the app saves it (waveform_height.rs).
+// The window turns a step into pixels for its layout and shows a lower
+// one while the library would get too little room.
+import { Theme } from "theme.slint";
+
+export global WaveHeight {
+    // Each layout's step, by layout number (0 2-Deck, 1 Player,
+    // 2 4-Deck, 3 Prep, 4 2-Deck Basic): 1 to `steps`.
+    in property <[int]> levels: [3, 3, 3, 3, 3];
+    in property <int> steps: 10;
+    in property <int> default-level: 3;
+    // The layout showing, kept up to date by the window.
+    in-out property <int> layout;
+    out property <int> level: layout >= 0 && layout < levels.length ? levels[layout] : default-level;
+    // Counts each change, so the step can show a moment.
+    in property <int> changes;
+    // Asks the app for a step in a layout; it keeps it in range and saves it.
+    callback set-level(layout: int, level: int);
+
+    public function pick(level: int) {
+        set-level(layout, clamp(level, 1, steps));
+    }
+    public function step(by: int) {
+        pick(level + by);
+    }
+    public function reset() {
+        pick(default-level);
+    }
+}
+
+// The ten steps as a row of numbers, the chosen one lit: the waveforms
+// button's drop-down. `fits` is the highest step the window has room for
+// now; a higher one can still be chosen (dimmed), and shows once there is
+// room.
+export component WaveHeightList inherits VerticalLayout {
+    in property <int> fits: 10;
+    callback picked();
+    padding: 8px;
+    spacing: 6px;
+    HorizontalLayout {
+        Text {
+            text: "WAVEFORM HEIGHT";
+            color: Theme.text-dim;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            vertical-alignment: center;
+        }
+        Rectangle { horizontal-stretch: 1; }
+        if WaveHeight.level != WaveHeight.default-level: Text {
+            text: "Reset";
+            color: reset-ta.has-hover ? Theme.text : Theme.text-dim;
+            font-size: 11px;
+            vertical-alignment: center;
+            reset-ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    WaveHeight.reset();
+                    picked();
+                }
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 3px;
+        for i in WaveHeight.steps: Rectangle {
+            property <int> level: i + 1;
+            property <bool> on: WaveHeight.level == level;
+            width: 22px;
+            height: 26px;
+            border-radius: 5px;
+            background: on ? Theme.accent.with-alpha(0.3) : ta.has-hover ? Theme.panel-raised.brighter(0.3) : Theme.panel-raised.brighter(0.12);
+            border-width: 1px;
+            border-color: on ? Theme.accent : transparent;
+            Text {
+                text: level;
+                color: on ? Theme.text : level > fits ? Theme.text-dim.with-alpha(0.5) : Theme.text-dim;
+                font-family: "Inter Tabular";
+                font-size: 12px;
+                font-weight: on ? 700 : 500;
+            }
+            ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    WaveHeight.pick(level);
+                    picked();
+                }
+            }
+        }
+    }
+    if fits < WaveHeight.steps: Text {
+        text: "Above " + fits + " shows when the window is taller.";
+        color: Theme.text-dim;
+        font-size: 11px;
+    }
+}
+
+// The grip on the line under the waveforms. Dragging it stretches the
+// waveforms smoothly with the pointer; letting go settles them on the
+// nearest step. The step shows as a number in the middle while dragging
+// and a moment after any change; double-click goes back to 3. Placed over
+// the whole window, so the grip's hit area can reach over the decks.
+export component WaveHeightGrip inherits Rectangle {
+    // Where the waveforms are, in the window.
+    in property <length> strip-top;
+    in property <length> strip-height;
+    // The strip's height at each step, 1 first, and the highest step that
+    // fits now.
+    in property <[length]> heights;
+    in property <int> fits: 10;
+    // The step showing (lower than the chosen one while it doesn't fit).
+    in property <int> shown: 3;
+    // While dragging: the strip's height under the pointer, for the window
+    // to show in place of the step's.
+    out property <bool> dragging;
+    out property <length> drag-height;
+    // Whether this press has moved the strip yet: a click alone keeps the
+    // step.
+    property <bool> stretched;
+    property <int> height-changes: WaveHeight.changes;
+    property <bool> flash;
+    changed height-changes => {
+        flash = true;
+        hide.running = false;
+        hide.running = true;
+    }
+    hide := Timer {
+        interval: 900ms;
+        running: false;
+        triggered => {
+            flash = false;
+            self.running = false;
+        }
+    }
+    // The step whose strip height is nearest `h`, among those that fit.
+    pure function nearest(h: length) -> int {
+        let top = max(fits, 1);
+        let i1 = abs(heights[0] - h) <= abs(heights[1] - h) ? 1 : 2;
+        let i2 = abs(heights[i1 - 1] - h) <= abs(heights[2] - h) ? i1 : 3;
+        let i3 = abs(heights[i2 - 1] - h) <= abs(heights[3] - h) ? i2 : 4;
+        let i4 = abs(heights[i3 - 1] - h) <= abs(heights[4] - h) ? i3 : 5;
+        let i5 = abs(heights[i4 - 1] - h) <= abs(heights[5] - h) ? i4 : 6;
+        let i6 = abs(heights[i5 - 1] - h) <= abs(heights[6] - h) ? i5 : 7;
+        let i7 = abs(heights[i6 - 1] - h) <= abs(heights[7] - h) ? i6 : 8;
+        let i8 = abs(heights[i7 - 1] - h) <= abs(heights[8] - h) ? i7 : 9;
+        let i9 = abs(heights[i8 - 1] - h) <= abs(heights[9] - h) ? i8 : 10;
+        min(i9, top)
+    }
+    // The step's number, in the middle of the waveforms.
+    Rectangle {
+        x: (root.width - self.width) / 2;
+        y: strip-top + (strip-height - self.height) / 2;
+        width: max(self.height, number.preferred-width + 20px);
+        height: 26px;
+        border-radius: 13px;
+        background: Theme.s-000000c0;
+        border-width: 1px;
+        border-color: dragging ? Theme.accent : Theme.border;
+        opacity: dragging || flash ? 1 : 0;
+        animate opacity { duration: 180ms; }
+        number := Text {
+            text: dragging ? nearest(drag-height) : shown;
+            color: Theme.text;
+            font-family: "Inter Tabular";
+            font-size: 14px;
+            font-weight: 700;
+        }
+    }
+    // The grip: a lilac pill in the middle of the line, while the pointer
+    // is near the line or dragging.
+    Rectangle {
+        x: (root.width - self.width) / 2;
+        y: strip-top + strip-height - 3px;
+        width: 40px;
+        height: 5px;
+        border-radius: 2.5px;
+        background: Theme.accent;
+        opacity: grip.has-hover || dragging ? 1 : 0;
+        animate opacity { duration: 120ms; }
+    }
+    grip := TouchArea {
+        x: 0;
+        y: strip-top + strip-height - 4px;
+        width: root.width;
+        height: 8px;
+        mouse-cursor: row-resize;
+        pointer-event(e) => {
+            if e.button != PointerEventButton.left {
+                return;
+            }
+            if e.kind == PointerEventKind.down {
+                drag-height = strip-height;
+                stretched = false;
+                dragging = true;
+            } else if (e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel) && dragging {
+                let step = nearest(drag-height);
+                dragging = false;
+                if stretched && step != WaveHeight.level {
+                    WaveHeight.pick(step);
+                }
+            }
+        }
+        // The strip follows the pointer between the lowest step and the
+        // highest that fits. Measured from where the grip is now, as the
+        // grip moves with the strip.
+        moved => {
+            if self.pressed && dragging {
+                drag-height = clamp(self.y + self.mouse-y - strip-top, heights[0], heights[max(fits, 1) - 1]);
+                stretched = true;
+            }
+        }
+        double-clicked => { WaveHeight.reset(); }
+    }
+}

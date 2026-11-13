@@ -19,6 +19,7 @@
 ## 4. Suggested cues
 
 - [ ] 4.1 Suggest from phrases: first beat or end of intro, all in, drop, before outro; keep or drop
+- [ ] 4.2 Suggested Automix points: the mix-in and mix-out points Automix would use (from phrases and imported points) shown dashed on the waveform; keep, move or drop; kept points are what Automix uses
 
 ## 5. Check 4 spots
 
