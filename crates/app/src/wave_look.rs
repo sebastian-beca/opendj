@@ -16,8 +16,9 @@ pub const PALETTE_KEY: &str = "waveform_palette";
 pub const HALF_KEY: &str = "waveform_overview_half";
 /// Settings › Appearance › Look › Size follows gain, off at first.
 pub const GAIN_KEY: &str = "waveform_follows_gain";
-/// Settings › Appearance › Look › Show vocals, on at first.
-pub const VOCALS_KEY: &str = "waveform_show_vocals";
+/// Settings › Appearance › Look › Show vocals, off at first. A new key, so the
+/// earlier "waveform_show_vocals" (on by default) no longer turns it on.
+pub const VOCALS_KEY: &str = "waveform_vocal_tint";
 
 /// The color schemes, in Settings order.
 pub const COLOR_LABELS: [&str; 4] = ["RGB", "3-Band", "Blue", "Stems"];
@@ -30,7 +31,7 @@ static PALETTE: AtomicU32 = AtomicU32::new(0);
 static HALF: AtomicU32 = AtomicU32::new(0);
 static VERSION: AtomicU32 = AtomicU32::new(1);
 static GAIN: AtomicU32 = AtomicU32::new(0);
-static VOCALS: AtomicU32 = AtomicU32::new(1);
+static VOCALS: AtomicU32 = AtomicU32::new(0);
 
 /// Reads the saved choices; called once at start.
 pub fn load() {
@@ -39,7 +40,7 @@ pub fn load() {
     PALETTE.store(read(PALETTE_KEY, PALETTE_LABELS.len()), Ordering::Relaxed);
     HALF.store(read(HALF_KEY, SHAPE_LABELS.len()), Ordering::Relaxed);
     GAIN.store(settings::flag(GAIN_KEY, false) as u32, Ordering::Relaxed);
-    VOCALS.store(settings::flag(VOCALS_KEY, true) as u32, Ordering::Relaxed);
+    VOCALS.store(settings::flag(VOCALS_KEY, false) as u32, Ordering::Relaxed);
     VERSION.fetch_add(1, Ordering::Relaxed);
 }
 

@@ -54,7 +54,7 @@ cover has **Unload deck** too, and <kbd>⇧</kbd> <kbd>⌥</kbd> <kbd>←</kbd> 
 middle, or **Half**, growing from the bottom edge as on rekordbox. The big
 scrolling waveform is always whole.
 
-**Show vocals**, on at first, tints the sung parts of the waveforms green,
+**Show vocals**, off at first, tints the sung parts of the waveforms green,
 as on VirtualDJ. openDJ checks each track for vocals the first time you load
 it (or when it's analyzed), in the background, so the green shows up a few
 seconds after the waveform; after that it's there straight away. Tracks with

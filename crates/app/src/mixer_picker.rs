@@ -15,7 +15,7 @@ use opendj_engine::inputs::GROOVE_BOX;
 use opendj_engine::{
     channel_names, input_devices, AudioEngine, AudioSetup, InputRole, InputRoute, Role,
 };
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use crate::prefs::channel_choices;
 use crate::{instruments, settings, AppWindow, InstrumentsUi, PickerRow};
@@ -208,7 +208,19 @@ fn show(app: &AppWindow, p: &Picker, setup: &AudioSetup, clock: &str) {
     } else {
         p.device.as_str().into()
     });
-    ui.set_picker_rows(ModelRc::new(VecModel::from(rows)));
+    // Fresh meters arrive 20 times a second: the rows change in place, so
+    // the one under the pointer keeps its hover and a click lands on it.
+    let model = ui.get_picker_rows();
+    match model.as_any().downcast_ref::<VecModel<PickerRow>>() {
+        Some(m) if m.row_count() == rows.len() => {
+            for (i, row) in rows.into_iter().enumerate() {
+                if m.row_data(i).as_ref() != Some(&row) {
+                    m.set_row_data(i, row);
+                }
+            }
+        }
+        _ => ui.set_picker_rows(ModelRc::new(VecModel::from(rows))),
+    }
 }
 
 /// `device` is another interface than the main output's, as the engine's
