@@ -107,6 +107,9 @@ pub(crate) struct InputFeed {
     pub(crate) rx: rtrb::Consumer<f32>,
     /// Frames the device delivered in its last callback.
     pub(crate) period: Arc<AtomicUsize>,
+    /// Frames left waiting in the queue after the engine's last read: with
+    /// `period`, how far behind the input is heard.
+    pub(crate) queued: Arc<AtomicUsize>,
 }
 
 /// `[Master],talkover_ducking`, as in Mixxx: off, ducking while the
@@ -776,6 +779,12 @@ fn skip(feed: &mut InputFeed, frames: usize) {
 /// needed, the queue's low point less [`QUEUE_SLACK`]. A device running
 /// ahead is cut back at once.
 fn pull(feed: &mut InputFeed, q: &mut Queue, out: &mut [[f32; 2]]) -> usize {
+    let n = pull_inner(feed, q, out);
+    feed.queued.store(feed.rx.slots() / 2, Ordering::Relaxed);
+    n
+}
+
+fn pull_inner(feed: &mut InputFeed, q: &mut Queue, out: &mut [[f32; 2]]) -> usize {
     let frames = out.len();
     let enough = feed.period.load(Ordering::Relaxed).max(frames);
     let queued = feed.rx.slots() / 2;
@@ -925,7 +934,8 @@ mod tests {
     fn feed(period: usize) -> (InputFeed, rtrb::Producer<f32>) {
         let (tx, rx) = rtrb::RingBuffer::new(16_384);
         let period = Arc::new(AtomicUsize::new(period));
-        (InputFeed { rx, period }, tx)
+        let queued = Arc::default();
+        (InputFeed { rx, period, queued }, tx)
     }
 
     fn push(tx: &mut rtrb::Producer<f32>, frames: usize, v: f32) {
