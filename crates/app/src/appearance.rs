@@ -14,7 +14,7 @@ use slint::winit_030::winit::window::Theme as WindowTheme;
 use slint::winit_030::WinitWindowAccessor;
 use slint::ComponentHandle;
 
-use crate::{settings, AppWindow, Theme};
+use crate::{settings, AppWindow, LayoutsUi, Theme};
 
 pub const KEY: &str = "appearance";
 /// In Settings order; the index is what's saved.
@@ -44,7 +44,7 @@ pub fn install(app: &AppWindow) {
     });
 }
 
-/// Picked in Settings.
+/// Picked in Settings or the layout menu.
 pub fn choose(app: &AppWindow, index: usize) {
     let m = index.min(SYSTEM as usize) as u8;
     MODE.store(m, Ordering::Relaxed);
@@ -77,4 +77,5 @@ fn apply(app: &AppWindow) {
         })
         .unwrap_or(m == LIGHT);
     app.global::<Theme>().set_light(light);
+    app.global::<LayoutsUi>().set_appearance(m as i32);
 }

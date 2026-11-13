@@ -97,7 +97,7 @@ pub struct Step {
 /// Tips shown one after another over the app.
 #[derive(Debug)]
 pub struct Lesson {
-    /// The layout it needs (0 2-Deck Pro), put back after.
+    /// The layout it needs (0 2-Deck), put back after.
     pub layout: Option<i32>,
     /// Controls set before the first tip, so it starts the same each time.
     pub prepare: &'static [(&'static str, &'static str, f64)],
@@ -924,7 +924,7 @@ fn page_words(page: Page, controllers: &[String]) -> (String, String) {
         ),
         Page::Part(Part::Mixing) => (
             "Your first mix",
-            "A short lesson on two demo tracks, in the 2-Deck Pro layout. Each step waits for \
+            "A short lesson on two demo tracks, in the 2-Deck layout. Each step waits for \
              you, on screen or on your controller."
                 .to_string(),
         ),

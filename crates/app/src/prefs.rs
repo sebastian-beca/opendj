@@ -67,8 +67,6 @@ const DECK_TABS: [&str; 3] = ["Playing", "Tempo and key", "Header"];
 const LAYOUTS: i32 = 3;
 /// Settings › Appearance's tabs.
 const APPEARANCE_TABS: [&str; 2] = ["Layouts", "Look"];
-/// Settings › Appearance, for the layout menu's cog.
-pub const LAYOUTS_PAGE: i32 = LAYOUTS;
 const CONTROLLERS: i32 = 4;
 /// Settings › Controllers' tabs.
 const CONTROLLER_TABS: [&str; 3] = ["Controllers", "MIDI clock", "OSC"];

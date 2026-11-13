@@ -351,11 +351,14 @@ fn xone_k2_mixer() {
     }
     assert_eq!(get(&reg, "[Auxiliary1]", "pan"), -1.0);
 
-    // The knob buttons are FX, S and cue; the first matrix row is on/off.
+    // The knob buttons are FX (on from the start, so a press takes the
+    // channel out of the deck's effects), S and cue; the first matrix row
+    // is on/off.
+    let fx = get(&reg, "[Auxiliary4]", "fx");
     press(&mut c, 0x33);
     press(&mut c, 0x2F);
     press(&mut c, 0x2B);
-    assert_eq!(get(&reg, "[Auxiliary4]", "fx"), 1.0);
+    assert_eq!(get(&reg, "[Auxiliary4]", "fx"), 1.0 - fx);
     assert_eq!(get(&reg, "[Auxiliary4]", "solo"), 1.0);
     assert_eq!(get(&reg, "[Auxiliary4]", "pfl"), 1.0);
     let on = get(&reg, "[Auxiliary1]", "main_mix");

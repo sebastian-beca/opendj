@@ -96,8 +96,12 @@ The menu at the top left of the window switches layouts:
   track straight away, **Previous** goes back to the start of the track, and
   **Order** puts Up Next in order (shuffle, BPM, harmonic and so on). The
   large waveforms and the FX bar are hidden in Player.
-- **2-Deck** shows the full decks, with pads and loops, and the mixer between
-  them (see [Decks and mixer](decks.md)).
+- **2-Deck** shows the full decks, with jogs, tempo faders, pads and loops,
+  and the mixer between them (see [Decks and mixer](decks.md)).
+- **2-Deck Basic** shows two lighter decks without jogs or tempo faders, the
+  slim mixer between them and the pads and loops in a bar under them
+  (**PADS** shows or hides it, **JOG** adds a jog to each deck). It is off
+  at first: switch it on with the layout menu's pencil.
 - **4-Deck** shows four decks side by side, in the order 3, 1, 2, 4, as djay Pro
   does. Each deck is a strip with its own EQ, filter, gain and channel fader,
   PLAY and CUE, loop, pads and effects. A bar under the strips holds each
@@ -107,7 +111,6 @@ The menu at the top left of the window switches layouts:
   the decks in the same order.
   A [Groove Box](groove-box.md) deck shows its step grid only in 2-Deck.
 - **Prep** shows deck 1 alone, for getting tracks ready (see [Prep](#prep)).
-  It isn't in the menu at first: add it in **Settings › Appearance › Layouts**.
 
 The button at the bottom left of the window hides the decks for a compact
 view in 2-Deck and 4-Deck.
@@ -115,25 +118,33 @@ view in 2-Deck and 4-Deck.
 ## Your layouts
 
 The layout menu offers only **your layouts**. At first that's Player,
-2-Deck, 2-Deck Pro and 4-Deck. To change them, click the small cog at the
-top right of the layout menu, or open **Settings › Appearance › Layouts**:
+2-Deck, 4-Deck and Prep, in that order. To change them, click the
+**pencil** at the top right of the layout menu. It turns the menu into a
+list of every layout, each with a switch, as the side panel tabs' and the
+library rail's choosers have:
 
-- **Your layouts** lists the layouts the menu offers, in its order, each
-  with a small drawing of it. **↑** and **↓** move one up or down; **−**
-  takes it out of the menu. The layout you're on can't be taken out.
-- **More layouts** shows the others as cards, each with a drawing and a
-  line on what it's for. **+ Add** puts one at the end of your layouts.
+- Switch a layout on to put it in the menu, or off to take it out. The
+  layout you're on, and the last one on, can't be switched off.
+- Drag a row by its grip (**⋮⋮**) to move it up or down the menu.
+- **Reset to default** goes back to Player, 2-Deck, 4-Deck and Prep.
 
-Click any row or card to switch to that layout straight away. A
-controller's VIEW button (on the DDJ-FLX4, **SHIFT** + right **LOAD**)
+Click the lit pencil to go back to the menu. **Settings › Appearance › Layouts** shows
+the same list with a small drawing of each layout: **↑** and **↓** move
+one of your layouts, **−** takes it out, and **+ Add** puts one of the
+others back.
+
+A controller's VIEW button (on the DDJ-FLX4, **SHIFT** + right **LOAD**)
 goes to the next of your layouts, and from the last back to the first.
-Prep, and layouts added to openDJ in later versions, start under More
-layouts.
+Layouts added to openDJ in later versions start switched off.
+
+In openDJ 0.6 **2-Deck** was called 2-Deck Pro, and **2-Deck Basic** was
+called 2-Deck. Your layouts carry over.
 
 ## Appearance
 
 **Settings › Appearance › Look** picks **Dark**, **Light** or **Match
-system**. Dark is the default. Light is easier to read in daylight and at
+system**, and so does the row at the foot of the layout menu (**Auto**
+there is Match system). Dark is the default. Light is easier to read in daylight and at
 outdoor gigs: panels, the library, buttons and Settings turn light, while
 the big waveforms and the overviews stay on black with their colours, as
 they read best there. Lilac text turns a deeper lilac so it stays readable

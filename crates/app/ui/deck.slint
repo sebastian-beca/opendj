@@ -1254,7 +1254,7 @@ export component Header inherits Rectangle {
     in property <bool> compact: false;
     // The deck number lit: a two-deck controller's side is on this deck.
     in property <bool> number-lit: false;
-    // The beat and phrase counter; 2-Deck leaves it out.
+    // The beat and phrase counter; 2-Deck Basic leaves it out.
     in property <bool> beat-counter: true;
     callback number-clicked();
     out property <length> overview-width: ov.width;
@@ -1327,7 +1327,11 @@ export component Header inherits Rectangle {
             HoverTip.shown = false;
         }
     }
-    height: compact ? 92px : 108px;
+    // The header's fixed height. A deck that hides the header sets its own
+    // height from this, never from preferred-height: that follows the
+    // overview image's pixel size, so the header grew with each render.
+    out property <length> fixed-height: compact ? 92px : 108px;
+    height: fixed-height;
     // Cover, title, info and overview share one black box.
     background: Theme.well;
 
@@ -1602,7 +1606,7 @@ export global PhraseView {
 
 // Deck actions that aren't controls.
 // Whether the pad grid shows in the decks (the PADS button in the top
-// bar). Hidden, 2-Deck keeps its tempo, loop and jog, and 4-Deck strips
+// bar). Hidden, 2-Deck Basic keeps its tempo, loop and jog, and 4-Deck strips
 // get shorter.
 export global PadsUi {
     in-out property <bool> visible: true;
@@ -5063,7 +5067,7 @@ component StripSolo inherits Rectangle {
     MapMark { key: root.group + ",solo"; }
 }
 
-// One strip of the Mixer deck (2-Deck), at almost the deck's full height:
+// One strip of the Mixer deck (2-Deck Basic), at almost the deck's full height:
 // a color bar, its name and the input box (its channels, a click opens
 // Settings › Audio); then a column with the peak readout (red over 0 dB),
 // TRIM, PAN and FX, and at its foot the number square (on, lilac, or off,
@@ -5514,7 +5518,7 @@ component LivePanel inherits Rectangle {
             ControlButton { group: "[Instrument1]"; key: "keyboard_pads"; text: "KEYS ON PADS"; tint: Theme.accent; width: 80px; height: 20px; font-size: 10px; }
         }
       }
-      // The notes it plays, on 2-Deck (4-Deck strips leave it out), beside
+      // The notes it plays, on 2-Deck Basic (4-Deck strips leave it out), beside
       // its scale, chord mode, arpeggiator and the octave the KEYBOARD pads play in.
       if live == 3: HorizontalLayout {
         spacing: 6px;
@@ -5778,7 +5782,7 @@ export component Deck inherits Rectangle {
 
         // A Mixer deck gives the header's room to its strips: a slim title
         // row instead.
-        header := Header { deck: deck; info: info; overview: overview; mirrored: mirrored; group: group; visible: !mixer; height: mixer ? 0px : self.preferred-height; }
+        header := Header { deck: deck; info: info; overview: overview; mirrored: mirrored; group: group; visible: !mixer; height: mixer ? 0px : self.fixed-height; }
         if mixer: MixerTitle { deck: deck; in-view: root.mixer-keys || root.mixer-groove-shown; }
 
         Rectangle {
@@ -5798,7 +5802,7 @@ export component Deck inherits Rectangle {
                 if mirrored: VDivider { }
                 if !mirrored: Pitch { group: group; info: info; tint: tint; }
                 if !mirrored: Rectangle { width: 12px; }
-                // 2-Deck Pro always shows the pads (PADS is for 2-Deck and
+                // 2-Deck always shows the pads (PADS is for 2-Deck Basic and
                 // 4-Deck).
                 Pads { deck: deck; group: group; info: info; horizontal-stretch: 1; }
                 if !mirrored: VDivider { }

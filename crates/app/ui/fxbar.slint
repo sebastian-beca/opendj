@@ -3,7 +3,7 @@
 // the middle, as wide as the mixer. An effect has its name (the list
 // under it picks another), ON, its length in beats (beat-synced effects)
 // or a slider for its second control (the others), and its D/W knob (the
-// effect's main knob, `meta`, which controllers turn too). In 2-Deck each
+// effect's main knob, `meta`, which controllers turn too). In 2-Deck Basic each
 // effect is a cell of two rows, the name stepped with arrows either side;
 // in 4-Deck each deck's three are stacked in one-line rows. The FX button
 // in the top bar shows and hides the bar.
@@ -360,7 +360,7 @@ component FxControls inherits HorizontalLayout {
     }
 }
 
-// 2-Deck: one effect as a cell of two rows, ‹ name ▾ › over its controls.
+// 2-Deck Basic: one effect as a cell of two rows, ‹ name ▾ › over its controls.
 component FxCell inherits Rectangle {
     // The effect unit and slot, from 0.
     in property <int> unit;
