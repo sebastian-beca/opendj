@@ -7,6 +7,7 @@
 - [x] 1.3 ⌘= / ⌘− / ⌘0, View menu items, controller controls on each deck group
 - [x] 1.4 Shader fades between detail levels while zooming
 - [x] 1.5 User guide: Waveform zoom in website/book/src/guide/decks.md
+- [x] 1.6 Twenty 5% steps, smooth wheel and trackpad zoom settling on the nearest step, one bar and one step readout on the waveform under the pointer
 
 ## Workflow follow-up
 
