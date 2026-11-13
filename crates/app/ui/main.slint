@@ -2230,15 +2230,17 @@ export component AppWindow inherits Window {
         }
 
         // Player's search results, under the box in the top bar. A click
-        // anywhere else closes them.
+        // anywhere else closes them; the wheel scrolls only the results.
         if player && QuickSearch.open && QuickSearch.text != "": TouchArea {
             y: 52px;
             height: root.height - 52px;
             clicked => { QuickSearch.open = false; }
+            scroll-event(e) => { accept }
         }
         if player && QuickSearch.open && QuickSearch.text != "": QuickResults {
             x: (root.width - self.width) / 2;
             y: 48px;
+            max-list-height: root.height - 48px - 60px;
         }
 
         if Tour.offer && Tour.mode == 0 && update-version == "": TourOffer {
