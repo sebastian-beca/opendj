@@ -239,7 +239,12 @@ export component ControlKnob inherits Rectangle {
         double-clicked => {
             Controls.reset(index);
         }
+        // Up and down turn it; a mostly sideways swipe goes on to what's
+        // behind (the Mixer's strips scroll sideways).
         scroll-event(e) => {
+            if e.delta-y == 0 || abs(e.delta-x / 1px) >= abs(e.delta-y / 1px) {
+                return reject;
+            }
             Controls.set-parameter(index, max(0, min(1, param + (e.delta-y > 0 ? 0.02 : -0.02))));
             accept
         }
