@@ -2039,6 +2039,9 @@ struct Resolved {
 fn bind_controls(app: &AppWindow, registry: Arc<ControlRegistry>) -> impl Fn() -> u64 {
     let handles: Rc<RefCell<Resolved>> = Default::default();
     let controls = app.global::<Controls>();
+    controls.set_rate_ranges(ModelRc::new(VecModel::from(
+        prefs::RATE_RANGES.map(|r| r as f32).to_vec(),
+    )));
     let get = {
         let handles = handles.clone();
         move |i: i32| -> Option<ControlHandle> { handles.borrow().handles.get(i as usize).cloned() }
@@ -2331,7 +2334,7 @@ impl Decks {
                 .map(|c| SharedString::from(audio_plugins::effect_name(c.get())))
                 .collect(),
         );
-        let range = format!("±{:.0}%", h.rate_range.get() * 100.0).into();
+        let range = format!("{:.0}%", h.rate_range.get() * 100.0).into();
         let rate = format!(
             "{:+.1}%",
             (speed(&h.rate, &h.rate_range, &h.rate_dir) - 1.0) * 100.0

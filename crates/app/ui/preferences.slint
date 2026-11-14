@@ -4,7 +4,8 @@
 // box above them finds an option on any page. Changes apply and are saved at
 // once: there is no OK or Apply.
 import { Theme, CloseIcon } from "theme.slint";
-import { ControlKnob } from "controls.slint";
+import { ControlKnob, Switch } from "controls.slint";
+export { Switch }
 import { AudioSettings, MenuField, OutputsTable, ExternalOutputsTable, InputsTable } from "mixer.slint";
 
 // One row of a settings page. The app builds the rows for the page shown,
@@ -201,31 +202,6 @@ component PageIcon inherits Path {
         : "M 6 3 L 6 12 M 6 16 L 6 21 M 12 3 L 12 6 M 12 10 L 12 21 M 18 3 L 18 9 M 18 13 L 18 21 M 4 12 L 8 12 L 8 16 L 4 16 Z M 10 6 L 14 6 L 14 10 L 10 10 Z M 16 9 L 20 9 L 20 13 L 16 13 Z";
 }
 
-// A switch.
-export component Switch inherits Rectangle {
-    in property <bool> on;
-    callback toggled(on: bool);
-    width: 38px;
-    height: 22px;
-    border-radius: 11px;
-    background: on ? Theme.accent : Theme.n-3a3a3e;
-    animate background { duration: 120ms; }
-    Rectangle {
-        x: on ? parent.width - self.width - 2px : 2px;
-        y: 2px;
-        width: 18px;
-        height: 18px;
-        border-radius: 9px;
-        background: Theme.n-f2f2f7;
-        drop-shadow-blur: 2px;
-        drop-shadow-color: Theme.s-00000060;
-        animate x { duration: 120ms; easing: ease-out; }
-    }
-    TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.toggled(!on); }
-    }
-}
 
 export component Button inherits Rectangle {
     in property <string> text;

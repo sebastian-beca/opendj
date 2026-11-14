@@ -24,6 +24,9 @@ export global Controls {
     callback set-value(index: int, value: float);
     callback toggle(index: int);
     callback reset(index: int);
+    // The tempo fader ranges, as fractions of normal speed (the same as
+    // Settings › Decks › Tempo fader range).
+    in property <[float]> rate-ranges;
     // True on the half-seconds a paused deck's PLAY outline shows:
     // only with a track loaded, all decks in step. blink and tick are
     // passed in so callers redraw when either changes.
@@ -948,5 +951,31 @@ export component MasterBadge inherits Rectangle {
             HoverTip.y = root.absolute-position.y + root.height + 6px;
             HoverTip.shown = true;
         }
+    }
+}
+
+// A switch.
+export component Switch inherits Rectangle {
+    in property <bool> on;
+    callback toggled(on: bool);
+    width: 38px;
+    height: 22px;
+    border-radius: 11px;
+    background: on ? Theme.accent : Theme.n-3a3a3e;
+    animate background { duration: 120ms; }
+    Rectangle {
+        x: on ? parent.width - self.width - 2px : 2px;
+        y: 2px;
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        background: Theme.n-f2f2f7;
+        drop-shadow-blur: 2px;
+        drop-shadow-color: Theme.s-00000060;
+        animate x { duration: 120ms; easing: ease-out; }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggled(!on); }
     }
 }
