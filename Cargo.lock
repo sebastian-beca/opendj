@@ -6625,7 +6625,7 @@ dependencies = [
 
 [[package]]
 name = "opendj"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -6673,7 +6673,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-broadcast"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "mp3lame-encoder",
@@ -6689,11 +6689,11 @@ dependencies = [
 
 [[package]]
 name = "opendj-control"
-version = "0.6.0"
+version = "0.7.0"
 
 [[package]]
 name = "opendj-controllers"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "hidapi",
@@ -6708,7 +6708,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-engine"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "beat-this",
  "chrono",
@@ -6738,7 +6738,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-export"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -6760,7 +6760,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-library"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "opendj-engine",
  "regex",
@@ -6770,7 +6770,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-osc"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "opendj-control",
  "rosc",
@@ -6778,7 +6778,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-plugin-host"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "block2 0.6.2",
  "clack-extensions",
@@ -6795,7 +6795,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-plugins"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "md5",
@@ -6813,7 +6813,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-remote"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "getrandom 0.4.3",
  "if-addrs",
@@ -6825,14 +6825,14 @@ dependencies = [
 
 [[package]]
 name = "opendj-script"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "opendj-control",
 ]
 
 [[package]]
 name = "opendj-separation"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "burn",
  "burn-ndarray",
@@ -6846,7 +6846,7 @@ dependencies = [
 
 [[package]]
 name = "opendj-test-clap"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "clack-extensions",
  "clack-plugin",
@@ -6854,14 +6854,14 @@ dependencies = [
 
 [[package]]
 name = "opendj-test-vst3"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "vst3",
 ]
 
 [[package]]
 name = "opendj-waveform"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "ab_glyph",
  "bytemuck",
@@ -7122,7 +7122,7 @@ dependencies = [
 
 [[package]]
 name = "phrase-bench"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "opendj-engine",
  "opendj-library",
@@ -9134,7 +9134,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stem-bench"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hound",
  "opendj-engine",

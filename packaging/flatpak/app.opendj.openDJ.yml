@@ -55,7 +55,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/openwave-studio/opendj.git
-        tag: v0.6.0
+        tag: v0.7.0
         # Filled in on submission; Flathub's bot updates tag and commit for
         # each new GitHub release.
         commit: 0000000000000000000000000000000000000000
