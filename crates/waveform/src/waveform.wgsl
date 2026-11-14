@@ -607,13 +607,15 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         } else {
             color = mix(wave(color, cols.a, bin, d, span), wave(color, cols.b, bin, d, span), cols.t);
         }
-        // Show vocals: the shape leans green where someone sings (the
-        // Stems look shows the vocals in their own colour already).
+        // Show vocals: the body of the shape (its RMS, not its peaks) leans
+        // green where someone sings, lightly, so the band colours still
+        // read through (the Stems look shows the vocals in their own
+        // colour already).
         if (p.vocal.w > 0.5 && p.style != 2u && !stems) {
             let v = vocal_at(bin);
             if (v > 0.0) {
-                let reach = height(mix(cols.a.peak.w, cols.b.peak.w, cols.t)) * span;
-                color = over(color, VOCAL_GREEN, v * 0.7 * fill(reach, d));
+                let reach = height(mix(cols.a.rms.w, cols.b.rms.w, cols.t)) * span;
+                color = over(color, VOCAL_GREEN, v * 0.45 * fill(reach, d));
             }
         }
     }
