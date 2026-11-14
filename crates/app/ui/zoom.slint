@@ -1,7 +1,7 @@
 // The large waveforms' zoom: twenty steps of 5%, shared by every large
 // waveform in every layout (Prep's included), set from the mouse wheel or
-// trackpad over a waveform, the bar at the outer edge of the waveform under
-// the pointer, ⌘= / ⌘− / ⌘0, the View menu and controllers. The app keeps
+// trackpad over a waveform, the bar down the right edge of the stacked
+// waveforms, ⌘= / ⌘− / ⌘0, the View menu and controllers. The app keeps
 // the step (waveform_zoom.rs) and glides the waveforms to it; the wheel,
 // trackpad and the bar's drag move it smoothly, settling on the nearest
 // step when they stop.
@@ -22,7 +22,7 @@ export global WaveZoom {
     // Counts each change, so the step can show a moment.
     in property <int> changes;
     // The deck group whose large waveform the pointer is over, or "": the
-    // zoom's bar and step show on that one only.
+    // zoom's bar shows while it is any, and its step on that one only.
     in-out property <string> hovered;
     // Asks the app for a step; it keeps it in range, saves it and tells
     // controllers.
@@ -43,12 +43,12 @@ export global WaveZoom {
     }
 }
 
-// The zoom's bar at a waveform's outer edge, away from its grid pencil: a
+// The zoom's bar down the right edge of all the large waveforms: a
 // light grey track, widest at the top, with a lilac marker where the zoom
 // is. Clicking the track moves the marker there; dragging moves the zoom
 // gently, a step for every 8 px whatever the bar's length, settling on the
 // nearest step on letting go.
-// It shows while the pointer is over the waveform (`shown`).
+// It shows while the pointer is over any of the waveforms (`shown`).
 export component ZoomBar inherits Rectangle {
     in property <bool> shown;
     // Whether the pointer is on the bar or dragging it.
