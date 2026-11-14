@@ -175,6 +175,9 @@ component Waveform inherits Rectangle {
     property <bool> loaded: Controls.value(duration-index, Controls.tick) > 0;
     // Decks on the right (2 and 4) keep the pencil in the right corner.
     property <bool> pencil-right: group == "[Channel2]" || group == "[Channel4]";
+    // Room kept clear at the right edge for the zoom's bar, which runs down
+    // the whole strip of waveforms.
+    property <length> zoom-room: 24px;
     property <float> press-position;
     property <bool> holding;
     // While the grid is dragged: whether it is, and how far it has moved.
@@ -278,25 +281,18 @@ component Waveform inherits Rectangle {
         now: WaveLyrics.now(lyrics-deck);
         visible-seconds: root.visible-seconds;
     }
-    // The zoom's bar at the left edge while the pointer is over this
-    // waveform, and its step a moment after it changes: on this waveform
-    // when the pointer is on it, else on the layout's top one, so it shows
+    // The pointer over this waveform shows the zoom's bar (at the right
+    // edge of the whole strip, beside every deck's waveform) and puts the
+    // zoom's step on this one a moment after it changes; with the pointer
+    // elsewhere, the step shows on the layout's top waveform, so it shows
     // once whatever the number of decks.
-    property <bool> pointer-here: wave-touch.has-hover || zoom-bar.active;
+    property <bool> pointer-here: wave-touch.has-hover;
     changed pointer-here => {
         if pointer-here {
             WaveZoom.hovered = group;
         } else if WaveZoom.hovered == group {
             WaveZoom.hovered = "";
         }
-    }
-    // At the outer edge away from the grid pencil, so it has the whole
-    // height even on short waveforms.
-    zoom-bar := ZoomBar {
-        x: pencil-right ? 0 : parent.width - self.width;
-        y: 0;
-        height: parent.height;
-        shown: wave-touch.has-hover;
     }
     ZoomReadout {
         x: 28px;
@@ -413,7 +409,7 @@ component Waveform inherits Rectangle {
     }
     // The pencil: dimmed until hovered, lit while editing.
     if loaded: Rectangle {
-        x: pencil-right ? parent.width - self.width - 5px : 5px;
+        x: pencil-right ? parent.width - self.width - zoom-room - 3px : 5px;
         y: parent.height - self.height - 5px;
         width: 24px;
         height: 22px;
@@ -524,7 +520,7 @@ component Waveform inherits Rectangle {
     }
     // The switch between the note roll and the macro lanes.
     if live-knobs: Rectangle {
-        x: parent.width - self.width - 6px;
+        x: parent.width - self.width - zoom-room - 3px;
         y: 4px;
         width: 24px;
         height: 18px;
@@ -2103,6 +2099,15 @@ export component AppWindow inherits Window {
                     Rectangle { height: 1px; background: Theme.border; }
                     Waveform { source: waveform-4; group: "[Channel4]"; info: decks[3]; vertical-stretch: 1; lyrics-deck: 3; }
                     Rectangle { height: 1px; background: Theme.border; }
+                }
+                // The zoom's bar, down the right edge of all the waveforms at
+                // once (Prep's one, not its key hints), while the pointer is
+                // over any of them or on the bar.
+                ZoomBar {
+                    x: parent.width - self.width;
+                    y: 0;
+                    height: prep ? max(0px, parent.height - 26px) : parent.height;
+                    shown: WaveZoom.hovered != "";
                 }
             }
 
