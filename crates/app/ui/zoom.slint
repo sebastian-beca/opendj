@@ -1,6 +1,6 @@
 // The large waveforms' zoom: twenty steps of 5%, shared by every large
 // waveform in every layout (Prep's included), set from the mouse wheel or
-// trackpad over a waveform, the bar down the right edge of the stacked
+// trackpad over a waveform, the bar down the left edge of the stacked
 // waveforms, ⌘= / ⌘− / ⌘0, the View menu and controllers. The app keeps
 // the step (waveform_zoom.rs) and glides the waveforms to it; the wheel,
 // trackpad and the bar's drag move it smoothly, settling on the nearest
@@ -43,7 +43,7 @@ export global WaveZoom {
     }
 }
 
-// The zoom's bar down the right edge of all the large waveforms: a
+// The zoom's bar down the left edge of all the large waveforms: a
 // light grey track, widest at the top, with a lilac marker where the zoom
 // is. Clicking the track moves the marker there; dragging moves the zoom
 // gently, a step for every 8 px whatever the bar's length, settling on the
