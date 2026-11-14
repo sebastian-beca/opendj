@@ -4957,7 +4957,11 @@ component StripMeter inherits Rectangle {
         }
         moved => { set-at(self.mouse-y); }
         double-clicked => { Controls.set-value(volume-index, 1); }
+        // Up and down move it; a mostly sideways swipe scrolls the strips.
         scroll-event(e) => {
+            if e.delta-y == 0 || abs(e.delta-x / 1px) >= abs(e.delta-y / 1px) {
+                return reject;
+            }
             let db = max(-range, fader-db) + (e.delta-y > 0 ? 1 : -1);
             Controls.set-value(volume-index, db <= -range ? 0 : min(1, pow(10, db / 20)));
             accept
