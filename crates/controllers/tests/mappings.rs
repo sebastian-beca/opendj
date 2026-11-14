@@ -1,4 +1,4 @@
-//! Runs Mixxx's mappings for the DDJ-FLX4, Xone K2 and MIDI Fighter Twister
+//! Runs mappings for the DDJ-400, DDJ-FLX4, Xone K2 and MIDI Fighter Twister
 //! against the real engine controls, feeding them MIDI as the hardware would,
 //! and checks that every bundled mapping loads.
 
@@ -45,6 +45,50 @@ fn settle(c: &mut Controller, ms: u64) {
     for i in 0..=ms {
         c.poll(start + Duration::from_millis(i));
     }
+}
+
+#[test]
+fn ddj_400_tempo_range_keeps_the_tempo() {
+    let reg = ControlRegistry::new();
+    let (mut engine, _input) = opendj_engine::engine::Engine::new(&reg, 44_100.0);
+    let path = default_mappings_dir()
+        .unwrap()
+        .join("Pioneer-DDJ-400.midi.xml");
+    let mut c = Controller::new("test", Mapping::load(&path).unwrap(), reg.clone()).unwrap();
+    assert!(c.errors().is_empty(), "{:?}", c.errors());
+    let ranges = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
+    // SHIFT + BEAT SYNC: note 0x60 on the deck's channel.
+    for (status, group, other) in [
+        (0x90, "[Channel1]", "[Channel2]"),
+        (0x91, "[Channel2]", "[Channel1]"),
+    ] {
+        let other_range = get(&reg, other, "rateRange");
+        for (i, old) in ranges.iter().copied().enumerate() {
+            let next = ranges[(i + 1) % ranges.len()];
+            reg.get(group, "rateRange").unwrap().set(old);
+            // +1% speed at the old range.
+            reg.get(group, "rate").unwrap().set(0.01 / old);
+            c.receive(&[status, 0x60, 0x7f]);
+            c.receive(&[status, 0x60, 0x00]);
+            assert_eq!(get(&reg, group, "rate_range_set"), next);
+            engine.process(&mut [0.0; 128], 2);
+            assert_eq!(get(&reg, group, "rateRange"), next);
+            assert!((get(&reg, group, "rate") * next - 0.01).abs() < 1e-12);
+            assert_eq!(get(&reg, other, "rateRange"), other_range);
+        }
+        // A range not in the list steps up to the next one.
+        reg.get(group, "rateRange").unwrap().set(0.25);
+        c.receive(&[status, 0x60, 0x7f]);
+        assert_eq!(get(&reg, group, "rate_range_set"), 0.50);
+        c.receive(&[status, 0x60, 0x00]);
+        // A second press before the audio thread applies the first.
+        c.receive(&[status, 0x60, 0x7f]);
+        assert_eq!(get(&reg, group, "rate_range_set"), 1.00);
+        c.receive(&[status, 0x60, 0x00]);
+        engine.process(&mut [0.0; 128], 2);
+        assert_eq!(get(&reg, group, "rateRange"), 1.00);
+    }
+    assert!(c.errors().is_empty(), "{:?}", c.errors());
 }
 
 #[test]

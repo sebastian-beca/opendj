@@ -111,7 +111,9 @@ PioneerDDJ400.beta = PioneerDDJ400.alpha/32;
 PioneerDDJ400.fastSeekScale = 150;
 PioneerDDJ400.bendScale = 0.8;
 
-PioneerDDJ400.tempoRanges = [0.06, 0.10, 0.16, 0.25];
+// SHIFT + BEAT SYNC steps through the same ranges as the deck's Range menu
+// and Settings.
+PioneerDDJ400.tempoRanges = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
 
 PioneerDDJ400.shiftButtonDown = [false, false];
 
@@ -445,16 +447,15 @@ PioneerDDJ400.syncLongPressed = function(channel, control, value, status, group)
 PioneerDDJ400.cycleTempoRange = function(_channel, _control, value, _status, group) {
     if (value === 0) { return; } // ignore release
 
-    const currRange = engine.getValue(group, "rateRange");
-    let idx = 0;
-
-    for (let i = 0; i < this.tempoRanges.length; i++) {
-        if (currRange === this.tempoRanges[i]) {
-            idx = (i + 1) % this.tempoRanges.length;
-            break;
-        }
-    }
-    engine.setValue(group, "rateRange", this.tempoRanges[idx]);
+    // rate_range_set keeps the tempo while the range changes. The audio
+    // thread applies it on the next buffer, so a quick second press reads
+    // the range still waiting there.
+    const currRange = engine.getValue(group, "rate_range_set") ||
+        engine.getValue(group, "rateRange");
+    // The next larger range, or the first after the last. A range not in
+    // the list (an older 25%, say) moves up rather than back to the start.
+    const next = this.tempoRanges.find(r => r > currRange + 1e-9);
+    engine.setValue(group, "rate_range_set", next === undefined ? this.tempoRanges[0] : next);
 };
 
 //
