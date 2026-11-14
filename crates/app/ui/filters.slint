@@ -5,6 +5,7 @@ import { LineEdit } from "std-widgets.slint";
 import { ScrollView } from "scroll.slint";
 import { Theme, CloseIcon } from "theme.slint";
 import { TourMark } from "tourmark.slint";
+import { CrateIcon } from "crate_icon.slint";
 
 export struct FilterChip {
     // The field: "genre", "tag1", "bpm".
@@ -24,6 +25,10 @@ export struct FilterChoice {
     on: bool,
     swatch: color,
     has-swatch: bool,
+    // A crate's icon (see CrateIcon), -1 for none, and its color, -1 for
+    // none.
+    icon: int,
+    icon-tint: int,
 }
 
 // A value the finder offers: "Mood · Dark 41".
@@ -591,6 +596,10 @@ export component FilterBar inherits Rectangle {
                             if c.has-swatch: VerticalLayout {
                                 alignment: center;
                                 Rectangle { width: 12px; height: 12px; border-radius: 6px; background: c.swatch; }
+                            }
+                            if c.icon >= 0: VerticalLayout {
+                                alignment: center;
+                                CrateIcon { icon: c.icon; tint: c.icon-tint; width: 16px; height: 16px; }
                             }
                             Text {
                                 text: c.label;

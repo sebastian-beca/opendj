@@ -30,6 +30,8 @@ pub enum Kind {
     Bpm,
     /// Keys, or those that mix with the playing track's.
     Key,
+    /// Pick crates; a track in any of them is in.
+    Crates,
     Rating,
     Color,
     Year,
@@ -67,6 +69,7 @@ pub fn fields(names: &FieldNames) -> Vec<Field> {
         ));
     }
     out.extend([
+        f("crate", "Crates", Kind::Crates),
         f("bpm", "BPM", Kind::Bpm),
         f("key", "Key", Kind::Key),
         f("rating", "Rating", Kind::Rating),
@@ -91,29 +94,52 @@ pub const SHORT_LIST: usize = 8;
 const RECENT: usize = 64;
 
 /// The chips on the bar when the DJ hasn't chosen.
-/// Genre, the DJ's tag groups (as many as there are), BPM and Key;
-/// Grouping and the rest wait under "+" › More.
-pub const DEFAULT_PINNED: [&str; 10] = [
-    "genre", "tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "bpm", "key",
+/// Genre, the DJ's tag groups (as many as there are), Crates, BPM and
+/// Key; Grouping and the rest wait under "+" › More.
+pub const DEFAULT_PINNED: [&str; 11] = [
+    "genre", "tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "crate", "bpm", "key",
 ];
+
+/// Puts the Crates chip on a bar saved before it existed, before BPM (or
+/// at the end), once: taken off later, it stays off.
+pub fn with_crates(mut pinned: Vec<String>) -> Vec<String> {
+    if !pinned.iter().any(|p| p == "crate") {
+        let at = pinned
+            .iter()
+            .position(|p| p == "bpm")
+            .unwrap_or(pinned.len());
+        pinned.insert(at, "crate".into());
+    }
+    pinned
+}
 
 /// Where "+" lists a field: 0 core, 1 the DJ's tag groups, 2 more.
 pub fn section(field: &Field) -> i32 {
     match (field.kind, field.id.as_str()) {
         (Kind::Tags(_), _) => 1,
-        (_, "genre" | "bpm" | "key" | "rating" | "color") => 0,
+        (_, "genre" | "crate" | "bpm" | "key" | "rating" | "color") => 0,
         _ => 2,
     }
 }
 
 /// One value a chip offers: what it says, the search it stands for, how
-/// many tracks of the list have it, and a color swatch for colors.
+/// many tracks of the list have it, a color swatch for colors, and a
+/// crate's look.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Choice {
     pub label: String,
     pub term: String,
     pub count: usize,
     pub swatch: Option<u32>,
+    pub look: Option<CrateLook>,
+}
+
+/// How a crate looks in the sidebar: its icon (an index into
+/// `LIST_ICONS`, 0 the crate's own) and the color it's drawn in.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CrateLook {
+    pub icon: usize,
+    pub color: Option<u32>,
 }
 
 /// What the bar is set to.
@@ -389,6 +415,8 @@ pub(super) struct FilterState {
     /// Values picked lately, newest first, as (field, search): they come
     /// first among values with as many tracks.
     recent: Vec<(String, String)>,
+    /// Each crate's icon and color, by its name in lowercase.
+    pub crate_looks: HashMap<String, CrateLook>,
 }
 
 impl FilterState {
@@ -409,6 +437,7 @@ impl FilterState {
             placed: Vec::new(),
             suggestions: Vec::new(),
             recent: Vec::new(),
+            crate_looks: HashMap::new(),
         }
     }
 
@@ -455,7 +484,7 @@ impl FilterState {
             .and_then(|id| self.field(id))
             .map(|f| f.kind)
         {
-            Some(Kind::Text | Kind::Tags(_)) => SHORT_LIST,
+            Some(Kind::Text | Kind::Tags(_) | Kind::Crates) => SHORT_LIST,
             Some(Kind::Key | Kind::Year) => usize::MAX,
             _ => return (self.choices.iter().collect(), 0),
         };
@@ -777,14 +806,25 @@ impl Browser {
             .filter(|(id, _)| *id == field.id)
             .map(|(_, t)| t.as_str())
             .collect();
-        let choices = linked_choices(
+        let mut choices = linked_choices(
             &field,
             tracks.iter().map(|&i| &*self.library[i]),
             left.iter().map(|&i| &*self.library[i]),
             &f.filters,
+            &self.crates,
             &recent,
             self.camelot,
         );
+        if field.kind == Kind::Crates {
+            for c in &mut choices {
+                c.look = (c.label != "(none)").then(|| {
+                    f.crate_looks
+                        .get(&c.label.to_lowercase())
+                        .copied()
+                        .unwrap_or_default()
+                });
+            }
+        }
         self.filter.choices = choices;
     }
 
@@ -801,7 +841,14 @@ impl Browser {
             .filter(|&&id| q.is_empty() || q.matches(&self.library[id], &self.indexed[id], &cx))
             .map(|&id| &*self.library[id])
             .collect();
-        self.filter.suggestions = suggestions(&f.fields, &left, &f.filters, text, self.camelot);
+        self.filter.suggestions = suggestions(
+            &f.fields,
+            &left,
+            &f.filters,
+            &self.crates,
+            text,
+            self.camelot,
+        );
         self.refresh_filter_ui();
     }
 
@@ -946,6 +993,12 @@ impl Browser {
                     slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
                 }),
                 has_swatch: c.swatch.is_some(),
+                icon: c.look.map_or(-1, |l| l.icon as i32),
+                icon_tint: c
+                    .look
+                    .and_then(|l| l.color)
+                    .and_then(|rgb| COLOR_NAMES.iter().position(|&(_, c)| c == rgb))
+                    .map_or(-1, |i| i as i32),
             })
             .collect();
         ui.set_choices(ModelRc::new(VecModel::from(choices)));
@@ -1016,6 +1069,7 @@ pub fn suggestions(
     fields: &[Field],
     tracks: &[&Track],
     filters: &Filters,
+    crates: &HashMap<usize, Vec<String>>,
     text: &str,
     camelot: bool,
 ) -> Vec<(String, Choice)> {
@@ -1025,10 +1079,10 @@ pub fn suggestions(
     }
     let mut out: Vec<(bool, String, Choice)> = Vec::new();
     for field in fields {
-        if !matches!(field.kind, Kind::Text | Kind::Tags(_)) {
+        if !matches!(field.kind, Kind::Text | Kind::Tags(_) | Kind::Crates) {
             continue;
         }
-        for c in choices(field, tracks.iter().copied(), filters, camelot) {
+        for c in choices(field, tracks.iter().copied(), filters, crates, camelot) {
             if c.count == 0 || c.label == "(none)" || filters.is_picked(&field.id, &c.term) {
                 continue;
             }
@@ -1057,18 +1111,19 @@ pub fn linked_choices<'a>(
     list: impl Iterator<Item = &'a Track>,
     left: impl Iterator<Item = &'a Track>,
     filters: &Filters,
+    crates: &HashMap<usize, Vec<String>>,
     recent: &[&str],
     camelot: bool,
 ) -> Vec<Choice> {
-    let mut out = choices(field, list, filters, camelot);
-    let counted = choices(field, left, filters, camelot);
+    let mut out = choices(field, list, filters, crates, camelot);
+    let counted = choices(field, left, filters, crates, camelot);
     for c in out.iter_mut() {
         c.count = counted
             .iter()
             .find(|x| x.term == c.term)
             .map_or(0, |x| x.count);
     }
-    if matches!(field.kind, Kind::Text | Kind::Tags(_)) {
+    if matches!(field.kind, Kind::Text | Kind::Tags(_) | Kind::Crates) {
         let rank = |c: &Choice| {
             (
                 c.label == "(none)",
@@ -1087,11 +1142,13 @@ pub fn linked_choices<'a>(
 }
 
 /// The values `field` can be set to, counted over `tracks`, with those
-/// already picked kept even when the list doesn't have them.
+/// already picked kept even when the list doesn't have them. `crates` has
+/// the crates each track is in, by track id.
 pub fn choices<'a>(
     field: &Field,
     tracks: impl Iterator<Item = &'a Track>,
     filters: &Filters,
+    crates: &HashMap<usize, Vec<String>>,
     camelot: bool,
 ) -> Vec<Choice> {
     let choice = |label: String, term: String| Choice {
@@ -1099,6 +1156,7 @@ pub fn choices<'a>(
         term,
         count: 0,
         swatch: None,
+        look: None,
     };
     let tracks: Vec<&Track> = tracks.collect();
     let count = |out: &mut Vec<Choice>, test: &dyn Fn(&Track, &Choice) -> bool| {
@@ -1107,12 +1165,15 @@ pub fn choices<'a>(
         }
     };
     let mut out: Vec<Choice> = match field.kind {
-        Kind::Text | Kind::Tags(_) | Kind::Year => {
+        Kind::Text | Kind::Tags(_) | Kind::Crates | Kind::Year => {
             // Distinct values, counted, in the case first seen.
             let mut seen: HashMap<String, (String, usize)> = HashMap::new();
             let mut none = 0;
             for t in &tracks {
-                let values = values_of(field, t);
+                let values = match field.kind {
+                    Kind::Crates => crates.get(&t.id).cloned().unwrap_or_default(),
+                    _ => values_of(field, t),
+                };
                 if values.is_empty() {
                     none += 1;
                 }
@@ -1305,6 +1366,10 @@ mod tests {
             .collect()
     }
 
+    fn no_crates() -> HashMap<usize, Vec<String>> {
+        HashMap::new()
+    }
+
     fn field<'a>(fields: &'a [Field], id: &str) -> &'a Field {
         fields.iter().find(|f| f.id == id).unwrap()
     }
@@ -1316,7 +1381,7 @@ mod tests {
         let mut f = Filters::default();
         let tags = field(&fields, "tag1");
         // Uplifting is on two tracks, so it goes first.
-        let all = linked_choices(tags, lib.iter(), lib.iter(), &f, &[], true);
+        let all = linked_choices(tags, lib.iter(), lib.iter(), &f, &no_crates(), &[], true);
         let labels: Vec<_> = all.iter().map(|c| (c.label.as_str(), c.count)).collect();
         assert_eq!(labels, [("uplifting", 2), ("bright", 1), ("lullaby", 1)]);
         // A recent pick goes first among values with as many tracks.
@@ -1326,12 +1391,20 @@ mod tests {
             .unwrap()
             .term
             .clone();
-        let again = linked_choices(tags, lib.iter(), lib.iter(), &f, &[&lullaby], true);
+        let again = linked_choices(
+            tags,
+            lib.iter(),
+            lib.iter(),
+            &f,
+            &no_crates(),
+            &[&lullaby],
+            true,
+        );
         assert_eq!(again[1].label, "lullaby");
         // Genre Ambient leaves tracks 1 and 2: lullaby and bright have one
         // each, uplifting one; nothing is dropped.
         let genre = field(&fields, "genre");
-        let ambient = choices(genre, lib.iter(), &f, true)
+        let ambient = choices(genre, lib.iter(), &f, &no_crates(), true)
             .into_iter()
             .find(|c| c.label == "Ambient")
             .unwrap();
@@ -1340,7 +1413,15 @@ mod tests {
             .iter()
             .filter(|t| find(&lib, &f.text_except(&fields, None, "tag1")).contains(&t.id))
             .collect();
-        let narrowed = linked_choices(tags, lib.iter(), left.into_iter(), &f, &[], true);
+        let narrowed = linked_choices(
+            tags,
+            lib.iter(),
+            left.into_iter(),
+            &f,
+            &no_crates(),
+            &[],
+            true,
+        );
         let labels: Vec<_> = narrowed
             .iter()
             .map(|c| (c.label.as_str(), c.count))
@@ -1385,7 +1466,8 @@ mod tests {
         // The default bar skips Grouping and tag groups the DJ hasn't got.
         let f = Filters::new(DEFAULT_PINNED.iter().map(|s| s.to_string()).collect(), 4);
         let shown: Vec<_> = f.shown(&fields).iter().map(|x| x.id.as_str()).collect();
-        assert_eq!(shown, ["genre", "tag1", "bpm", "key"]);
+        assert_eq!(shown, ["genre", "tag1", "crate", "bpm", "key"]);
+        assert_eq!(sec("crate"), 0);
     }
 
     #[test]
@@ -1395,7 +1477,7 @@ mod tests {
         let fields = fields(&FieldNames::default());
         let mut f = Filters::default();
         let found = |f: &Filters, text: &str| -> Vec<(String, String, usize)> {
-            suggestions(&fields, &tracks, f, text, true)
+            suggestions(&fields, &tracks, f, &no_crates(), text, true)
                 .into_iter()
                 .map(|(id, c)| (id, c.label, c.count))
                 .collect()
@@ -1406,7 +1488,7 @@ mod tests {
         // One letter is too little to suggest anything.
         assert!(found(&f, "a").is_empty());
         // A value already on the bar isn't offered again.
-        let pick = suggestions(&fields, &tracks, &f, "ambi", true).remove(0);
+        let pick = suggestions(&fields, &tracks, &f, &no_crates(), "ambi", true).remove(0);
         f.toggle(&pick.0, &pick.1);
         assert!(found(&f, "ambi").is_empty());
     }
@@ -1441,16 +1523,22 @@ mod tests {
         let lib = library();
         let fields = fields(&FieldNames::default());
         let f = Filters::default();
-        let grouping = choices(field(&fields, "grouping"), lib.iter(), &f, true);
+        let grouping = choices(
+            field(&fields, "grouping"),
+            lib.iter(),
+            &f,
+            &no_crates(),
+            true,
+        );
         let labels: Vec<_> = grouping
             .iter()
             .map(|c| (c.label.as_str(), c.count))
             .collect();
         assert_eq!(labels, [("2 ONS", 1), ("10 SONG", 1), ("(none)", 1)]);
-        let tags = choices(field(&fields, "tag1"), lib.iter(), &f, true);
+        let tags = choices(field(&fields, "tag1"), lib.iter(), &f, &no_crates(), true);
         let labels: Vec<_> = tags.iter().map(|c| (c.label.as_str(), c.count)).collect();
         assert_eq!(labels, [("bright", 1), ("lullaby", 1), ("uplifting", 2)]);
-        let keys = choices(field(&fields, "key"), lib.iter(), &f, true);
+        let keys = choices(field(&fields, "key"), lib.iter(), &f, &no_crates(), true);
         let labels: Vec<_> = keys.iter().map(|c| c.label.as_str()).collect();
         assert_eq!(labels, ["3B", "7A", "8A"]);
     }
@@ -1461,7 +1549,7 @@ mod tests {
         let fields = fields(&FieldNames::default());
         let mut f = Filters::default();
         let pick = |f: &mut Filters, id: &str, label: &str| {
-            let c = choices(field(&fields, id), lib.iter(), f, true)
+            let c = choices(field(&fields, id), lib.iter(), f, &no_crates(), true)
                 .into_iter()
                 .find(|c| c.label == label)
                 .unwrap();
@@ -1550,5 +1638,55 @@ mod tests {
         assert_eq!(ids(&f), ["bpm", "genre", "year", "key"]);
         f.clear_all(&fields);
         assert_eq!(ids(&f), ["bpm", "genre"]);
+    }
+
+    #[test]
+    fn crates_list_with_counts_and_match_any_picked() {
+        let lib = library();
+        let fields = fields(&FieldNames::default());
+        let crates_field = field(&fields, "crate");
+        let crates = HashMap::from([
+            (1, vec!["Yoga".to_string()]),
+            (2, vec!["Dance".to_string(), "Yoga".to_string()]),
+        ]);
+        let mut f = Filters::default();
+        let list = linked_choices(crates_field, lib.iter(), lib.iter(), &f, &crates, &[], true);
+        let labels: Vec<_> = list.iter().map(|c| (c.label.as_str(), c.count)).collect();
+        assert_eq!(labels, [("Yoga", 2), ("Dance", 1), ("(none)", 1)]);
+        // Any of the crates picked: a track in either is in.
+        f.toggle("crate", &list[0]);
+        f.toggle("crate", &list[1]);
+        let q = Query::parse(&f.text(&fields, None));
+        let names = crates.clone();
+        let cx = opendj_library::query::Context {
+            crates: Some(&names),
+            ..Default::default()
+        };
+        let found: Vec<usize> = lib
+            .iter()
+            .filter(|t| q.matches(t, &Indexed::new(t), &cx))
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(found, [1, 2]);
+        // Not in a crate.
+        f.picked.clear();
+        f.toggle("crate", &list[2]);
+        let q = Query::parse(&f.text(&fields, None));
+        assert!(lib
+            .iter()
+            .filter(|t| q.matches(t, &Indexed::new(t), &cx))
+            .map(|t| t.id)
+            .eq([3]));
+    }
+
+    #[test]
+    fn a_saved_bar_gets_crates_before_bpm() {
+        let v = |ids: &[&str]| ids.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            with_crates(v(&["genre", "bpm", "key"])),
+            v(&["genre", "crate", "bpm", "key"])
+        );
+        assert_eq!(with_crates(v(&["genre"])), v(&["genre", "crate"]));
+        assert_eq!(with_crates(v(&["crate", "genre"])), v(&["crate", "genre"]));
     }
 }
