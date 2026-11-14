@@ -239,7 +239,7 @@ pub fn file_info(path: &Path) -> FileInfo {
     let p = file.properties();
     FileInfo {
         format,
-        bitrate: p.audio_bitrate().or(p.overall_bitrate()).filter(|&b| b > 0),
+        bitrate: bitrate(p.audio_bitrate(), p.overall_bitrate()),
         sample_rate: p.sample_rate(),
         bit_depth: p.bit_depth(),
         channels: p.channels(),
@@ -247,9 +247,30 @@ pub fn file_info(path: &Path) -> FileInfo {
     }
 }
 
+/// The audio bitrate in kbps, or the whole file's when the audio one is
+/// off. A fragmented MP4 (as yt-dlp saves YouTube's M4A) has its audio in
+/// many `mdat` boxes and lofty counts only the first, so its audio bitrate
+/// comes out far too low ("5 kbps"); the file's size over its length is
+/// then nearer the truth.
+fn bitrate(audio: Option<u32>, overall: Option<u32>) -> Option<u32> {
+    match (audio.filter(|&b| b > 0), overall.filter(|&b| b > 0)) {
+        (Some(a), Some(o)) if a < o / 2 => Some(o),
+        (a, o) => a.or(o),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bitrate_falls_back_to_the_whole_file() {
+        assert_eq!(bitrate(Some(320), Some(325)), Some(320));
+        // A fragmented M4A: only the first fragment counted.
+        assert_eq!(bitrate(Some(5), Some(129)), Some(129));
+        assert_eq!(bitrate(None, Some(128)), Some(128));
+        assert_eq!(bitrate(Some(0), None), None);
+    }
 
     #[test]
     fn writes_and_reads_back_every_field() {

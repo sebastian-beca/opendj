@@ -743,7 +743,7 @@ impl Browser {
     }
 
     /// Every genre in the collection and how many tracks have it.
-    fn genre_counts(&self) -> BTreeMap<String, usize> {
+    pub(super) fn genre_counts(&self) -> BTreeMap<String, usize> {
         let mut out = BTreeMap::new();
         for t in self.library.iter().filter(|t| self.in_collection(t)) {
             let g = t.genre.trim();
