@@ -4,6 +4,7 @@
 //! 2, the gain) only in the library. It also has a preview player for the
 //! headphones, and finds and saves album art.
 
+use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use super::cleanup::{info_proposals, query_for, QueryFor};
@@ -32,7 +33,9 @@ const COVER_SIZE: u32 = 160;
 
 const TEXT: i32 = 0;
 const READ: i32 = 1;
-const READ_WITH_BUTTON: i32 = 4;
+/// A folder: its icon and name, the whole path on hover, and an arrow
+/// that shows the file in Finder or Explorer.
+const FOLDER: i32 = 6;
 /// A tag field: its tags as chips, and a box to add more.
 const CHIPS: i32 = 5;
 
@@ -178,6 +181,7 @@ fn field(id: &str, label: &str, value: impl Into<SharedString>, kind: i32) -> In
         mixed: 0,
         edited: false,
         chips: ModelRc::default(),
+        menu: false,
     }
 }
 
@@ -201,10 +205,32 @@ fn half(f: InfoField) -> InfoField {
     InfoField { half: true, ..f }
 }
 
-/// The info list for `t`, on three tabs: Track (the names, then genre,
-/// year and track number, tempo and key, gain), Tags (the DJ's tag groups,
-/// grouping and comment) and File (format, size, where it is, plays).
-/// Short fields share a line. The rating is in the panel's header.
+/// Where a downloaded or bought track came from, by where the app filed
+/// it: `<music>/Downloaded/<source>/…` ("YouTube download") or
+/// `<music>/Purchased/<store>/…` ("Bandcamp purchase").
+fn source_of(path: &Path) -> Option<String> {
+    let parts: Vec<String> = path
+        .parent()?
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    let at = parts
+        .iter()
+        .rposition(|p| p == "Downloaded" || p == "Purchased")?;
+    let name = parts.get(at + 1)?;
+    Some(if parts[at] == "Downloaded" {
+        format!("{name} download")
+    } else {
+        format!("{name} purchase")
+    })
+}
+
+/// The info list for `t`, on three tabs: Track (the names, then genre and
+/// year, tempo and key, gain and time, track number and plays, last
+/// played, two to a line), Tags (the DJ's tag
+/// groups, grouping and comment) and File (where it is, format, size, when
+/// it was added and where it came from).
+/// The rating is in the panel's header.
 fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
     let names = query::field_names();
     let text = |id: &str, label: &str, value: &str| field(id, label, value, TEXT);
@@ -221,17 +247,11 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
         text("artist", "ARTIST", &t.artist),
         text("remix", "REMIX", &t.info.remix),
         text("album", "ALBUM", &t.album),
-        text("genre", "GENRE", &t.genre),
+        half(InfoField {
+            menu: true,
+            ..text("genre", "GENRE", &t.genre)
+        }),
         half(text("year", "YEAR", &t.info.year)),
-        half(text(
-            "track_number",
-            "TRACK #",
-            &if t.info.track_number > 0 {
-                t.info.track_number.to_string()
-            } else {
-                String::new()
-            },
-        )),
         half(text("bpm", "BPM", &bpm)),
         half(InfoField {
             hint: "8A or Am".into(),
@@ -242,6 +262,22 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
             ..text("gain", "GAIN", &gain_text(t.info.gain_db))
         }),
         half(field("", "TIME", short_time(t.duration), READ)),
+        half(text(
+            "track_number",
+            "TRACK #",
+            &if t.info.track_number > 0 {
+                t.info.track_number.to_string()
+            } else {
+                String::new()
+            },
+        )),
+        half(field("", "PLAYS", t.info.play_count.to_string(), READ)),
+        half(field(
+            "",
+            "LAST PLAYED",
+            t.info.last_played.map(date_text).unwrap_or_default(),
+            READ,
+        )),
     ];
     // The DJ's tag groups, by the names they gave them.
     for g in &names.tags {
@@ -256,6 +292,34 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
     );
     let mut file = Vec::new();
     if let Source::File(path) = &t.source {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        file.push(field(
+            "",
+            "FILE",
+            if t.info.missing {
+                format!("{name} (missing)")
+            } else {
+                name
+            },
+            READ,
+        ));
+        if let Some(dir) = path.parent() {
+            file.push(InfoField {
+                hint: dir.to_string_lossy().into_owned().into(),
+                action: format!("Show in {file_manager}").into(),
+                ..field(
+                    "",
+                    "FOLDER",
+                    dir.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| dir.to_string_lossy().into_owned()),
+                    FOLDER,
+                )
+            });
+        }
         let f = if t.info.missing || is_cloud_only(path) {
             tags::FileInfo::default()
         } else {
@@ -283,39 +347,13 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
         if f.size > 0 {
             file.push(field("", "SIZE", size_text(f.size), READ));
         }
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        file.push(InfoField {
-            action: format!("Show in {file_manager}").into(),
-            ..field(
-                "",
-                "FILE",
-                if t.info.missing {
-                    format!("{name} (missing)")
-                } else {
-                    name
-                },
-                READ_WITH_BUTTON,
-            )
-        });
-        let folder = path
-            .parent()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        file.push(field("", "FOLDER", folder, READ));
     }
-    file.extend([
-        half(field("", "PLAYS", t.info.play_count.to_string(), READ)),
-        half(field("", "ADDED", date_text(t.info.added), READ)),
-        field(
-            "",
-            "LAST PLAYED",
-            t.info.last_played.map(date_text).unwrap_or_default(),
-            READ,
-        ),
-    ]);
+    file.push(field("", "ADDED", date_text(t.info.added), READ));
+    if let Source::File(path) = &t.source {
+        if let Some(from) = source_of(path) {
+            file.push(field("", "SOURCE", from, READ));
+        }
+    }
     out.extend(file.into_iter().map(|f| on(FILE_TAB, f)));
     out
 }
@@ -323,6 +361,16 @@ fn fields_of(t: &Track, camelot: bool, file_manager: &str) -> Vec<InfoField> {
 /// The fields of tab `tab`.
 fn shown_fields(fields: Vec<InfoField>, tab: i32) -> Vec<InfoField> {
     fields.into_iter().filter(|f| f.tab == tab).collect()
+}
+
+/// `counts` the most used first, then by name.
+fn most_used(counts: BTreeMap<String, usize>) -> Vec<(String, usize)> {
+    let mut out: Vec<(String, usize)> = counts.into_iter().collect();
+    out.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
+    });
+    out
 }
 
 /// The lines of the list: a short field and the one after it share a
@@ -337,7 +385,8 @@ fn lines(fields: Vec<InfoField>) -> Vec<InfoLine> {
             None
         };
         out.push(InfoLine {
-            two: b.is_some(),
+            // A short field on its own keeps to the left column.
+            two: a.half,
             a,
             b: b.unwrap_or_else(|| field("", "", "", READ)),
         });
@@ -1014,12 +1063,22 @@ impl Browser {
     }
 
     /// Offers the values the tracks shown have in field `id`.
+    /// With one track shown, a field with a menu (genre) offers every value
+    /// the collection has, the most used first.
     fn many_values(&mut self, id: &str) {
         let Some(f) = Field::from_name(id) else {
             return;
         };
-        let tracks: Vec<&Track> = self.info.many.iter().map(|(_, t)| &**t).collect();
-        let choices: Vec<ValueChoice> = values_of(&tracks, f)
+        let values = if self.info.many.is_empty() {
+            if id != "genre" {
+                return;
+            }
+            most_used(self.genre_counts())
+        } else {
+            let tracks: Vec<&Track> = self.info.many.iter().map(|(_, t)| &**t).collect();
+            values_of(&tracks, f)
+        };
+        let choices: Vec<ValueChoice> = values
             .into_iter()
             .map(|(value, count)| ValueChoice {
                 value: value.into(),
@@ -1460,8 +1519,19 @@ mod tests {
         assert_eq!(
             labels(TRACK_TAB),
             [
-                "TRACK", "ARTIST", "REMIX", "ALBUM", "GENRE", "YEAR", "TRACK #", "BPM", "KEY",
-                "GAIN", "TIME"
+                "TRACK",
+                "ARTIST",
+                "REMIX",
+                "ALBUM",
+                "GENRE",
+                "YEAR",
+                "BPM",
+                "KEY",
+                "GAIN",
+                "TIME",
+                "TRACK #",
+                "PLAYS",
+                "LAST PLAYED"
             ]
         );
         assert!(
@@ -1469,7 +1539,7 @@ mod tests {
             "the DJ's tags first"
         );
         assert!(labels(TAGS_TAB).ends_with(&["GROUPING".to_string(), "COMMENT".to_string()]));
-        assert!(labels(FILE_TAB).contains(&"PLAYS".to_string()));
+        assert_eq!(labels(FILE_TAB), ["ADDED"], "no file, so only when it came");
         let line = |label: &str| f.iter().find(|f| f.label == label).unwrap();
         assert_eq!(line("BPM").value, "100");
         assert_eq!(line("GAIN").value, "-1.5 dB");
@@ -1487,10 +1557,48 @@ mod tests {
             .collect();
         assert_eq!(
             pairs,
-            [("YEAR", "TRACK #"), ("BPM", "KEY"), ("GAIN", "TIME")]
-                .map(|(a, b)| (a.to_string(), b.to_string()))
+            [
+                ("GENRE", "YEAR"),
+                ("BPM", "KEY"),
+                ("GAIN", "TIME"),
+                ("TRACK #", "PLAYS"),
+                ("LAST PLAYED", "")
+            ]
+            .map(|(a, b)| (a.to_string(), b.to_string()))
         );
-        assert_eq!(l.len(), 8, "five long lines and three shared");
+        assert_eq!(l.len(), 9, "four long lines, then two columns");
+    }
+
+    #[test]
+    fn lists_a_file_where_it_is_then_what_it_is() {
+        let mut t = track();
+        t.source = Source::File("/m/Downloaded/YouTube/Bonobo - Kerala.m4a".into());
+        t.info.missing = true;
+        let f = shown_fields(fields_of(&t, true, "Finder"), FILE_TAB);
+        let labels: Vec<String> = f.iter().map(|f| f.label.to_string()).collect();
+        assert_eq!(
+            labels,
+            ["FILE", "FOLDER", "FORMAT", "AUDIO", "ADDED", "SOURCE"]
+        );
+        assert_eq!(f[1].value, "YouTube");
+        assert_eq!(f[1].hint, "/m/Downloaded/YouTube");
+        assert_eq!(f[1].kind, FOLDER);
+        assert_eq!(f[5].value, "YouTube download");
+    }
+
+    #[test]
+    fn source_comes_from_where_the_app_filed_it() {
+        let s = |p: &str| source_of(Path::new(p));
+        assert_eq!(
+            s("/m/Downloaded/Soulseek/a.flac").as_deref(),
+            Some("Soulseek download")
+        );
+        assert_eq!(
+            s("/m/Purchased/Bandcamp/Bonobo/Migration/03 Kerala.flac").as_deref(),
+            Some("Bandcamp purchase")
+        );
+        assert_eq!(s("/m/House/a.mp3"), None);
+        assert_eq!(s("/m/Downloaded/a.mp3"), None, "no source folder");
     }
 
     #[test]
