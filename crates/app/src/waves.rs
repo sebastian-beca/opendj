@@ -18,11 +18,6 @@ use opendj_engine::{OverviewSlice, Source, Track, Waveform};
 const WIDTH: usize = OVERVIEW_SLICES;
 const HEIGHT: usize = 44;
 
-/// How opaque the parts of a slice are: the list colours the image, so
-/// the body (RMS) shows in full colour and the peaks around it fainter.
-const BODY: f32 = 1.0;
-const PEAK: f32 = 0.42;
-
 pub struct Waves {
     requests: Sender<PathBuf>,
     found: Receiver<(PathBuf, Option<Vec<OverviewSlice>>)>,
@@ -142,14 +137,16 @@ fn image(overview: &[OverviewSlice]) -> slint::Image {
     let buf = pixels.make_mut_slice();
     let half = HEIGHT as f32 / 2.0;
     for x in 0..WIDTH {
+        // One solid shape, as on the deck waveforms: the body (RMS)
+        // doubled, never past the peaks, without a fainter peak outline.
         let [peak, rms] = overview[x * overview.len() / WIDTH];
-        let (peak, rms) = (peak as f32 / 255.0 * half, rms as f32 / 255.0 * half);
+        let rms = (2.0 * rms as f32).min(peak as f32) / 255.0 * half;
         for y in 0..HEIGHT {
             // How far this pixel's middle is from the centre line, and how
             // much of it each part covers, for soft edges.
             let d = (y as f32 + 0.5 - half).abs() - 0.5;
             let cover = |reach: f32| (reach - d).clamp(0.0, 1.0);
-            let a = (cover(rms) * BODY).max(cover(peak.max(0.5)) * PEAK);
+            let a = cover(rms.max(0.5));
             buf[y * WIDTH + x] = slint::Rgba8Pixel {
                 r: 255,
                 g: 255,
@@ -190,20 +187,20 @@ mod tests {
     }
 
     #[test]
-    fn draws_body_and_peaks_about_the_middle() {
+    fn draws_the_body_about_the_middle() {
         let quiet = [[0u8, 0]; 4];
-        let loud = [[255u8, 128]; 4];
+        let loud = [[255u8, 64]; 4];
         let alpha = |o: &[OverviewSlice], y: usize| {
             let img = image(o);
             let buf = img.to_rgba8().unwrap();
             buf.as_slice()[y * WIDTH].a
         };
-        // A silent track is a hairline; a loud one fills the height, the
-        // body solid and the peaks faint.
+        // A silent track is a hairline; a loud one's body (twice its RMS)
+        // is solid, with nothing drawn beyond it for the peaks.
         assert_eq!(alpha(&quiet, 0), 0);
         assert!(alpha(&quiet, HEIGHT / 2) > 0);
         assert_eq!(alpha(&loud, HEIGHT / 2), 255);
-        assert_eq!(alpha(&loud, 0), (PEAK * 255.0).round() as u8);
+        assert_eq!(alpha(&loud, 0), 0);
         assert_eq!(alpha(&loud, 1), alpha(&loud, HEIGHT - 2));
     }
 }

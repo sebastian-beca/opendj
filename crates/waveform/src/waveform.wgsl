@@ -335,6 +335,13 @@ fn height(v: f32) -> f32 {
     return clamp(pow(v, 0.8) * 0.94 * p.gain, 0.0, 1.0);
 }
 
+// The waveform is one solid shape: the RMS body, doubled so a loud track
+// fills about as much height as its peaks did, and never past the peaks.
+// Short hits no longer stick out as a fainter outline.
+fn body(rms: f32, peak: f32) -> f32 {
+    return min(rms * 2.0, peak);
+}
+
 // Coverage of a pixel by a filled shape that reaches `edge` (pixels from the centre).
 fn fill(edge: f32, d: f32) -> f32 {
     return clamp(edge - d + 0.5, 0.0, 1.0);
@@ -468,49 +475,37 @@ fn wave(base: vec3<f32>, s: Slice, bin: f32, d: f32, span: f32) -> vec3<f32> {
     var color = base;
     if (p.style == 2u) {
         // Mono: played in lilac, the mix zone in a dim lilac, the rest
-        // grey, as one solid shape (peaks slightly translucent).
+        // grey, as one solid shape (the RMS body, without a peak outline).
         var c = MONO_GREY;
         if (bin < p.play_bin) {
             c = MONO_LILAC;
         } else if (p.mix_end_bin > p.mix_start_bin && bin >= p.mix_start_bin && bin <= p.mix_end_bin) {
             c = MONO_MIX;
         }
-        let peak_h = height(s.peak.w) * span;
-        let rms_h = height(s.rms.w) * span;
-        color = over(color, c, fill(peak_h, d) * 0.45);
+        let rms_h = height(body(s.rms.w, s.peak.w)) * span;
         color = over(color, c, fill(rms_h, d));
     } else if (p.style == 3u) {
         // Blue: one shape, lighter where the highs are loud.
         let highs = clamp(s.rms.z / max(s.rms.w, 0.05) * 1.2, 0.0, 1.0);
         let c = mix(BLUE_BODY, BLUE_HIGHS, highs * 0.8);
-        let peak_h = height(s.peak.w) * span;
-        let rms_h = height(s.rms.w) * span;
-        color = over(color, c * 0.8, fill(peak_h, d) * 0.45);
+        let rms_h = height(body(s.rms.w, s.peak.w)) * span;
         color = over(color, c, fill(rms_h, d));
     } else if (p.style == 0u || p.style == 4u) {
         // RGB, and Stems for a track without them.
         let c = band_color(s);
-        let peak_h = height(s.peak.w) * span;
-        let rms_h = height(s.rms.w) * span;
-        // Peaks as a dim translucent outline, the RMS body solid and
-        // slightly brighter towards the centre.
-        color = over(color, c * 0.75, fill(peak_h, d) * 0.4);
+        let rms_h = height(body(s.rms.w, s.peak.w)) * span;
+        // One solid shape (the RMS body, without a peak outline), slightly
+        // brighter towards the centre.
         let shade = 0.82 + 0.18 * clamp(1.0 - d / max(rms_h, 1.0), 0.0, 1.0);
         color = over(color, c * shade, fill(rms_h, d));
     } else {
-        // Stacked bands: low widest at the back, each with its RMS body
-        // solid and its peaks translucent.
-        let lp = height(s.peak.x) * span;
-        let mp = height(s.peak.y) * span * 0.85;
-        let hp = height(s.peak.z) * span * 0.7;
-        let lr = height(s.rms.x) * span;
-        let mr = height(s.rms.y) * span * 0.85;
-        let hr = height(s.rms.z) * span * 0.7;
-        color = over(color, p.low_color.rgb, fill(lp, d) * 0.5);
+        // Stacked bands: low widest at the back, each its RMS body, solid
+        // (no peak outlines).
+        let lr = height(body(s.rms.x, s.peak.x)) * span;
+        let mr = height(body(s.rms.y, s.peak.y)) * span * 0.85;
+        let hr = height(body(s.rms.z, s.peak.z)) * span * 0.7;
         color = over(color, p.low_color.rgb, fill(lr, d) * 0.95);
-        color = over(color, p.mid_color.rgb, fill(mp, d) * 0.5);
         color = over(color, p.mid_color.rgb, fill(mr, d) * 0.9);
-        color = over(color, p.high_color.rgb, fill(hp, d) * 0.5);
         color = over(color, p.high_color.rgb, fill(hr, d) * 0.9);
     }
     return color;
@@ -607,14 +602,13 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         } else {
             color = mix(wave(color, cols.a, bin, d, span), wave(color, cols.b, bin, d, span), cols.t);
         }
-        // Show vocals: the body of the shape (its RMS, not its peaks) leans
-        // green where someone sings, lightly, so the band colours still
-        // read through (the Stems look shows the vocals in their own
-        // colour already).
+        // Show vocals: the shape leans green where someone sings, lightly,
+        // so the band colours still read through (the Stems look shows the
+        // vocals in their own colour already).
         if (p.vocal.w > 0.5 && p.style != 2u && !stems) {
             let v = vocal_at(bin);
             if (v > 0.0) {
-                let reach = height(mix(cols.a.rms.w, cols.b.rms.w, cols.t)) * span;
+                let reach = height(mix(body(cols.a.rms.w, cols.a.peak.w), body(cols.b.rms.w, cols.b.peak.w), cols.t)) * span;
                 color = over(color, VOCAL_GREEN, v * 0.45 * fill(reach, d));
             }
         }
