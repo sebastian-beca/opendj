@@ -9,7 +9,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use crate::analysis::{analyse, detect_key, Analyser, Analysis};
+use crate::analysis::{analyse, detect_key, Analyser, Analysis, TempoHint};
 use crate::beats::BeatGrid;
 use crate::beats::GridEdit;
 use crate::beatthis;
@@ -36,7 +36,7 @@ pub fn prepare(track: &Track) -> Result<Track, String> {
         Source::Synth { seed } => synth::render(track, *seed),
         Source::File(path) => decode(path)?,
     };
-    let analysis = analyse(&audio, tempo_hint(track));
+    let analysis = analyse(&audio, analysis_hint(track));
     if let Some(l) = analysis.loudness {
         audio.set_loudness(l);
     }
@@ -49,6 +49,15 @@ pub fn prepare(track: &Track) -> Result<Track, String> {
 /// got wrong would otherwise hold every later one to it, Beat This!'s too.
 fn tempo_hint(track: &Track) -> Option<f64> {
     (track.bpm > 0.0 && !track.info.grid_analysed).then_some(track.bpm)
+}
+
+/// What analysis is told about `track`: the tempo it keeps and the genre
+/// that picks the octave a detected tempo is read in.
+fn analysis_hint(track: &Track) -> TempoHint {
+    TempoHint {
+        bpm: tempo_hint(track),
+        genre: track.genre.clone(),
+    }
 }
 
 /// Whether `track`'s key is for analysis to find: it has none, or an
@@ -123,7 +132,10 @@ pub fn analyse_file(track: &Track, fresh: bool) -> Result<Track, String> {
         base.grid = BeatGrid::default();
     }
     // Afresh, the tempo is found without the library's as a hint.
-    let hint = tempo_hint(track).filter(|_| !fresh);
+    let hint = TempoHint {
+        bpm: tempo_hint(track).filter(|_| !fresh),
+        genre: track.genre.clone(),
+    };
     let cached = if fresh { None } else { cache::load(path) };
     let mut audio = None;
     let mut analysis = match cached {
@@ -136,7 +148,7 @@ pub fn analyse_file(track: &Track, fresh: bool) -> Result<Track, String> {
                     c.key_detector = detector;
                     c
                 }
-                None => analyse(decoded, hint),
+                None => analyse(decoded, hint.clone()),
             }
         }
     };
@@ -651,7 +663,7 @@ fn load(shared: &Arc<Shared>, deck: usize, generation: u64, base: &Track) -> Res
             }
             (Some(c), _) => c,
             (None, Some(a)) => {
-                let analysis = a.finish(tempo_hint(base));
+                let analysis = a.finish(analysis_hint(base));
                 if let Some(path) = path {
                     cache::store(path, &analysis);
                 }
@@ -683,7 +695,7 @@ fn load(shared: &Arc<Shared>, deck: usize, generation: u64, base: &Track) -> Res
         });
     }
     if let (Some(analysis), Some(path)) = (later.as_mut(), path) {
-        if let Err(e) = beatthis::refine(analysis, &audio, tempo_hint(base)) {
+        if let Err(e) = beatthis::refine(analysis, &audio, analysis_hint(base)) {
             eprintln!("no beats from Beat This!: {e}");
             return Ok(());
         }

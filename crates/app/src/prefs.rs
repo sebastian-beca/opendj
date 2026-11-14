@@ -1282,7 +1282,9 @@ impl Prefs {
                             "bpm_range",
                             MENU,
                             "BPM range",
-                            "Where tempos are looked for in newly analysed tracks.",
+                            "Where tempos are looked for in newly analysed tracks. \
+                             A track tagged with a genre known for its tempo, like \
+                             drum & bass or hip-hop, is read at that genre's tempo instead.",
                         )
                     },
                     PrefItem {

@@ -13,7 +13,7 @@ use std::sync::Mutex;
 
 use beat_this::{BeatThis, RtenRuntime, Runtime};
 
-use crate::analysis::{bpm_range, tag_tempo, Analysis};
+use crate::analysis::{tag_tempo, Analysis, TempoHint};
 use crate::beats::BeatGrid;
 use crate::gridfit;
 use crate::separation::model_or_fetch;
@@ -100,12 +100,19 @@ fn detect(audio: &Audio) -> Result<(Vec<f64>, Vec<f64>), String> {
 
 /// Gives `analysis` the grid Beat This!'s beats and downbeats fit, at the
 /// tempo of those beats folded into the BPM range (the DSP tempo can be
-/// far off on slow, soft music, so it isn't used). A tempo
-/// from tags (`bpm_hint`, as [`crate::analysis::analyse`] takes it) stays
-/// steady, with bar 1 moved onto a downbeat.
-pub fn refine(analysis: &mut Analysis, audio: &Audio, bpm_hint: Option<f64>) -> Result<(), String> {
+/// far off on slow, soft music, so it isn't used); the range is the
+/// track's genre's when it has a known one. A tempo from tags (in `hint`,
+/// as [`crate::analysis::analyse`] takes it) stays steady, with bar 1
+/// moved onto a downbeat.
+pub fn refine(
+    analysis: &mut Analysis,
+    audio: &Audio,
+    hint: impl Into<TempoHint>,
+) -> Result<(), String> {
+    let hint = hint.into();
+    let bpm_hint = hint.bpm;
     let (beats, downbeats) = detect(audio)?;
-    let (beats, bpm) = in_range(beats, &downbeats, bpm_range());
+    let (beats, bpm) = in_range(beats, &downbeats, hint.range());
     let fitted =
         gridfit::fit(&beats, Some(&downbeats), bpm).ok_or("too few beats to fit a grid")?;
     let grid = match tag_tempo(bpm_hint) {

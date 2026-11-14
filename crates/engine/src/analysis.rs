@@ -3,7 +3,8 @@
 //!
 //! The tempo detector works on an onset envelope (rises in bass energy and
 //! overall level, 200 per second). It picks the strongest autocorrelation
-//! lag in the tempo range (60 to 180 BPM unless set otherwise), then refines
+//! lag in the tempo range (60 to 180 BPM unless set otherwise, or the
+//! octave around the track's genre's tempo; see [`genre_range`]), then refines
 //! it to 0.01 BPM by folding the envelope at each candidate period and
 //! keeping the one whose beats line up best. When the beats then fit no
 //! steady grid, the spectral flux (rises across the whole spectrum) gets a
@@ -75,6 +76,119 @@ pub fn set_bpm_range(lo: f64, hi: f64) {
     let hi = hi.round().max((lo * 1.9).ceil()).min(400.0);
     BPM_RANGE.store(pack_range((lo, hi)), Ordering::Relaxed);
 }
+/// What analysis is told about a track before it listens: a tempo from tags
+/// (see [`tag_tempo`]) and the track's genre, which picks the octave
+/// tempos are read in (see [`genre_range`]). `None` and `Some(bpm)` convert
+/// to a hint without a genre.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TempoHint {
+    pub bpm: Option<f64>,
+    pub genre: String,
+}
+
+impl From<Option<f64>> for TempoHint {
+    fn from(bpm: Option<f64>) -> Self {
+        TempoHint {
+            bpm,
+            genre: String::new(),
+        }
+    }
+}
+
+impl TempoHint {
+    /// The tempo range to read this track's tempo in: its genre's, or the
+    /// one set with [`set_bpm_range`].
+    pub fn range(&self) -> (f64, f64) {
+        genre_range(&self.genre).unwrap_or_else(bpm_range)
+    }
+
+    /// The tempo the detector leans towards: the genre's, or 120 BPM.
+    fn prior(&self) -> f64 {
+        genre_tempo(&self.genre).unwrap_or(PRIOR_BPM)
+    }
+}
+
+/// Typical tempos of genres whose tempo is clear, as (words in the genre,
+/// tempo). The first match wins, so narrower genres come first. Genres that
+/// span many tempos (pop, rock, electronic, dance) aren't here.
+const GENRE_TEMPOS: &[(&[&str], f64)] = &[
+    (
+        &[
+            "drum & bass",
+            "drum and bass",
+            "drum n bass",
+            "drum'n'bass",
+            "dnb",
+            "d&b",
+            "jungle",
+            "neurofunk",
+        ],
+        172.0,
+    ),
+    (&["footwork", "juke"], 160.0),
+    (&["hardstyle", "rawstyle"], 150.0),
+    (&["gabber", "hardcore", "frenchcore"], 170.0),
+    (&["dubstep", "riddim", "brostep"], 140.0),
+    (&["grime"], 140.0),
+    (&["psytrance", "psy-trance", "psy trance", "goa"], 142.0),
+    (&["trance"], 136.0),
+    (&["uk garage", "2-step", "2 step", "speed garage"], 132.0),
+    (&["breakbeat", "breaks"], 130.0),
+    (&["techno"], 130.0),
+    (&["moombahton"], 108.0),
+    (&["reggaeton", "dembow", "dancehall"], 95.0),
+    (
+        &["hip hop", "hip-hop", "hiphop", "rap", "r&b", "rnb", "trap"],
+        90.0,
+    ),
+    (&["house", "garage", "disco", "big room", "electro"], 124.0),
+    (
+        &[
+            "ambient",
+            "downtempo",
+            "chillout",
+            "chill out",
+            "lounge",
+            "trip hop",
+            "trip-hop",
+            "lo-fi",
+            "lofi",
+        ],
+        85.0,
+    ),
+];
+
+/// The tempo range for tracks of `genre`: the octave around the genre's
+/// typical tempo, so half and double tempo readings fold to the one the
+/// genre is known by (drum & bass at 174 rather than 87, hip-hop at 90
+/// rather than 180). None for an unknown or empty genre.
+pub fn genre_range(genre: &str) -> Option<(f64, f64)> {
+    genre_tempo(genre).map(genre_range_of)
+}
+
+/// The typical tempo of `genre`, from [`GENRE_TEMPOS`].
+fn genre_tempo(genre: &str) -> Option<f64> {
+    let genre = genre.to_lowercase();
+    let has = |word: &str| {
+        genre.match_indices(word).any(|(i, _)| {
+            let before = genre[..i].chars().next_back();
+            let after = genre[i + word.len()..].chars().next();
+            // Whole words only, so "rap" isn't found in "trap" or "scraps".
+            !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
+        })
+    };
+    GENRE_TEMPOS
+        .iter()
+        .find(|(words, _)| words.iter().any(|w| has(w)))
+        .map(|&(_, tempo)| tempo)
+}
+
+/// The octave around `tempo`, in whole BPM.
+fn genre_range_of(tempo: f64) -> (f64, f64) {
+    let lo = (tempo / std::f64::consts::SQRT_2).round();
+    (lo, 2.0 * lo)
+}
+
 const PHASE_BINS: usize = 64;
 
 /// Per-slice accumulators: band peaks and sums of squares (low, mid, high, all).
@@ -100,12 +214,12 @@ pub fn tag_tempo(bpm_hint: Option<f64>) -> Option<f64> {
 
 /// Analyses decoded audio. A tempo from the file's tags, if any, is used
 /// instead of detection; the beat phase is always detected.
-pub fn analyse(audio: &Audio, bpm_hint: Option<f64>) -> Analysis {
+pub fn analyse(audio: &Audio, hint: impl Into<TempoHint>) -> Analysis {
     let mut a = Analyser::new(audio.sample_rate, audio.len());
     for chunk in audio.decoded_chunks() {
         a.feed(chunk);
     }
-    a.finish(bpm_hint)
+    a.finish(hint)
 }
 
 /// The key of decoded `audio` by `detector`, for a track whose other
@@ -219,7 +333,9 @@ impl Analyser {
     }
 
     /// Finishes the analysis: the final waveform, tempo and first beat.
-    pub fn finish(mut self, bpm_hint: Option<f64>) -> Analysis {
+    pub fn finish(mut self, hint: impl Into<TempoHint>) -> Analysis {
+        let hint = hint.into();
+        let (bpm_hint, range, prior) = (hint.bpm, hint.range(), hint.prior());
         // Drop the part of an over-estimated length that never came.
         let slices = (self.frames as f64 / self.slice_len).ceil().max(1.0) as usize;
         let bins = (self.frames as f64 / self.bin_len).ceil().max(1.0) as usize;
@@ -242,7 +358,7 @@ impl Analyser {
         let mut pick = match tag_tempo(bpm_hint) {
             // A tempo from tags is taken as steady.
             Some(bpm) => Pick::steady(&onset, bpm),
-            None => Pick::at(&onset, detect_bpm(&onset)),
+            None => Pick::at(&onset, detect_bpm(&onset, range, prior)),
         };
         // The bass and level can keep a rhythm that isn't the beat: a bass
         // line playing every beat and a half reads as two thirds of the
@@ -259,7 +375,7 @@ impl Analyser {
                 .zip(&flux)
                 .map(|(o, f)| o / sd_level + f / sd_flux)
                 .collect();
-            let bpm = detect_bpm(&both);
+            let bpm = detect_bpm(&both, range, prior);
             if bpm > 0.0 && (bpm / pick.bpm - 1.0).abs() > 0.01 {
                 let other = Pick::at(&onset, bpm);
                 if other.share > pick.share + SHARE_MARGIN {
@@ -498,8 +614,8 @@ fn fold(onset: &[f32], period: f64) -> (f64, f32) {
 const PRIOR_BPM: f64 = 120.0;
 const PRIOR_OCTAVES: f64 = 1.0;
 
-fn detect_bpm(onset: &[f32]) -> f64 {
-    let (min_bpm, max_bpm) = bpm_range();
+/// The tempo of `onset` in `(min_bpm, max_bpm)`, leaning towards `prior`.
+fn detect_bpm(onset: &[f32], (min_bpm, max_bpm): (f64, f64), prior: f64) -> f64 {
     let lag_of = |bpm: f64| ONSET_RATE * 60.0 / bpm;
     let (min_lag, max_lag) = (
         lag_of(max_bpm).floor() as usize,
@@ -526,9 +642,9 @@ fn detect_bpm(onset: &[f32]) -> f64 {
                 .sum();
             s += c / k as f32;
         }
-        // Lean towards tempos near 120 BPM, so a half-time reading only
+        // Lean towards tempos near the prior (120 BPM or the genre's), so a half-time reading only
         // wins when it is clearly stronger.
-        let octaves = (ONSET_RATE * 60.0 / lag as f64 / PRIOR_BPM).log2();
+        let octaves = (ONSET_RATE * 60.0 / lag as f64 / prior).log2();
         let w = (-0.5 * (octaves / PRIOR_OCTAVES).powi(2)).exp() as f32;
         let s = if s > 0.0 { s * w } else { s / w };
         if s > best.1 {
@@ -836,5 +952,61 @@ mod tests {
     fn uses_tag_tempo() {
         let audio = synth::render_with(126.0, 0.1, 20.0, 3);
         assert_eq!(analyse(&audio, Some(126.0)).bpm, 126.0);
+    }
+
+    #[test]
+    fn a_genre_picks_the_octave_its_tempo_is_known_by() {
+        assert_eq!(genre_range("Drum & Bass"), Some((122.0, 244.0)));
+        assert_eq!(genre_range("Liquid Drum and Bass"), Some((122.0, 244.0)));
+        assert_eq!(genre_range("Hip-Hop"), Some((64.0, 128.0)));
+        assert_eq!(genre_range("Dubstep"), Some((99.0, 198.0)));
+        assert_eq!(genre_range("Tech House"), Some((88.0, 176.0)));
+        assert_eq!(genre_range("Ambient"), Some((60.0, 120.0)));
+        assert_eq!(genre_range("Trap"), genre_range("Rap"));
+        // Whole words only: "rap" isn't found in "scraps".
+        assert_eq!(genre_range("Scraps"), None);
+        // Electronic isn't electro, and wide genres keep the set range.
+        assert_eq!(genre_range("Electronic"), None);
+        assert_eq!(genre_range("Pop"), None);
+        assert_eq!(genre_range(""), None);
+        // Every range is an octave, so each tempo has one place in it.
+        for (_, tempo) in GENRE_TEMPOS {
+            let (lo, hi) = genre_range_of(*tempo);
+            assert_eq!(hi, 2.0 * lo);
+            assert!((lo..hi).contains(tempo));
+        }
+        let hint = TempoHint {
+            bpm: None,
+            genre: "Pop".into(),
+        };
+        assert_eq!(hint.range(), bpm_range());
+    }
+
+    #[test]
+    fn a_genre_moves_the_tempo_detectors_lean() {
+        let hint = |genre: &str| TempoHint {
+            bpm: None,
+            genre: genre.into(),
+        };
+        assert_eq!(hint("").prior(), PRIOR_BPM);
+        assert_eq!(hint("Jungle").prior(), 172.0);
+        assert_eq!(hint("Hip Hop").prior(), 90.0);
+    }
+
+    #[test]
+    fn a_genre_folds_a_detected_tempo_into_its_octave() {
+        let audio = synth::render_with(87.0, 0.1, 20.0, 5);
+        let dnb = TempoHint {
+            bpm: None,
+            genre: "Drum & Bass".into(),
+        };
+        assert!((analyse(&audio, dnb).bpm - 174.0).abs() < 0.1);
+        assert!((analyse(&audio, None).bpm - 87.0).abs() < 0.1);
+        // A tempo from tags still wins.
+        let tagged = TempoHint {
+            bpm: Some(87.0),
+            genre: "Drum & Bass".into(),
+        };
+        assert_eq!(analyse(&audio, tagged).bpm, 87.0);
     }
 }
