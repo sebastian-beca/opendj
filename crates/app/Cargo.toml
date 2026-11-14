@@ -19,7 +19,7 @@ opendj-controllers = { path = "../controllers" }
 opendj-script = { path = "../script" }
 opendj-engine = { path = "../engine" }
 rtrb = "0.4"
-opendj-library = { version = "0.6.0", path = "../library" }
+opendj-library = { version = "0.7.0", path = "../library" }
 opendj-export = { path = "../export" }
 opendj-plugins = { path = "../plugins" }
 opendj-remote = { path = "../remote" }
