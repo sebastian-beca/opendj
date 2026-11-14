@@ -5272,7 +5272,7 @@ component MixerStrip inherits Rectangle {
                 }
                 if info.own-clock: VerticalLayout { alignment: center; ClockMark { } }
                 // The Groove Box or the instrument: its panel, in the Mixer
-                // deck (CHANNELS in the title comes back).
+                // deck (MIXER in the title comes back).
                 if info.view > 0: Rectangle {
                     width: 20px;
                     horizontal-stretch: 0;
@@ -5505,9 +5505,14 @@ component GrooveTitle inherits Rectangle {
 // cog and ⏏ (unload the deck) on the right.
 component MixerTitle inherits Rectangle {
     in property <int> deck;
-    // Showing a channel's panel (see InstrumentsUi.mixer-view): CHANNELS
-    // comes back to the strips.
+    // Showing a channel's panel (see InstrumentsUi.mixer-view): the title
+    // reads MIXER › its name, and a click on MIXER comes back to the strips.
     in property <bool> in-view;
+    // Which panel: 1 an instrument's (KEYS), 2 the Groove Box's.
+    in property <int> view;
+    property <int> instrument: InstrumentsUi.instrument();
+    property <string> view-name: view == 2 ? "GROOVE BOX"
+        : instrument > 0 && instrument <= EffectList.instruments.length ? EffectList.instruments[instrument - 1].to-uppercase() : "INSTRUMENT";
     title-picker := InputPicker { x: root.width - self.width - 8px; y: root.height; }
     property <bool> any-solo: Controls.value(Controls.resolve("[Auxiliary1]", "solo"), Controls.tick) > 0
         || Controls.value(Controls.resolve("[Auxiliary2]", "solo"), Controls.tick) > 0
@@ -5526,13 +5531,24 @@ component MixerTitle inherits Rectangle {
         padding-right: 8px;
         spacing: 8px;
         VerticalLayout { alignment: center; LiveIcon { kind: 7; tint: Theme.accent; size: 16px; } }
-        Text { text: "MIXER"; color: Theme.text; font-size: 12px; font-weight: 700; letter-spacing: 1px; vertical-alignment: center; }
+        Text {
+            text: "MIXER";
+            color: root.in-view && back.has-hover ? Theme.lilac-text : root.in-view ? Theme.text-dim : Theme.text;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            vertical-alignment: center;
+            back := TouchArea {
+                enabled: root.in-view;
+                mouse-cursor: root.in-view ? pointer : default;
+                clicked => { InstrumentsUi.mixer-view = 0; }
+            }
+        }
+        if root.in-view: Text { text: "›"; color: Theme.text-dim; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+        if root.in-view: VerticalLayout { alignment: center; LiveIcon { kind: root.view == 2 ? 1 : 2; tint: Theme.accent; size: 16px; } }
+        if root.in-view: Text { text: root.view-name; color: Theme.text; font-size: 12px; font-weight: 700; letter-spacing: 1px; vertical-alignment: center; overflow: elide; }
         Rectangle { horizontal-stretch: 1; }
         if any-solo: VerticalLayout { alignment: center; TitleButton { text: "CLEAR SOLO"; clicked => { InstrumentsUi.solo-alone(0); } } }
-        if root.in-view: VerticalLayout {
-            alignment: center;
-            TitleButton { text: "CHANNELS"; lit: true; clicked => { InstrumentsUi.mixer-view = 0; } }
-        }
         VerticalLayout {
             alignment: center;
             plus := TitleButton {
@@ -5963,7 +5979,7 @@ export component Deck inherits Rectangle {
         // A Mixer deck gives the header's room to its strips: a slim title
         // row instead.
         header := Header { deck: deck; info: info; overview: overview; mirrored: mirrored; group: group; visible: !mixer; height: mixer ? 0px : self.fixed-height; }
-        if mixer: MixerTitle { deck: deck; in-view: root.mixer-keys || root.mixer-groove-shown; }
+        if mixer: MixerTitle { deck: deck; in-view: root.mixer-keys || root.mixer-groove-shown; view: root.mixer-groove-shown ? 2 : root.mixer-keys ? 1 : 0; }
 
         Rectangle {
             background: Theme.panel;
