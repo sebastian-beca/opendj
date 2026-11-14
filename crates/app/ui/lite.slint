@@ -7,7 +7,7 @@
 // 2-Deck.
 import { Theme } from "theme.slint";
 import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter, SyncButton } from "controls.slint";
-import { DeckInfo, Header, Jog, LoopSection, Pads, PlayButton, TempoStep } from "deck.slint";
+import { DeckInfo, Header, Jog, LoopSection, Pads, PlayButton, TempoPanelMenu } from "deck.slint";
 import { Knob, ModeMenu, SideKnob } from "mixer.slint";
 import { TrackDrag } from "library.slint";
 import { InstrumentsUi } from "instruments.slint";
@@ -21,102 +21,7 @@ export global LiteUi {
     in-out property <bool> jogs: false;
 }
 
-// The BPM's menu in 2-Deck Basic: a short tempo slider with fine − and +, key
-// lock, quantize and reset, then Edit BPM (halve, double, tap) for a track
-// whose BPM was read wrong.
-component LiteTempoMenu inherits Rectangle {
-    in property <string> group;
-    in property <DeckInfo> info;
-    in property <color> tint;
-    in property <bool> mirrored;
-    property <int> rate-index: Controls.resolve(group, "rate");
-    height: 14px;
-    HorizontalLayout {
-        alignment: center;
-        spacing: 3px;
-        Text { text: info.rate; color: ta.has-hover ? Theme.text : Theme.text-dim; font-size: 10px; vertical-alignment: center; }
-        Path {
-            width: 6px;
-            height: 4px;
-            y: (parent.height - self.height) / 2;
-            commands: "M 0 0 L 3 3.5 L 6 0";
-            stroke: ta.has-hover ? Theme.text : Theme.text-dim;
-            stroke-width: 1.2px;
-            fill: transparent;
-        }
-    }
-    ta := TouchArea { mouse-cursor: pointer; clicked => { menu.show(); } }
-    menu := PopupWindow {
-        x: mirrored ? root.width - 230px + 40px : -40px;
-        y: root.height + 6px;
-        width: 230px;
-        close-policy: close-on-click-outside;
-        Rectangle {
-            background: Theme.panel-raised;
-            border-radius: Theme.radius + 2px;
-            border-width: 1px;
-            border-color: Theme.border;
-            drop-shadow-blur: 12px;
-            drop-shadow-color: Theme.s-000000a0;
-        }
-        VerticalLayout {
-            padding: 10px;
-            spacing: 8px;
-            HorizontalLayout {
-                Text { text: "TEMPO"; color: Theme.text-dim; font-size: 10px; font-weight: 700; }
-                Rectangle { horizontal-stretch: 1; }
-                Text { text: info.loaded ? info.bpm + "   " + info.rate : info.rate; color: Theme.text; font-size: 11px; font-family: "Inter Tabular"; }
-            }
-            HorizontalLayout {
-                spacing: 4px;
-                height: 24px;
-                TempoStep { group: group; key: "rate_perm_down_small"; text: "−"; tint: tint; y: (parent.height - self.height) / 2; }
-                ControlFader {
-                    horizontal-stretch: 1;
-                    height: 24px;
-                    group: group;
-                    key: "rate";
-                    vertical: false;
-                    center-mark: true;
-                    ticks: 9;
-                    tint: tint;
-                }
-                TempoStep { group: group; key: "rate_perm_up_small"; text: "+"; tint: tint; y: (parent.height - self.height) / 2; }
-            }
-            HorizontalLayout {
-                spacing: 6px;
-                ControlButton { group: group; key: "keylock"; text: "KEY LOCK"; tint: tint; fill-when-lit: true; font-size: 11px; height: 26px; horizontal-stretch: 1; }
-                ControlButton { group: group; key: "quantize"; text: "QUANTIZE"; tint: tint; fill-when-lit: true; font-size: 11px; height: 26px; horizontal-stretch: 1; }
-            }
-            Rectangle {
-                height: 26px;
-                border-radius: Theme.radius;
-                background: rta.pressed ? Theme.control-pressed : rta.has-hover ? Theme.n-1d1d20 : Theme.control;
-                border-width: 1px;
-                border-color: Theme.border;
-                Text { text: "RESET TEMPO"; color: Theme.text; font-size: 11px; font-weight: 700; }
-                rta := TouchArea { clicked => { Controls.set-value(rate-index, 0); } }
-            }
-            Rectangle { height: 1px; background: Theme.border; }
-            Text { text: "EDIT BPM"; color: Theme.text-dim; font-size: 10px; font-weight: 700; }
-            HorizontalLayout {
-                spacing: 6px;
-                ControlButton { group: group; key: "beats_scale_half"; text: "/2"; momentary: true; tint: tint; font-size: 12px; height: 26px; width: 44px; }
-                Rectangle {
-                    horizontal-stretch: 1;
-                    height: 26px;
-                    border-radius: Theme.radius;
-                    background: Theme.well;
-                    Text { text: info.loaded ? info.bpm : "--"; color: Theme.text; font-size: 13px; font-weight: 600; font-family: "Inter Tabular"; }
-                }
-                ControlButton { group: group; key: "beats_scale_double"; text: "x2"; momentary: true; tint: tint; font-size: 12px; height: 26px; width: 44px; }
-            }
-            ControlButton { group: group; key: "bpm_tap"; text: "TAP"; momentary: true; tint: tint; font-size: 11px; height: 26px; }
-        }
-    }
-}
-
-// SYNC and the BPM with its menu (LiteTempoMenu), nothing else, as on
+// SYNC and the BPM with its tempo panel (TempoPanelMenu), nothing else, as on
 // djay. Deck B is the mirror image.
 component LiteTempo inherits HorizontalLayout {
     in property <string> group;
@@ -129,14 +34,14 @@ component LiteTempo inherits HorizontalLayout {
         width: 64px;
         alignment: center;
         Text { text: info.loaded ? info.bpm : "--"; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; }
-        LiteTempoMenu { group: group; info: info; tint: tint; mirrored: true; }
+        TempoPanelMenu { group: group; info: info; tint: tint; mirrored: true; }
     }
     SyncButton { group: group; tint: tint; menu-right-aligned: mirrored; font-size: 14px; width: 72px; height: 38px; y: (parent.height - self.height) / 2; tour-id: group + ",sync_enabled"; }
     if !mirrored: VerticalLayout {
         width: 64px;
         alignment: center;
         Text { text: info.loaded ? info.bpm : "--"; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; }
-        LiteTempoMenu { group: group; info: info; tint: tint; }
+        TempoPanelMenu { group: group; info: info; tint: tint; }
     }
 }
 

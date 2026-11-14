@@ -9,7 +9,7 @@ import { TrackDrag } from "library.slint";
 import { InstrumentsUi } from "instruments.slint";
 import { Theme } from "theme.slint";
 import { ControlButton, ControlFader, Controls, Crossfader, CueHeadphones, StereoMeter, SyncButton } from "controls.slint";
-import { DeckInfo, Header, LiveStrip, LoopStepper, Pads, PadsUi, PlayButton, TempoStep } from "deck.slint";
+import { DeckInfo, Header, LiveStrip, LoopStepper, Pads, PadsUi, PlayButton, TempoRangeRow, TempoStep } from "deck.slint";
 import { AudioSettings, Knob, ModeMenu, SideKnob } from "mixer.slint";
 
 // Which side of the crossfader a deck is on, as Mixxx's `orientation`:
@@ -215,11 +215,16 @@ export component DeckStrip inherits Rectangle {
     }
 }
 
-// The tempo under its BPM: a click opens key lock, quantize and a reset.
+// The tempo under its BPM: a click opens key lock, quantize, a reset and
+// the fader's range.
 export component TempoMenu inherits Rectangle {
     in property <string> group;
     in property <string> rate;
+    // The fader's range as shown, e.g. "8%".
+    in property <string> range;
     in property <color> tint;
+    // Decks 2 and 4: the range list opens leftwards.
+    in property <bool> mirrored;
     property <int> rate-index: Controls.resolve(group, "rate");
     height: 14px;
     HorizontalLayout {
@@ -261,7 +266,7 @@ export component TempoMenu inherits Rectangle {
                 background: rta.pressed ? Theme.control-pressed : rta.has-hover ? Theme.n-1d1d20 : Theme.control;
                 border-width: 1px;
                 border-color: Theme.border;
-                Text { text: "RESET TEMPO"; color: Theme.text; font-size: 11px; font-weight: 700; }
+                Text { text: "RESET"; color: Theme.text; font-size: 11px; font-weight: 700; }
                 rta := TouchArea {
                     clicked => {
                         Controls.set-value(rate-index, 0);
@@ -269,6 +274,7 @@ export component TempoMenu inherits Rectangle {
                     }
                 }
             }
+            TempoRangeRow { group: group; range: range; mirrored: mirrored; }
         }
     }
 }
@@ -298,7 +304,7 @@ component DeckBarSection inherits Rectangle {
             width: 52px;
             alignment: center;
             Text { text: info.loaded ? info.bpm : "--"; color: Theme.text; font-size: 14px; font-weight: 600; horizontal-alignment: center; }
-            TempoMenu { group: group; rate: info.rate; tint: tint; }
+            TempoMenu { group: group; rate: info.rate; range: info.range; tint: tint; mirrored: right; }
         }
         VerticalLayout {
             alignment: center;

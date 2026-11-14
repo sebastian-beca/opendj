@@ -175,7 +175,7 @@ const STAGE_ICON_PREP: i32 = 11;
 const STAGE_ICON_READY: i32 = 19;
 
 /// Tempo fader ranges, as fractions of normal speed.
-const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
+pub(crate) const RATE_RANGES: [f64; 8] = [0.04, 0.06, 0.08, 0.10, 0.16, 0.24, 0.50, 1.00];
 const DEFAULT_RATE_RANGE: f64 = 0.08;
 /// Analysis tempo ranges, plus our default.
 const BPM_RANGES: [(f64, f64); 6] = [
@@ -1318,7 +1318,7 @@ impl Prefs {
                 let range = settings::number("rate_range", DEFAULT_RATE_RANGE);
                 let names: Vec<String> = RATE_RANGES
                     .iter()
-                    .map(|r| format!("±{}%", (r * 100.0).round()))
+                    .map(|r| format!("{}%", (r * 100.0).round()))
                     .collect();
                 let cue = settings::number("cue_mode", CUE_MODES[0]);
                 let mut items = Vec::new();
@@ -3066,7 +3066,9 @@ impl Prefs {
                     return;
                 };
                 settings::set("rate_range", json!(range));
-                self.each_deck("rateRange", range);
+                // Applied by the engine with the fader moved to keep each
+                // deck's tempo.
+                self.each_deck("rate_range_set", range);
             }
             "auto_gain_target" => {
                 let Some(&target) = AUTO_GAIN_TARGETS.get(index) else {

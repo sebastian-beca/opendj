@@ -10,10 +10,12 @@ doesn't pass file drops to openDJ yet.)
 
 In 2-Deck each deck runs, from the outer edge in:
 
-- **The tempo column**: **SYNC** on top, the tempo fader, and **−** and **+**
-  under it for small steps. The triangle beside the fader puts the tempo
-  back to the track's own. A lilac line down the fader means
-  [key lock](#keys) is on; right-click the fader to switch it.
+- **The tempo column**, as in djay Pro: **SYNC** on top, the BPM, the
+  tempo % (click it for the [tempo panel](#tempo-panel-and-range)), the
+  tempo fader, and **−** and **+** under it for small steps. The triangle
+  beside the fader puts the tempo back to the track's own. A lilac line
+  down the fader means [key lock](#keys) is on; right-click the fader to
+  switch it.
 - **The pads**, with their tabs on top (see [Pads](pads.md)).
 - **The LOOP column** (see [Looping](looping.md)).
 - **The jog wheel**, with **CUE** and **PLAY** under it, next to the mixer.
@@ -262,6 +264,25 @@ bend the deck you started last, the one you're mixing in.
 **Censor** plays the deck backwards while you hold it, then carries on as if
 it had played forwards, to bleep a word. Shift-click and hold PLAY while the
 deck plays, or hold SHIFT and PLAY on the DDJ-FLX4.
+
+## Tempo panel and range
+
+Click a deck's tempo % (under the BPM in 2-Deck and 2-Deck Basic, under
+the BPM in a 4-Deck strip) for its tempo menu. In 2-Deck and 2-Deck Basic
+it has a short tempo slider with fine **−** and **+**, **KEY LOCK**,
+**QUANTIZE** and **RESET**; in 4-Deck, **KEY LOCK**, **QUANTIZE** and
+**RESET**. **RESET** puts the tempo back to the track's own.
+
+**Range** at the bottom shows how far the tempo fader goes either way, and a
+click lists the ranges: **4%**, **6%**, **8%**, **10%**, **16%**, **24%**,
+**50%** and **100%**, the current one ticked. The new range applies to that
+deck straight away and the tempo stays where it is: the fader moves to
+match, or goes to its end when the tempo doesn't fit the new range.
+**Settings › Decks › Tempo fader range** sets the range every deck starts
+with, and changing it there also changes every deck's range the same way.
+Custom controller mappings can set a deck's range the same way with
+**rate_range_set** (for example `0.16` for 16%); **rateRange** stays Mixxx's
+raw range control.
 
 ## Sync and quantize
 
