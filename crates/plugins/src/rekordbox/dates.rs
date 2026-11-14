@@ -3,8 +3,9 @@
 //! on any other, or on NULL ("Error deserializing field 'updated_at'").
 //! Libraries that went through older rekordbox versions, migrations or other
 //! tools can hold other spellings. When a library has any, it's opened from a
-//! private copy whose timestamps are rewritten into rbox's format; the DJ's
-//! own `master.db` is never written.
+//! private copy whose timestamps are rewritten into rbox's format, and whose
+//! NULLs in columns rbox can't read empty are filled (see [`super::nulls`]);
+//! the DJ's own `master.db` is never written.
 
 use std::path::{Path, PathBuf};
 
@@ -66,9 +67,13 @@ fn odd_rows(table: &str, column: &str) -> String {
     )
 }
 
-/// Whether any date in the library is one rbox can't read.
+/// Whether any date in the library is one rbox can't read, or a column rbox
+/// reads as never empty holds a NULL.
 pub fn needs_fixing(path: &Path) -> rusqlite::Result<bool> {
     let c = connect(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    if super::nulls::any(&c)? {
+        return Ok(true);
+    }
     for (t, col) in date_columns(&c)? {
         let mut q = c.prepare(&format!("{} LIMIT 1", odd_rows(&t, col)))?;
         if q.exists([])? {
@@ -78,8 +83,8 @@ pub fn needs_fixing(path: &Path) -> rusqlite::Result<bool> {
     Ok(false)
 }
 
-/// Rewrites every date rbox can't read in the (copied) library at `path`.
-/// Returns how many it changed.
+/// Rewrites every date rbox can't read in the (copied) library at `path`,
+/// and fills the NULLs rbox can't read. Returns how many values it changed.
 pub fn fix(path: &Path) -> rusqlite::Result<usize> {
     let c = connect(
         path,
@@ -106,6 +111,7 @@ pub fn fix(path: &Path) -> rusqlite::Result<usize> {
             changed += update.execute(rusqlite::params![normalise(&v), rowid])?;
         }
     }
+    changed += super::nulls::fill(&tx)?;
     tx.commit()?;
     Ok(changed)
 }
@@ -329,6 +335,51 @@ mod tests {
         drop(db);
         drop(copy);
         assert!(!copied.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    /// A library with NULLs where rbox wants a value (issue #699): the copy
+    /// reads in rbox, the DJ's file is left as it was.
+    #[test]
+    fn opens_a_library_with_nulls_through_a_copy() {
+        let dir = std::env::temp_dir().join(format!("opendj-rb-nulls-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("master.db");
+        {
+            let c = connect(
+                &path,
+                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+            )
+            .unwrap();
+            c.execute_batch(
+                "CREATE TABLE djmdColor (ID VARCHAR(255) PRIMARY KEY, ColorCode INTEGER,
+                    SortKey INTEGER, Commnt VARCHAR(255), UUID VARCHAR(255),
+                    rb_data_status INTEGER DEFAULT 0, rb_local_data_status INTEGER DEFAULT 0,
+                    rb_local_deleted TINYINT(1) DEFAULT 0, rb_local_synced TINYINT(1) DEFAULT 0,
+                    usn BIGINT DEFAULT NULL, rb_local_usn BIGINT DEFAULT NULL,
+                    created_at DATETIME, updated_at DATETIME);
+                 INSERT INTO djmdColor VALUES
+                    ('1', 16711935, 1, 'Pink', NULL, NULL, 0, NULL, 0, 1, 1,
+                     '2020-12-11 02:05:01.385 +00:00', '2020-12-11 02:05:01.385 +00:00'),
+                    ('2', 16711680, 2, 'Red', 'b', 0, 0, 0, 0, 2, 2,
+                     '2020-12-11 02:05:01.385 +00:00', '2020-12-11 02:05:01.385 +00:00');",
+            )
+            .unwrap();
+        }
+        let before = std::fs::read(&path).unwrap();
+        // rbox alone can't read it.
+        assert!(rbox_masterdb::MasterDb::new(&path)
+            .unwrap()
+            .get_colors()
+            .is_err());
+        assert!(needs_fixing(&path).unwrap());
+        let copy = FixedCopy::of(&path).unwrap();
+        assert!(!needs_fixing(&copy.db).unwrap());
+        let mut db = rbox_masterdb::MasterDb::new(&copy.db).unwrap();
+        assert_eq!(db.get_colors().unwrap().len(), 2);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        drop(db);
+        drop(copy);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
