@@ -4040,18 +4040,6 @@ component GrooveBox inherits Rectangle {
     in property <int> deck;
     in property <string> group;
     in property <color> tint;
-    // The Groove Box is the deck (not a Mixer channel's), so it covers the
-    // header and its cover's ⏏: one at the end of its bottom bar instead.
-    in property <bool> ejectable;
-    property <bool> playing: Controls.value(Controls.resolve(group, "play"), Controls.tick) > 0;
-    // The ⏏'s tooltip is up: it goes when the ⏏ does.
-    property <bool> eject-tip;
-    changed playing => {
-        if playing && eject-tip {
-            eject-tip = false;
-            HoverTip.shown = false;
-        }
-    }
     property <string> g: "[Groove" + (deck + 1) + "]";
     property <int> tab: 0;
     property <bool> four: false;
@@ -4268,38 +4256,6 @@ component GrooveBox inherits Rectangle {
         HorizontalLayout {
             spacing: 4px;
             GrooveFillBar { g: g; tint: tint; four <=> four; horizontal-stretch: 1; }
-            // Unload the deck; not while the Groove Box plays.
-            if ejectable && !playing: Rectangle {
-                width: 30px;
-                height: 26px;
-                border-radius: Theme.radius;
-                border-width: 1px;
-                border-color: geta.has-hover ? Theme.accent : Theme.border;
-                background: geta.pressed ? Theme.control-pressed : Theme.control;
-                EjectMark { width: 12px; height: 12px; fill: geta.has-hover ? Theme.lilac-text : Theme.text; }
-                geta := TouchArea {
-                    mouse-cursor: pointer;
-                    changed has-hover => {
-                        if self.has-hover {
-                            HoverTip.title = "Unload deck";
-                            HoverTip.body = "";
-                            HoverTip.right-aligned = true;
-                            HoverTip.x = self.absolute-position.x + self.width;
-                            HoverTip.y = self.absolute-position.y - 34px;
-                            HoverTip.shown = true;
-                            eject-tip = true;
-                        } else {
-                            eject-tip = false;
-                            HoverTip.shown = false;
-                        }
-                    }
-                    clicked => {
-                        eject-tip = false;
-                        HoverTip.shown = false;
-                        DeckActions.eject(deck);
-                    }
-                }
-            }
         }
     }
 }
@@ -5463,6 +5419,8 @@ component TitleButton inherits Rectangle {
     in property <string> icon;
     // On: lilac, as the deck's lit buttons.
     in property <bool> lit;
+    // A hover tip's title, right-aligned under the button's right edge.
+    in property <string> tip;
     callback clicked();
     height: 18px;
     min-width: 22px;
@@ -5488,7 +5446,58 @@ component TitleButton inherits Rectangle {
             commands: icon;
         }
     }
-    ta := TouchArea { clicked => { root.clicked(); } }
+    ta := TouchArea {
+        changed has-hover => {
+            if root.tip != "" && self.has-hover {
+                HoverTip.title = root.tip;
+                HoverTip.body = "";
+                HoverTip.right-aligned = true;
+                HoverTip.x = self.absolute-position.x + self.width;
+                HoverTip.y = self.absolute-position.y + self.height + 4px;
+                HoverTip.shown = true;
+            } else if root.tip != "" && HoverTip.title == root.tip {
+                HoverTip.shown = false;
+            }
+        }
+        clicked => {
+            if root.tip != "" {
+                HoverTip.shown = false;
+            }
+            root.clicked();
+        }
+    }
+}
+
+// A Groove Box deck's slim title, as the Mixer's (see MixerTitle): GROOVE
+// BOX on the left, ⏏ (unload the deck) on the right while it is stopped.
+component GrooveTitle inherits Rectangle {
+    in property <int> deck;
+    in property <string> group;
+    property <bool> playing: Controls.value(Controls.resolve(group, "play"), Controls.tick) > 0;
+    // The ⏏ goes while the Groove Box plays: so does its tip.
+    changed playing => {
+        if playing && HoverTip.title == "Unload deck" {
+            HoverTip.shown = false;
+        }
+    }
+    height: 26px;
+    background: Theme.panel;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 8px;
+        spacing: 8px;
+        VerticalLayout { alignment: center; LiveIcon { kind: 1; tint: Theme.accent; size: 16px; } }
+        Text { text: "GROOVE BOX"; color: Theme.text; font-size: 12px; font-weight: 700; letter-spacing: 1px; vertical-alignment: center; }
+        Rectangle { horizontal-stretch: 1; }
+        if !playing: VerticalLayout {
+            alignment: center;
+            TitleButton {
+                icon: "M 5 13 L 12 5 L 19 13 Z M 5 18.5 L 19 18.5";
+                tip: "Unload deck";
+                clicked => { DeckActions.eject(root.deck); }
+            }
+        }
+    }
 }
 
 // A Mixer deck's slim title in place of the deck header: MIXER with its
@@ -5546,6 +5555,7 @@ component MixerTitle inherits Rectangle {
             alignment: center;
             TitleButton {
                 icon: "M 5 13 L 12 5 L 19 13 Z M 5 18.5 L 19 18.5";
+                tip: "Unload deck";
                 clicked => { DeckActions.eject(root.deck); }
             }
         }
@@ -5985,8 +5995,15 @@ export component Deck inherits Rectangle {
         }
     }
 
-    // A Groove Box has no waveform or jog: it takes the whole deck.
-    if groove: GrooveBox { width: parent.width; height: parent.height; deck: deck; group: group; tint: tint; ejectable: true; }
+    // A Groove Box has no waveform or jog: it takes the whole deck under a
+    // slim title, as the Mixer's.
+    if groove: VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        spacing: 1px;
+        GrooveTitle { deck: deck; group: group; }
+        GrooveBox { vertical-stretch: 1; deck: deck; group: group; tint: tint; }
+    }
 
     // Drop target for tracks dragged from the browser. While any drag is in
     if TrackDrag.active || InstrumentsUi.dragging || TrackDrag.files-over || drop.has-drag: Rectangle {
