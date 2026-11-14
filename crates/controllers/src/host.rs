@@ -1349,6 +1349,43 @@ mod tests {
     }
 
     #[test]
+    fn soft_takeover_does_not_snap_back_after_an_outside_move() {
+        let mut h = host();
+        h.soft_takeover("[Channel1]", "rate", true);
+        // The fader sits where the control is: taken.
+        h.set_parameter("[Channel1]", "rate", 0.5);
+        assert_eq!(h.control(1, "rate").get(), 0.0);
+        // Something else moves the control within the grace period (a range
+        // change, reset on load, sync, the mouse).
+        h.control(1, "rate").set(-0.5);
+        // The hardware's next message is stale: it must not snap it back.
+        h.set_parameter("[Channel1]", "rate", 0.52);
+        assert_eq!(h.control(1, "rate").get(), -0.5);
+        // Reaching the new position picks it up again.
+        h.set_parameter("[Channel1]", "rate", 0.24);
+        assert!((h.control(1, "rate").get() + 0.52).abs() < 1e-9);
+        // And fast moves from there are followed straight away.
+        h.set_parameter("[Channel1]", "rate", 0.9);
+        assert!((h.control(1, "rate").get() - 0.8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_synced_follower_still_follows_its_tempo_fader() {
+        let mut h = host();
+        h.soft_takeover("[Channel1]", "rate", true);
+        h.set_parameter("[Channel1]", "rate", 0.5);
+        // Sync rewrites the follower's rate every buffer, drifting a hair
+        // from what the fader set.
+        h.control(1, "rate").set(0.003);
+        // A fast fader move straight after is still followed.
+        h.set_parameter("[Channel1]", "rate", 0.7);
+        assert!((h.control(1, "rate").get() - 0.4).abs() < 1e-9);
+        h.control(1, "rate").set(0.401);
+        h.set_parameter("[Channel1]", "rate", 0.9);
+        assert!((h.control(1, "rate").get() - 0.8).abs() < 1e-9);
+    }
+
+    #[test]
     fn soft_takeover_waits_for_the_knob_to_catch_up() {
         let mut h = host();
         h.soft_takeover("[Channel1]", "pregain", true);

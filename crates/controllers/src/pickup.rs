@@ -20,6 +20,9 @@ pub const THRESHOLD: f64 = 3.0 / 128.0;
 /// A value this soon after the last one taken is always taken: a fast move
 /// can jump past the value between two messages.
 const OVERRIDE: Duration = Duration::from_millis(50);
+/// How far a control may drift from the value last taken from the hardware
+/// (rounding on the way through the engine) and still count as unmoved.
+const MOVED: f64 = 1e-6;
 
 /// Where a controller's knob or fader is, by the control it moves.
 struct Position {
@@ -118,6 +121,10 @@ pub(crate) fn always_jumps(key: &ConfigKey) -> bool {
 /// One knob or fader's pick-up (Mixxx's soft takeover, plus Scale).
 pub(crate) struct Takeover {
     time: Option<Instant>,
+    /// The last value taken from this hardware. The fast-move grace period
+    /// only applies while the control still sits there: once something else
+    /// moved it (range change, reset on load, sync, mouse), pick-up applies.
+    accepted: Option<f64>,
     /// The hardware's last position, once it sent one.
     prev: Option<f64>,
     /// Set by `softTakeoverIgnoreNextValue` and initially.
@@ -132,6 +139,7 @@ impl Takeover {
     pub(crate) fn new() -> Self {
         Self {
             time: None,
+            accepted: None,
             prev: None,
             ignore_next: true,
             source: None,
@@ -151,7 +159,7 @@ impl Takeover {
         if self.ignore_next {
             return true;
         }
-        if now < time + OVERRIDE {
+        if now < time + OVERRIDE && self.accepted.is_some_and(|v| (v - current).abs() < MOVED) {
             return false;
         }
         let difference = current - new;
@@ -181,8 +189,9 @@ impl Takeover {
         } else {
             Some(new)
         };
-        if out.is_some() {
+        if let Some(value) = out {
             self.time = Some(now);
+            self.accepted = Some(value);
         }
         self.prev = Some(new);
         out
@@ -212,6 +221,43 @@ fn scaled(current: f64, prev: f64, new: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_outside_move_ends_the_fast_move_grace_period() {
+        let mut t = Takeover::new();
+        assert_eq!(t.take(0.75, 0.75, false), Some(0.75));
+        // Within the grace period and the control unmoved: a big jump is
+        // taken, so fast hardware moves do not stall.
+        assert!(!t.will_ignore(0.75, 0.2, Instant::now()));
+        assert_eq!(t.take(0.75, 0.9, false), Some(0.9));
+        assert_eq!(t.take(0.9, 0.75, false), Some(0.75));
+        // Something else moved the control right after the hardware did:
+        // stale hardware must pick it up again rather than snap it back.
+        assert!(t.will_ignore(0.625, 0.76, Instant::now()));
+        assert_eq!(t.take(0.625, 0.76, false), None);
+        // Crossing the new value picks it up, and following moves are taken.
+        assert_eq!(t.take(0.625, 0.60, false), Some(0.60));
+        assert_eq!(t.take(0.60, 0.2, false), Some(0.2));
+    }
+
+    #[test]
+    fn a_control_rewritten_near_the_hardware_still_follows_it() {
+        // A synced follower's rate is rewritten by the engine every buffer,
+        // a hair off the value the fader set: fast moves are still taken.
+        let mut t = Takeover::new();
+        assert_eq!(t.take(0.5, 0.5, false), Some(0.5));
+        assert_eq!(t.take(0.5015, 0.7, false), Some(0.7));
+        assert_eq!(t.take(0.705, 0.9, false), Some(0.9));
+    }
+
+    #[test]
+    fn scale_ignores_outside_moves_as_before() {
+        let mut t = Takeover::new();
+        assert_eq!(t.take(0.5, 0.5, true), Some(0.5));
+        // Scale closes the gap in proportion, grace period or not.
+        let v = t.take(0.25, 0.6, true).unwrap();
+        assert!(v > 0.25 && v < 0.6);
+    }
 
     #[test]
     fn scale_meets_the_hardware_at_the_end() {
