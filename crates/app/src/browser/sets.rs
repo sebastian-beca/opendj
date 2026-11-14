@@ -4,6 +4,7 @@
 
 use opendj_library::sets::ListHealth;
 
+use super::filters::CrateLook;
 use super::Browser;
 
 impl Browser {
@@ -13,6 +14,25 @@ impl Browser {
         let Some(db) = &self.db else { return };
         self.crates = db.crates_by_track().unwrap_or_default();
         self.list_health = db.list_health().unwrap_or_default();
+        // How each crate looks, for the Crates chip's list.
+        self.filter.crate_looks = db
+            .playlists()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(opendj_library::sets::is_crate)
+            .map(|p| {
+                let icon = p
+                    .icon
+                    .as_deref()
+                    .and_then(|name| opendj_library::LIST_ICONS.iter().position(|&i| i == name))
+                    .unwrap_or(0);
+                let look = CrateLook {
+                    icon,
+                    color: p.color,
+                };
+                (p.name.to_lowercase(), look)
+            })
+            .collect();
     }
 
     /// What Collection Health says about the lists; empty when they're fine.

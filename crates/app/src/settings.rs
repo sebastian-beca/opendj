@@ -983,18 +983,32 @@ pub fn tags_changed() {
     opendj_library::query::set_field_names(names);
 }
 
-/// The filter chips kept on the bar, by field.
+/// The filter chips kept on the bar, by field. A bar saved before the
+/// Crates chip existed gets it once.
 pub fn filter_pinned() -> Vec<String> {
-    strings(&load()["filter_pinned"]).unwrap_or_else(|| {
-        crate::browser::DEFAULT_PINNED
+    let v = load();
+    match strings(&v["filter_pinned"]) {
+        Some(pinned) if !v["filter_crates_added"].as_bool().unwrap_or(false) => {
+            let pinned = crate::browser::with_crates(pinned);
+            save(|v| {
+                v["filter_pinned"] = json!(pinned);
+                v["filter_crates_added"] = json!(true);
+            });
+            pinned
+        }
+        Some(pinned) => pinned,
+        None => crate::browser::DEFAULT_PINNED
             .iter()
             .map(|s| s.to_string())
-            .collect()
-    })
+            .collect(),
+    }
 }
 
 pub fn set_filter_pinned(pinned: &[String]) {
-    save(|v| v["filter_pinned"] = json!(pinned));
+    save(|v| {
+        v["filter_pinned"] = json!(pinned);
+        v["filter_crates_added"] = json!(true);
+    });
 }
 
 /// How close a tempo must be when the BPM chip follows the playing track,
