@@ -119,7 +119,7 @@ component EditGridButton inherits Rectangle {
 // right to move through it, hearing what passes, to set cues and grids by
 // ear. Letting go carries on as before, playing or paused.
 //
-// The dimmed pencil in its bottom outer corner edits the beat grid: it
+// The dimmed pencil in its bottom right corner edits the beat grid: it
 // turns on the deck's grid edit mode (`beats_edit`) and opens the Edit Grid
 // popover. While editing, the grid is drawn louder and dragging moves an
 // unlocked grid with the audio (Alt-drag still scrubs). The pencil again,
@@ -173,11 +173,6 @@ component Waveform inherits Rectangle {
     property <bool> editing: drag-grid || Controls.value(edit-index, Controls.tick) > 0;
     property <bool> grid-open: editing && !locked;
     property <bool> loaded: Controls.value(duration-index, Controls.tick) > 0;
-    // Decks on the right (2 and 4) keep the pencil in the right corner.
-    property <bool> pencil-right: group == "[Channel2]" || group == "[Channel4]";
-    // Room kept clear at the right edge for the zoom's bar, which runs down
-    // the whole strip of waveforms.
-    property <length> zoom-room: 24px;
     property <float> press-position;
     property <bool> holding;
     // While the grid is dragged: whether it is, and how far it has moved.
@@ -281,7 +276,7 @@ component Waveform inherits Rectangle {
         now: WaveLyrics.now(lyrics-deck);
         visible-seconds: root.visible-seconds;
     }
-    // The pointer over this waveform shows the zoom's bar (at the right
+    // The pointer over this waveform shows the zoom's bar (at the left
     // edge of the whole strip, beside every deck's waveform) and puts the
     // zoom's step on this one a moment after it changes; with the pointer
     // elsewhere, the step shows on the layout's top waveform, so it shows
@@ -409,7 +404,7 @@ component Waveform inherits Rectangle {
     }
     // The pencil: dimmed until hovered, lit while editing.
     if loaded: Rectangle {
-        x: pencil-right ? parent.width - self.width - zoom-room - 3px : 5px;
+        x: parent.width - self.width - 5px;
         y: parent.height - self.height - 5px;
         width: 24px;
         height: 22px;
@@ -444,7 +439,7 @@ component Waveform inherits Rectangle {
     // Edit Grid: bar 1 at the play line, nudges, the rest of the grid tools
     // (More…), back to the detected grid, lock, and Done.
     edit-popup := PopupWindow {
-        x: pencil-right ? root.width - self.width - 5px : 5px;
+        x: root.width - self.width - 5px;
         y: root.height - 2px;
         width: 232px;
         close-policy: close-on-click-outside;
@@ -515,12 +510,12 @@ component Waveform inherits Rectangle {
     grid-menu := GridMenu {
         group: group;
         info: info;
-        x: pencil-right ? root.width - 245px : 5px;
+        x: root.width - 245px;
         y: root.height - 2px;
     }
     // The switch between the note roll and the macro lanes.
     if live-knobs: Rectangle {
-        x: parent.width - self.width - zoom-room - 3px;
+        x: parent.width - self.width - 6px;
         y: 4px;
         width: 24px;
         height: 18px;
@@ -2100,11 +2095,11 @@ export component AppWindow inherits Window {
                     Waveform { source: waveform-4; group: "[Channel4]"; info: decks[3]; vertical-stretch: 1; lyrics-deck: 3; }
                     Rectangle { height: 1px; background: Theme.border; }
                 }
-                // The zoom's bar, down the right edge of all the waveforms at
+                // The zoom's bar, down the left edge of all the waveforms at
                 // once (Prep's one, not its key hints), while the pointer is
                 // over any of them or on the bar.
                 ZoomBar {
-                    x: parent.width - self.width;
+                    x: 0;
                     y: 0;
                     height: prep ? max(0px, parent.height - 26px) : parent.height;
                     shown: WaveZoom.hovered != "";
